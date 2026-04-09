@@ -1,15 +1,18 @@
 ## ADDED Requirements
 
-### Requirement: Transfer service SHALL support password-protected access
-系统必须允许用户为当前传输会话设置访问密码。未通过认证的浏览器请求不得浏览文件列表、下载文件或上传文件。密码校验失败时系统必须返回明确但不过度暴露内部信息的错误反馈。
+### Requirement: Transfer service SHALL support simple mode and secure mode with URL key
+系统必须支持两种访问模式：
+- 简单模式：浏览器访问基础 URL 即可进入门户页。
+- 安全模式：浏览器访问 URL 必须携带 `key` 作为访问凭证；缺失或错误的 `key` 不得访问门户、上传接口或文本提交接口。
+系统必须允许用户刷新 `key`，刷新后旧 `key` 立即失效。
 
-#### Scenario: Access portal with correct password
-- **WHEN** 浏览器用户输入正确的会话密码
-- **THEN** 系统必须授予该会话访问传输页面和相关传输接口的权限
+#### Scenario: Access portal in secure mode with a valid key
+- **WHEN** 浏览器用户使用包含正确 `key` 的 URL 访问安全模式门户
+- **THEN** 系统必须授予该会话访问传输页面和相关提交接口的权限
 
-#### Scenario: Access portal with wrong password
-- **WHEN** 浏览器用户输入错误密码或未提供密码访问受保护页面
-- **THEN** 系统必须拒绝访问，并提示需要重新认证
+#### Scenario: Reject access with a missing or invalid key
+- **WHEN** 浏览器用户缺少 `key` 或使用错误 `key` 访问安全模式门户
+- **THEN** 系统必须拒绝访问，并提示需要重新获取正确链接或二维码
 
 ### Requirement: Transfer service MUST limit exposure and active sessions
 系统必须允许用户配置或使用默认的最大活动连接数，并在达到限制时拒绝新的连接请求。服务界面必须向用户展示当前活跃连接或会话数量，帮助用户识别是否存在超出预期的访问。
@@ -22,13 +25,13 @@
 - **WHEN** 用户打开服务状态区域
 - **THEN** 系统必须显示当前活跃连接数量，并允许用户通过停止服务来立即终止访问
 
-### Requirement: Transfer service SHALL offer transport security with explicit fallback
-系统必须提供启用 HTTPS 的选项，并在本地证书生成与浏览器兼容性满足条件时通过 HTTPS 暴露传输门户。当 HTTPS 无法建立或不被当前环境接受时，系统必须明确告知用户已回落到 HTTP，并建议启用密码保护后再共享链接。
+### Requirement: Transfer service SHALL communicate HTTP-only security posture clearly
+系统在 V1.0 中必须仅通过 HTTP 对外提供访问，不提供 HTTPS 选项。App 必须明确告知用户当前为 HTTP 访问，并提示仅在可信 Wi-Fi 或手机热点中使用；当用户选择简单模式时，还必须提醒该模式更适合低风险场景。
 
-#### Scenario: HTTPS is available for the current environment
-- **WHEN** 用户启用 HTTPS 且系统成功准备本地证书与安全监听端口
-- **THEN** 系统必须展示 `https://` 访问地址并允许浏览器通过 HTTPS 建立连接
+#### Scenario: Display HTTP access information
+- **WHEN** 服务启动成功并展示对外访问地址
+- **THEN** App 必须展示 `http://` 地址，并提示当前仅适用于可信局域网环境
 
-#### Scenario: HTTPS falls back to HTTP
-- **WHEN** 用户启用 HTTPS 但当前环境无法建立受支持的本地安全连接
-- **THEN** 系统必须提示 HTTPS 不可用、说明原因，并展示受密码保护的 HTTP 访问方案
+#### Scenario: Warn when using simple mode
+- **WHEN** 用户切换到简单模式或复制简单模式链接
+- **THEN** App 必须提醒该模式不包含 `key` 防护，建议仅在低风险网络环境中使用

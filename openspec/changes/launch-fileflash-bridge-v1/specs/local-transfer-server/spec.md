@@ -19,6 +19,23 @@
 - **WHEN** 用户点击停止服务
 - **THEN** 系统必须立即终止新的外部连接并在界面中标记服务为已停止
 
+### Requirement: Service SHALL remain reachable when app is backgrounded / screen is off
+系统必须提供后台保活能力，确保在 App 切到后台或设备息屏后，本地传输服务仍保持可访问，直到用户显式停止服务。
+
+平台约束：
+- Android 侧必须采用前台服务（Foreground Service）或等价机制来保证后台可用性，并通过常驻通知告知用户服务运行中。
+- iOS 侧必须采用平台允许的后台执行机制尽可能维持可用性，并在系统干预导致服务不可用时自动恢复或提示用户一键恢复。
+
+#### Scenario: Access still works after screen lock
+- **GIVEN** 用户已启动服务且服务处于运行中
+- **WHEN** 用户锁屏/息屏或将 App 切到后台
+- **THEN** 其他设备使用已展示的 URL/二维码访问门户页应仍然成功
+
+#### Scenario: Service stays alive until user stops it
+- **GIVEN** 服务处于运行中
+- **WHEN** 用户未点击停止服务
+- **THEN** 系统不得因为进入后台/息屏而主动停止服务
+
 ### Requirement: Service SHALL support simple mode and secure mode (URL key)
 系统必须提供两种访问模式，且两种模式都基于 HTTP：
 - **简单模式**：浏览器访问基础 URL 即可进入门户页。
@@ -40,20 +57,20 @@
 - **WHEN** 用户在服务运行中点击“刷新 key”
 - **THEN** 系统必须生成新的 `key` 并更新 URL/二维码；此前所有使用旧 `key` 的访问必须失效
 
-### Requirement: Service SHALL expose mobile files for browser download
-系统必须对已授权目录中的文件和文件夹提供可浏览的下载入口，支持单文件直接下载，并支持将文件夹打包后提供下载链接。下载接口必须支持大文件稳定传输，并在浏览器重复请求同一文件片段时支持断点续传所需的 Range 行为。
+### Requirement: Service SHALL accept browser-originated files and text payloads
+系统必须提供面向浏览器的入站投递接口，允许其他设备向手机上传文件、上传文件夹内容并提交文本内容。文件上传成功后必须写入手机端配置的目标目录；文本提交成功后必须进入手机端文本接收区。V1.0 不要求服务向浏览器暴露手机文件下载能力。
 
-#### Scenario: Download a single file from browser
-- **WHEN** 浏览器访问传输页并选择一个文件进行下载
-- **THEN** 系统必须返回该文件内容并触发浏览器下载
+#### Scenario: Upload one or more files to the mobile device
+- **WHEN** 浏览器用户选择一个或多个文件并发起上传
+- **THEN** 系统必须接收文件内容、将其写入目标目录，并返回每个文件的处理结果
 
-#### Scenario: Download a folder as an archive
-- **WHEN** 浏览器选择一个文件夹进行下载
-- **THEN** 系统必须生成可下载的归档文件并在下载完成后清理临时产物
+#### Scenario: Preserve directory structure during folder upload
+- **WHEN** 浏览器支持目录上传且用户提交一个文件夹
+- **THEN** 系统必须按相对路径保留目录结构并将内容写入手机端目标目录
 
-#### Scenario: Resume a large file download
-- **WHEN** 浏览器对同一文件发起带有有效 Range 头的续传请求
-- **THEN** 系统必须返回对应字节区间而不是重新发送整个文件
+#### Scenario: Submit pasted text content to the mobile device
+- **WHEN** 浏览器用户在门户页粘贴文本并提交
+- **THEN** 系统必须接收该文本内容并把它写入手机端文本接收区
 
 ### Requirement: Service MUST surface availability limits and failure states
 系统必须在服务不可用、端口绑定失败、权限缺失、目录未授权或网络不满足访问条件时向用户明确提示原因，并提供至少一种恢复路径，例如重试、重新授权、刷新地址或返回系统设置。
@@ -65,3 +82,7 @@
 #### Scenario: Network is not reachable by peers
 - **WHEN** 系统检测到当前网络模式无法向其他设备提供局域网访问
 - **THEN** 系统必须提示用户切换到可用 Wi-Fi 或热点模式并禁止展示误导性的可访问地址
+
+#### Scenario: Target storage is not writable
+- **WHEN** 浏览器发起上传但手机端目标目录不可写、空间不足或保存失败
+- **THEN** 系统必须向浏览器端和手机端同时返回明确的失败原因，并提示用户重试或更换保存位置
