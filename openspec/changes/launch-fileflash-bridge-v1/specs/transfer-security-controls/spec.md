@@ -3,12 +3,12 @@
 ### Requirement: Transfer service SHALL support simple mode and secure mode with URL key
 系统必须支持两种访问模式：
 - 简单模式：浏览器访问基础 URL 即可进入门户页。
-- 安全模式：浏览器访问 URL 必须携带 `key` 作为访问凭证；缺失或错误的 `key` 不得访问门户、上传接口或文本提交接口。
+- 安全模式：浏览器访问 URL 必须携带 `key` 作为访问凭证；缺失或错误的 `key` 不得访问门户、上传接口、**共享列表与分块下载相关接口**或文本提交接口。
 系统必须允许用户刷新 `key`，刷新后旧 `key` 立即失效。
 
 #### Scenario: Access portal in secure mode with a valid key
 - **WHEN** 浏览器用户使用包含正确 `key` 的 URL 访问安全模式门户
-- **THEN** 系统必须授予该会话访问传输页面和相关提交接口的权限
+- **THEN** 系统必须授予该会话访问传输页面、相关提交接口及**共享文件下载**相关接口的权限
 
 #### Scenario: Reject access with a missing or invalid key
 - **WHEN** 浏览器用户缺少 `key` 或使用错误 `key` 访问安全模式门户

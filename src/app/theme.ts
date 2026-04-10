@@ -1,0 +1,21 @@
+export const theme = {
+  colors: {
+    background: '#F6F1E6',
+    surface: '#FFF9F1',
+    surfaceMuted: '#F2E6D3',
+    surfaceStrong: '#1F3A5F',
+    surfaceTint: '#D5E0EE',
+    border: '#D6C4A9',
+    ink: '#182028',
+    inkSoft: '#5E655F',
+    inkOnStrong: '#F9F6F0',
+    inkOnStrongSoft: '#D5E0EE',
+    primary: '#D4642B',
+    secondary: '#DCC98C',
+    secondarySoft: '#EEE2B8',
+    success: '#3A8A56',
+    warning: '#C77416',
+    warningSoft: '#FBE6C6',
+    warningStrong: '#7A4B11',
+  },
+} as const;
