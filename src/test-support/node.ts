@@ -74,6 +74,8 @@ export const nodeGzipCompression: CompressionAdapter = {
 };
 
 export class NodeHttpRuntime implements ServiceRuntime {
+  private server?: ReturnType<typeof createServer>;
+
   async start(options: {
     handler: (request: TransferRequest) => Promise<TransferResponse>;
     port: number;
@@ -104,6 +106,8 @@ export class NodeHttpRuntime implements ServiceRuntime {
       throw new Error('Unable to determine test server port.');
     }
 
+    this.server = server;
+
     return {
       port: address.port,
       stop: async () => {
@@ -117,8 +121,13 @@ export class NodeHttpRuntime implements ServiceRuntime {
             resolve();
           });
         });
+        this.server = undefined;
       },
     };
+  }
+
+  async isRunning() {
+    return this.server?.listening ?? false;
   }
 
   private async toTransferRequest(request: IncomingMessage): Promise<TransferRequest> {
@@ -129,12 +138,15 @@ export class NodeHttpRuntime implements ServiceRuntime {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
 
-    const rawBody = Buffer.concat(chunks).toString('utf8');
+    const rawBuffer = Buffer.concat(chunks);
+    const rawBody = rawBuffer.toString('utf8');
     const contentType = request.headers['content-type'] ?? '';
     const body =
       rawBody && contentType.includes('application/json')
         ? JSON.parse(rawBody)
-        : undefined;
+        : rawBuffer.length > 0
+          ? new Uint8Array(rawBuffer)
+          : undefined;
 
     return {
       body,

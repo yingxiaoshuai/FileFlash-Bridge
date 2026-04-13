@@ -40,6 +40,12 @@ export interface ServiceRuntime {
     handler: (request: TransferRequest) => Promise<TransferResponse>;
     port: number;
   }): Promise<ServiceRuntimeHandle>;
+  isRunning(): Promise<boolean>;
+}
+
+export interface RuntimeRestoreResult {
+  restored: boolean;
+  state: ServiceState;
 }
 
 export interface TransferServiceControllerOptions {
@@ -49,15 +55,11 @@ export interface TransferServiceControllerOptions {
   storage: InboundStorageGateway;
 }
 
-type UploadFilePayload = {
-  bytesBase64: string;
+type NormalizedUploadFile = {
+  bytes: Uint8Array;
   mimeType?: string;
   name: string;
   relativePath?: string;
-};
-
-type UploadRequestBody = {
-  files: UploadFilePayload[];
 };
 
 export class TransferServiceController {
@@ -164,6 +166,30 @@ export class TransferServiceController {
       error: undefined,
     };
     return this.getState();
+  }
+
+  async restoreIfNeeded(): Promise<RuntimeRestoreResult> {
+    if (!this.options.runtime || this.state.phase !== 'running') {
+      return {
+        restored: false,
+        state: this.getState(),
+      };
+    }
+
+    const runtimeIsRunning = await this.options.runtime.isRunning();
+    if (runtimeIsRunning) {
+      return {
+        restored: false,
+        state: this.getState(),
+      };
+    }
+
+    this.runtimeHandle = undefined;
+    const state = await this.start();
+    return {
+      restored: true,
+      state,
+    };
   }
 
   async refreshAddress() {
@@ -291,8 +317,8 @@ export class TransferServiceController {
       }
 
       if (request.path === '/api/upload' && request.method === 'POST') {
-        const body = request.body as UploadRequestBody | undefined;
-        if (!body?.files?.length) {
+        const files = this.resolveUploadFiles(request);
+        if (!files.length) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
             message: '请至少上传一个文件。',
@@ -300,10 +326,9 @@ export class TransferServiceController {
         }
 
         const results = [];
-        for (const file of body.files) {
-          const bytes = decodeBase64(file.bytesBase64);
+        for (const file of files) {
           const savedFile = await this.options.storage.saveInboundFile({
-            bytes,
+            bytes: file.bytes,
             mimeType: file.mimeType,
             name: file.name,
             relativePath: file.relativePath,
@@ -490,28 +515,36 @@ export class TransferServiceController {
       sharedFileCount: snapshot.sharedFileIds.length,
     };
   }
+
+  private resolveUploadFiles(request: TransferRequest): NormalizedUploadFile[] {
+    if (!(request.body instanceof Uint8Array)) {
+      return [];
+    }
+
+    const name = request.query.get('name')?.trim();
+    if (!name) {
+      return [];
+    }
+
+    const relativePath = request.query.get('relativePath')?.trim() || name;
+    return [
+      {
+        bytes: request.body,
+        mimeType: normalizeMimeType(request.headers['content-type']),
+        name,
+        relativePath,
+      },
+    ];
+  }
 }
 
-function decodeBase64(value: string) {
-  const bufferCtor = (
-    globalThis as {
-      Buffer?: {
-        from(input: string, encoding: 'base64'): Uint8Array;
-      };
-    }
-  ).Buffer;
-  if (bufferCtor) {
-    return new Uint8Array(bufferCtor.from(value, 'base64'));
+function normalizeMimeType(value?: string) {
+  // Upload requests may include charset parameters; storage only needs the base MIME type.
+  if (!value) {
+    return undefined;
   }
 
-  if (typeof globalThis.atob === 'function') {
-    const binary = globalThis.atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  }
-
-  throw new Error('Base64 decode is not available in this runtime.');
+  const [mimeType] = value.split(';');
+  const normalized = mimeType?.trim();
+  return normalized ? normalized : undefined;
 }

@@ -73,28 +73,21 @@ describe('TransferServiceController', () => {
       expect(statusResponse.status).toBe(200);
       expect((await statusResponse.json()).sharedFileCount).toBe(1);
 
-      const uploadResponse = await fetch(
-        `${accessUrl.origin}/api/upload?key=${key}`,
+      const binaryUploadResponse = await fetch(
+        `${accessUrl.origin}/api/upload?key=${key}&name=${encodeURIComponent(
+          'incoming.txt',
+        )}&relativePath=${encodeURIComponent('nested/incoming.txt')}`,
         {
           method: 'POST',
           headers: {
-            'content-type': 'application/json',
+            'content-type': 'text/plain',
             'x-client-id': 'client-a',
           },
-          body: JSON.stringify({
-            files: [
-              {
-                bytesBase64: Buffer.from('uploaded via browser').toString('base64'),
-                mimeType: 'text/plain',
-                name: 'incoming.txt',
-                relativePath: 'nested/incoming.txt',
-              },
-            ],
-          }),
+          body: Buffer.from('uploaded via browser'),
         },
       );
-      expect(uploadResponse.status).toBe(200);
-      expect((await uploadResponse.json()).files).toHaveLength(1);
+      expect(binaryUploadResponse.status).toBe(200);
+      expect((await binaryUploadResponse.json()).files).toHaveLength(1);
 
       const textResponse = await fetch(`${accessUrl.origin}/api/text?key=${key}`, {
         method: 'POST',

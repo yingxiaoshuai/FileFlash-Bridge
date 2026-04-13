@@ -222,6 +222,33 @@ export class InboundStorageGateway {
     await this.persist();
   }
 
+  async listProjectFiles(projectId?: string) {
+    const snapshot = await this.requireSnapshot();
+    const project = this.resolveProject(snapshot, projectId);
+
+    return project.fileIds
+      .map(fileId => snapshot.files[fileId])
+      .filter(Boolean)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async deleteFile(fileId: string) {
+    const snapshot = await this.requireSnapshot();
+    const file = snapshot.files[fileId];
+    if (!file) {
+      throw new Error(`Unknown file: ${fileId}`);
+    }
+
+    const project = this.resolveProject(snapshot, file.projectId);
+    project.fileIds = project.fileIds.filter(id => id !== fileId);
+    project.updatedAt = new Date().toISOString();
+    snapshot.sharedFileIds = snapshot.sharedFileIds.filter(id => id !== fileId);
+    delete snapshot.files[fileId];
+
+    await this.options.fileSystem.deletePath(file.storagePath);
+    await this.persist();
+  }
+
   async listSharedFiles() {
     const snapshot = await this.requireSnapshot();
     return snapshot.sharedFileIds

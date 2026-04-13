@@ -431,10 +431,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         banner.className = tone === 'warn' ? 'banner warn' : 'banner';
       }
 
-      function getClientHeaders() {
+      function getClientHeaders(extraHeaders = {}) {
         return {
           'x-client-id': getClientId(),
-          'content-type': 'application/json',
+          ...extraHeaders,
         };
       }
 
@@ -446,17 +446,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         const next = 'browser-' + Math.random().toString(16).slice(2);
         localStorage.setItem('ffb-client-id', next);
         return next;
-      }
-
-      async function fileToBase64(file) {
-        const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = '';
-        const chunk = 0x8000;
-        for (let index = 0; index < bytes.length; index += chunk) {
-          binary += String.fromCharCode(...bytes.subarray(index, index + chunk));
-        }
-        return btoa(binary);
       }
 
       function pushFiles(inputFiles) {
@@ -486,9 +475,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       async function loadStatus() {
         try {
-          const response = await fetch(withKey('/api/status'), {
-            headers: getClientHeaders(),
-          });
+        const response = await fetch(withKey('/api/status'), {
+          headers: getClientHeaders(),
+        });
 
           if (!response.ok) {
             throw new Error('服务暂不可用');
@@ -552,7 +541,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       async function postJson(path, body) {
         const response = await fetch(withKey(path), {
           method: 'POST',
-          headers: getClientHeaders(),
+          headers: getClientHeaders({
+            'content-type': 'application/json',
+          }),
           body: JSON.stringify(body),
         });
         const payload = await response.json().catch(() => ({}));
@@ -564,11 +555,20 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         return payload;
       }
 
-      function postJsonWithUploadProgress(path, body, onProgress) {
+      function uploadBinaryWithProgress(file, onProgress) {
         return new Promise((resolve, reject) => {
           const request = new XMLHttpRequest();
-          request.open('POST', withKey(path), true);
-          const headers = getClientHeaders();
+          const uploadUrl = new URL(withKey('/api/upload'));
+          uploadUrl.searchParams.set('name', file.name);
+          uploadUrl.searchParams.set(
+            'relativePath',
+            file.webkitRelativePath || file.name,
+          );
+
+          request.open('POST', uploadUrl.toString(), true);
+          const headers = getClientHeaders({
+            'content-type': file.type || 'application/octet-stream',
+          });
           for (const [key, value] of Object.entries(headers)) {
             request.setRequestHeader(key, value);
           }
@@ -600,7 +600,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             reject(new Error('网络中断，上传未完成。'));
           };
 
-          request.send(JSON.stringify(body));
+          request.send(file);
         });
       }
 
@@ -611,18 +611,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
 
         for (const file of fileQueue.splice(0, fileQueue.length)) {
-          const bytesBase64 = await fileToBase64(file);
-          const payload = {
-            files: [
-              {
-                name: file.name,
-                relativePath: file.webkitRelativePath || file.name,
-                mimeType: file.type || 'application/octet-stream',
-                bytesBase64,
-              },
-            ],
-          };
-
           const entryId = 'upload-' + Math.random().toString(16).slice(2);
           uploadList.insertAdjacentHTML(
             'afterbegin',
@@ -632,7 +620,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           );
 
           try {
-            await postJsonWithUploadProgress('/api/upload', payload, progress => {
+            await uploadBinaryWithProgress(file, progress => {
               document.querySelector('#' + entryId + ' .item-status').textContent =
                 '上传中 ' + Math.round(progress * 100) + '% · 正在写入手机端 App 会话…';
             });

@@ -10,11 +10,13 @@
     "start": "react-native start",
     "test": "jest",
     "test:unit": "jest --runInBand",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "android:apk": "cd android && gradlew.bat assembleRelease"
   },
   "dependencies": {
     "@react-native-clipboard/clipboard": "^1.16.3",
     "@react-native-community/netinfo": "^11.4.1",
+    "pako": "^2.1.0",
     "react": "19.2.3",
     "react-native": "0.85.0",
     "react-native-document-picker": "^9.3.1",
