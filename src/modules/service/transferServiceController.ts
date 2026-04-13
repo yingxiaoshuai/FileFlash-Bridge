@@ -344,8 +344,7 @@ export class TransferServiceController {
       }
 
       if (request.path === '/api/text' && request.method === 'POST') {
-        const body = request.body as {text?: string} | undefined;
-        const text = body?.text?.trim();
+        const text = decodeSubmittedText(request.body)?.trim();
 
         if (!text) {
           return this.json(400, {
@@ -547,4 +546,44 @@ function normalizeMimeType(value?: string) {
   const [mimeType] = value.split(';');
   const normalized = mimeType?.trim();
   return normalized ? normalized : undefined;
+}
+
+function decodeSubmittedText(body: unknown) {
+  if (typeof body === 'string') {
+    return body;
+  }
+
+  if (body instanceof Uint8Array) {
+    return decodeUtf8(body);
+  }
+
+  if (body && typeof body === 'object' && 'text' in body) {
+    const candidate = (body as {text?: unknown}).text;
+    return typeof candidate === 'string' ? candidate : undefined;
+  }
+
+  return undefined;
+}
+
+function decodeUtf8(bytes: Uint8Array) {
+  const bufferCtor = (
+    globalThis as {
+      Buffer?: {
+        from(input: Uint8Array): {toString(encoding: 'utf8'): string};
+      };
+    }
+  ).Buffer;
+  if (bufferCtor) {
+    return bufferCtor.from(bytes).toString('utf8');
+  }
+
+  if (typeof TextDecoder === 'function') {
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+
+  let value = '';
+  for (let index = 0; index < bytes.length; index += 1) {
+    value += String.fromCharCode(bytes[index]);
+  }
+  return value;
 }

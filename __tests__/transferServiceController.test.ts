@@ -48,12 +48,12 @@ async function createController(maxActiveConnections = 3) {
   });
 
   await controller.start();
-  return {controller, rootDir, sharedFile};
+  return {controller, rootDir, sharedFile, storage};
 }
 
 describe('TransferServiceController', () => {
   test('serves secure APIs, accepts text upload, and exposes chunked downloads', async () => {
-    const {controller, rootDir, sharedFile} = await createController();
+    const {controller, rootDir, sharedFile, storage} = await createController();
 
     try {
       const accessUrl = new URL(controller.getState().accessUrl ?? '');
@@ -92,13 +92,17 @@ describe('TransferServiceController', () => {
       const textResponse = await fetch(`${accessUrl.origin}/api/text?key=${key}`, {
         method: 'POST',
         headers: {
-          'content-type': 'application/json',
+          'content-type': 'text/plain; charset=utf-8',
           'x-client-id': 'client-a',
         },
-        body: JSON.stringify({text: '来自浏览器的新文本内容'}),
+        body: '来自浏览器的新文本内容',
       });
       expect(textResponse.status).toBe(200);
       expect((await textResponse.json()).activeProjectTitle).toBeTruthy();
+      const snapshot = await storage.getSnapshot();
+      expect(snapshot.projects[0]?.messages.at(-1)?.content).toBe(
+        '来自浏览器的新文本内容',
+      );
 
       const sharedResponse = await fetch(
         `${accessUrl.origin}/api/shared?key=${key}`,

@@ -98,13 +98,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         line-height: 0.95;
       }
 
-      .hero-copy {
-        max-width: 760px;
-        color: var(--muted);
-        line-height: 1.65;
-        font-size: 15px;
-      }
-
       .banner {
         margin-top: 18px;
         padding: 14px 16px;
@@ -113,38 +106,37 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         color: var(--navy);
       }
 
+      .banner[hidden] {
+        display: none;
+      }
+
       .banner.warn {
         background: rgba(196, 111, 31, 0.14);
         color: #78460c;
       }
 
-      .status-strip {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-        gap: 12px;
+      .service-pill {
         margin-top: 18px;
-      }
-
-      .status-card {
-        padding: 16px;
-        border-radius: 20px;
-        background: rgba(255, 255, 255, 0.62);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.7);
         border: 1px solid rgba(215, 198, 172, 0.9);
-      }
-
-      .status-label {
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      .status-value {
-        margin-top: 8px;
-        font-size: 16px;
+        font-size: 14px;
         font-weight: 800;
-        word-break: break-word;
+      }
+
+      .service-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--warn);
+      }
+
+      .service-pill.online .service-dot {
+        background: var(--green);
       }
 
       .grid {
@@ -160,12 +152,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       .panel h2 {
         margin: 0 0 8px;
         font-size: 1.35rem;
-      }
-
-      .panel-copy {
-        color: var(--muted);
-        line-height: 1.55;
-        margin: 0 0 18px;
       }
 
       .dropzone {
@@ -318,41 +304,17 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           <div class="badge">FileFlash Bridge</div>
           <div class="muted">设备：${deviceName}</div>
         </div>
-        <h1>浏览器投递工作台</h1>
-        <p class="hero-copy">
-          无需安装 App，直接把文件、文件夹或文本投递到手机端当前会话。共享文件区只会展示手机用户显式加入共享列表的内容。
-        </p>
-        <div id="status-banner" class="banner">
-          正在连接手机端服务并同步当前共享状态…
+        <h1>浏览器投递</h1>
+        <div id="service-pill" class="service-pill">
+          <span class="service-dot"></span>
+          <span id="service-state">服务离线</span>
         </div>
-        <div class="status-strip">
-          <div class="status-card">
-            <div class="status-label">连接状态</div>
-            <div id="status-phase" class="status-value">等待响应</div>
-          </div>
-          <div class="status-card">
-            <div class="status-label">访问模式</div>
-            <div id="status-mode" class="status-value">${
-              model.securityMode === 'secure' ? '安全模式' : '简单模式'
-            }</div>
-          </div>
-          <div class="status-card">
-            <div class="status-label">活跃连接</div>
-            <div id="status-connections" class="status-value">0</div>
-          </div>
-          <div class="status-card">
-            <div class="status-label">共享文件</div>
-            <div id="status-shares" class="status-value">0</div>
-          </div>
-        </div>
+        <div hidden id="status-banner" class="banner"></div>
       </section>
 
       <div class="grid">
         <section class="panel">
-          <h2>文件 / 文件夹上传</h2>
-          <p class="panel-copy">
-            成功后内容会保存在手机端 App 内会话，不会自动进入系统下载目录或相册。
-          </p>
+          <h2>上传</h2>
           <div id="dropzone" class="dropzone">
             <div class="item-title">把文件拖到这里，或者选择文件 / 文件夹</div>
             <p class="muted">支持目录上传的浏览器会保留相对路径结构。</p>
@@ -368,10 +330,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         </section>
 
         <section class="panel">
-          <h2>文本投递</h2>
-          <p class="panel-copy">
-            文本会进入手机端当前活跃项目，手机用户可以稍后手动复制，不会静默覆盖系统剪贴板。
-          </p>
+          <h2>文本</h2>
           <textarea id="text-input" placeholder="在这里粘贴内容，提交后会进入手机端接收区。"></textarea>
           <div class="status-actions" style="margin-top: 14px">
             <button id="text-submit" class="primary" type="button">提交文本</button>
@@ -382,12 +341,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       </div>
 
       <section class="panel" style="margin-top: 16px">
-        <h2>当前共享文件</h2>
-        <p class="panel-copy">
-          这里只展示手机端显式加入共享列表的文件。大文件会按 ${Math.floor(
-            model.chunkSize / (1024 * 1024),
-          )} MB 分块下载；单分块首次失败后最多再重试 3 次。
-        </p>
+        <h2>共享文件</h2>
+        <div class="muted">大文件按 ${Math.floor(
+          model.chunkSize / (1024 * 1024),
+        )} MB 分块下载。</div>
         <div id="download-list" class="download-list"></div>
       </section>
     </div>
@@ -402,10 +359,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const uploadList = document.getElementById('upload-list');
       const downloadList = document.getElementById('download-list');
       const banner = document.getElementById('status-banner');
-      const statusPhase = document.getElementById('status-phase');
-      const statusMode = document.getElementById('status-mode');
-      const statusConnections = document.getElementById('status-connections');
-      const statusShares = document.getElementById('status-shares');
+      const servicePill = document.getElementById('service-pill');
+      const serviceState = document.getElementById('service-state');
       const textFeedback = document.getElementById('text-feedback');
 
       function withKey(path) {
@@ -427,8 +382,20 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       function updateBanner(message, tone) {
+        banner.hidden = false;
         banner.textContent = message;
         banner.className = tone === 'warn' ? 'banner warn' : 'banner';
+      }
+
+      function hideBanner() {
+        banner.hidden = true;
+        banner.textContent = '';
+        banner.className = 'banner';
+      }
+
+      function setServiceOnline(online) {
+        servicePill.className = online ? 'service-pill online' : 'service-pill';
+        serviceState.textContent = online ? '服务在线' : '服务离线';
       }
 
       function getClientHeaders(extraHeaders = {}) {
@@ -484,14 +451,11 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           }
 
           const payload = await response.json();
-          statusPhase.textContent = payload.phase === 'running' ? '运行中' : payload.phase;
-          statusMode.textContent = payload.securityMode === 'secure' ? '安全模式' : '简单模式';
-          statusConnections.textContent = String(payload.activeConnections);
-          statusShares.textContent = String(payload.sharedFileCount);
-          updateBanner(payload.notice, payload.phase === 'running' ? 'ok' : 'warn');
+          setServiceOnline(payload.phase === 'running');
+          hideBanner();
           await loadSharedFiles();
         } catch (error) {
-          statusPhase.textContent = '连接中断';
+          setServiceOnline(false);
           updateBanner('手机端服务不可用或已停止，请等待恢复后重试。', 'warn');
         }
       }
@@ -647,7 +611,17 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
 
         try {
-          const payload = await postJson('/api/text', { text });
+          const response = await fetch(withKey('/api/text'), {
+            method: 'POST',
+            headers: getClientHeaders({
+              'content-type': 'text/plain; charset=utf-8',
+            }),
+            body: text,
+          });
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(payload.message || '文本提交失败');
+          }
           textFeedback.textContent =
             '提交成功，文本已进入手机端活跃项目：' + payload.activeProjectTitle;
           document.getElementById('text-input').value = '';
