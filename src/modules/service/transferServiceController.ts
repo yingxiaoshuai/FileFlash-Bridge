@@ -24,8 +24,14 @@ export interface TransferRequest {
   remoteAddress?: string;
 }
 
+export interface TransferBase64Body {
+  base64: string;
+  byteLength?: number;
+  kind: 'base64';
+}
+
 export interface TransferResponse {
-  body?: object | string | Uint8Array;
+  body?: object | string | TransferBase64Body | Uint8Array;
   headers?: Record<string, string>;
   status: number;
 }
@@ -51,16 +57,20 @@ export interface RuntimeRestoreResult {
 export interface TransferServiceControllerOptions {
   config: ServiceConfig;
   networkProvider: () => Promise<NetworkInterfaceDescriptor[]>;
+  /**
+   * 浏览器等外部请求写入会话存储后调用，用于宿主 App 刷新 UI（如项目文件列表）。
+   * 每次变更时先调用工厂得到当前要执行的回调。
+   */
+  resolveInboundStorageChangeHandler?: () => (() => void | Promise<void>) | void;
   runtime?: ServiceRuntime;
   storage: InboundStorageGateway;
 }
 
 type NormalizedUploadFile = {
-  bytes: Uint8Array;
   mimeType?: string;
   name: string;
   relativePath?: string;
-};
+} & ({bytes: Uint8Array} | TransferBase64Body);
 
 export class TransferServiceController {
   private readonly connectionRegistry: ConnectionRegistry;
@@ -68,6 +78,24 @@ export class TransferServiceController {
   private runtimeHandle?: ServiceRuntimeHandle;
 
   private state: ServiceState;
+
+  private notifyInboundStorageChanged() {
+    const factory = this.options.resolveInboundStorageChangeHandler;
+    if (!factory) {
+      return;
+    }
+
+    try {
+      const handler = factory();
+      if (typeof handler === 'function') {
+        Promise.resolve(handler()).catch(() => {
+          /* ignore */
+        });
+      }
+    } catch {
+      /* ignore listener failures */
+    }
+  }
 
   constructor(private readonly options: TransferServiceControllerOptions) {
     const config =
@@ -316,6 +344,104 @@ export class TransferServiceController {
         });
       }
 
+      if (request.path === '/api/upload/begin' && request.method === 'POST') {
+        const payload = decodeJsonObject(request.body);
+        if (!payload) {
+          return this.json(400, {
+            code: 'INVALID_REQUEST',
+            message: '请求体必须是 JSON 对象。',
+          });
+        }
+
+        const name = readTrimmedString(payload.name);
+        const relativePath = readTrimmedString(payload.relativePath) ?? name;
+        const totalBytes = readFiniteNumber(payload.totalBytes);
+        const mimeType = readOptionalString(payload.mimeType);
+
+        if (!name || totalBytes == null || totalBytes <= 0) {
+          return this.json(400, {
+            code: 'INVALID_REQUEST',
+            message: '请提供有效的 name、relativePath 与 totalBytes。',
+          });
+        }
+
+        try {
+          const {uploadId} = await this.options.storage.beginInboundUpload({
+            mimeType,
+            name,
+            relativePath: relativePath ?? name,
+            totalBytes,
+          });
+          return this.json(200, {uploadId});
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : '无法开始分块上传。';
+          return this.json(400, {code: 'INVALID_REQUEST', message});
+        }
+      }
+
+      if (request.path === '/api/upload/part' && request.method === 'POST') {
+        const uploadId = request.query.get('uploadId')?.trim();
+        if (!uploadId) {
+          return this.json(400, {
+            code: 'INVALID_REQUEST',
+            message: '缺少 uploadId。',
+          });
+        }
+
+        try {
+          await this.options.storage.appendInboundUpload(uploadId, request.body);
+          return this.json(200, {ok: true});
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : '分块写入失败。';
+          return this.json(400, {code: 'INVALID_REQUEST', message});
+        }
+      }
+
+      if (request.path === '/api/upload/finish' && request.method === 'POST') {
+        const payload = decodeJsonObject(request.body);
+        const uploadId =
+          (typeof payload?.uploadId === 'string' && payload.uploadId.trim()) ||
+          request.query.get('uploadId')?.trim();
+
+        if (!uploadId) {
+          return this.json(400, {
+            code: 'INVALID_REQUEST',
+            message: '缺少 uploadId。',
+          });
+        }
+
+        try {
+          const savedFile = await this.options.storage.finalizeInboundUpload(
+            uploadId,
+          );
+          await this.syncStorageState();
+          this.notifyInboundStorageChanged();
+          return this.json(200, {
+            files: [savedFile],
+            message: '文件已写入手机端 App 内会话存储。',
+          });
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : '无法完成分块上传。';
+          return this.json(400, {code: 'INVALID_REQUEST', message});
+        }
+      }
+
+      if (request.path === '/api/upload/abort' && request.method === 'POST') {
+        const payload = decodeJsonObject(request.body);
+        const uploadId =
+          (typeof payload?.uploadId === 'string' && payload.uploadId.trim()) ||
+          request.query.get('uploadId')?.trim();
+
+        if (uploadId) {
+          await this.options.storage.abortInboundUpload(uploadId);
+        }
+
+        return this.json(200, {ok: true});
+      }
+
       if (request.path === '/api/upload' && request.method === 'POST') {
         const files = this.resolveUploadFiles(request);
         if (!files.length) {
@@ -327,16 +453,28 @@ export class TransferServiceController {
 
         const results = [];
         for (const file of files) {
-          const savedFile = await this.options.storage.saveInboundFile({
-            bytes: file.bytes,
-            mimeType: file.mimeType,
-            name: file.name,
-            relativePath: file.relativePath,
-          });
+          const savedFile = await this.options.storage.saveInboundFile(
+            'bytes' in file
+              ? {
+                  bytes: file.bytes,
+                  mimeType: file.mimeType,
+                  name: file.name,
+                  relativePath: file.relativePath,
+                }
+              : {
+                  base64: file.base64,
+                  byteLength:
+                    file.byteLength ?? base64ByteLength(file.base64),
+                  mimeType: file.mimeType,
+                  name: file.name,
+                  relativePath: file.relativePath,
+                },
+          );
           results.push(savedFile);
         }
 
         await this.syncStorageState();
+        this.notifyInboundStorageChanged();
         return this.json(200, {
           files: results,
           message: '文件已写入手机端 App 内会话存储。',
@@ -366,6 +504,7 @@ export class TransferServiceController {
           project => project.id === snapshot.activeProjectId,
         );
         await this.syncStorageState();
+        this.notifyInboundStorageChanged();
         return this.json(200, {
           activeProjectId: snapshot.activeProjectId,
           activeProjectTitle: activeProject?.title ?? '当前分享轮次',
@@ -392,24 +531,34 @@ export class TransferServiceController {
         const fileId = downloadMatch[1];
         const offset = Number(request.query.get('offset') ?? '0');
         const length = Number(request.query.get('length') ?? `${this.state.config.chunkSize}`);
-        const prepared = await this.options.storage.prepareFileBytes(fileId);
         const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
-        const end = Math.min(prepared.bytes.byteLength, start + length);
-        const chunk = prepared.bytes.slice(start, end);
+        const chunk = await this.options.storage.prepareFileChunk(
+          fileId,
+          start,
+          length,
+        );
+        const status =
+          start === 0 && chunk.contentLength === chunk.totalSize ? 200 : 206;
 
         return {
-          body: chunk,
+          body:
+            'base64' in chunk
+              ? {
+                  base64: chunk.base64,
+                  byteLength: chunk.contentLength,
+                  kind: 'base64',
+                }
+              : chunk.bytes,
           headers: {
             'content-disposition': `attachment; filename="${encodeURIComponent(
-              prepared.file.displayName,
+              chunk.file.displayName,
             )}"`,
-            'content-length': String(chunk.byteLength),
+            'content-length': String(chunk.contentLength),
             'content-type':
-              prepared.file.mimeType ?? 'application/octet-stream',
-            'x-file-size': String(prepared.file.size),
+              chunk.file.mimeType ?? 'application/octet-stream',
+            'x-file-size': String(chunk.totalSize),
           },
-          status:
-            start === 0 && end === prepared.bytes.byteLength ? 200 : 206,
+          status,
         };
       }
 
@@ -516,25 +665,60 @@ export class TransferServiceController {
   }
 
   private resolveUploadFiles(request: TransferRequest): NormalizedUploadFile[] {
-    if (!(request.body instanceof Uint8Array)) {
-      return [];
-    }
-
     const name = request.query.get('name')?.trim();
     if (!name) {
       return [];
     }
 
     const relativePath = request.query.get('relativePath')?.trim() || name;
+
+    if (request.body instanceof Uint8Array) {
+      return [
+        {
+          bytes: request.body,
+          mimeType: normalizeMimeType(request.headers['content-type']),
+          name,
+          relativePath,
+        },
+      ];
+    }
+
+    if (typeof request.body === 'string') {
+      return [
+        {
+          bytes: new TextEncoder().encode(request.body),
+          mimeType: normalizeMimeType(request.headers['content-type']),
+          name,
+          relativePath,
+        },
+      ];
+    }
+
+    if (!isTransferBase64Body(request.body)) {
+      return [];
+    }
+
     return [
       {
-        bytes: request.body,
+        base64: request.body.base64,
+        byteLength:
+          request.body.byteLength ?? base64ByteLength(request.body.base64),
+        kind: 'base64',
         mimeType: normalizeMimeType(request.headers['content-type']),
         name,
         relativePath,
       },
     ];
   }
+}
+
+export function isTransferBase64Body(value: unknown): value is TransferBase64Body {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<TransferBase64Body>;
+  return candidate.kind === 'base64' && typeof candidate.base64 === 'string';
 }
 
 function normalizeMimeType(value?: string) {
@@ -555,6 +739,10 @@ function decodeSubmittedText(body: unknown) {
 
   if (body instanceof Uint8Array) {
     return decodeUtf8(body);
+  }
+
+  if (isTransferBase64Body(body)) {
+    return decodeUtf8(decodeBase64(body.base64));
   }
 
   if (body && typeof body === 'object' && 'text' in body) {
@@ -586,4 +774,88 @@ function decodeUtf8(bytes: Uint8Array) {
     value += String.fromCharCode(bytes[index]);
   }
   return value;
+}
+
+function decodeBase64(value: string) {
+  const bufferCtor = (
+    globalThis as {
+      Buffer?: {
+        from(input: string, encoding: 'base64'): Uint8Array;
+      };
+    }
+  ).Buffer;
+  if (bufferCtor) {
+    return new Uint8Array(bufferCtor.from(value, 'base64'));
+  }
+
+  if (typeof globalThis.atob === 'function') {
+    const binary = globalThis.atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  throw new Error('Base64 decode is not available in this runtime.');
+}
+
+function base64ByteLength(value: string) {
+  const sanitized = value.replace(/[^A-Za-z0-9+/=]/g, '');
+  if (!sanitized) {
+    return 0;
+  }
+
+  const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
+  return (sanitized.length / 4) * 3 - padding;
+}
+
+function decodeJsonObject(body: unknown): Record<string, unknown> | null {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    return body as Record<string, unknown>;
+  }
+
+  if (typeof body === 'string') {
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function readTrimmedString(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readOptionalString(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readFiniteNumber(value: unknown) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
 }

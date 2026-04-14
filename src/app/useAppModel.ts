@@ -7,8 +7,11 @@ import {
   SESSION_DELETION_WARNING,
 } from '../modules/file-access/inboundStorageGateway';
 import {
+  cleanupImportedDeviceFiles,
   createReactNativeInboundStorageGateway,
+  exportStoredFile,
   exportPreparedFile,
+  ImportedDeviceFile,
   pickDeviceFilesForShare,
 } from '../modules/file-access/reactNativeAdapters';
 import {
@@ -94,6 +97,19 @@ export function useAppModel() {
     controllerRef.current = new TransferServiceController({
       config: configRef.current,
       networkProvider: fetchNetworkInterfacesFromNetInfo,
+      resolveInboundStorageChangeHandler: () => async () => {
+        const gateway = gatewayRef.current;
+        if (!gateway) {
+          return;
+        }
+
+        const snapshot = await gateway.getSnapshot();
+        setState(current => ({
+          ...current,
+          serviceState: controllerRef.current?.getState() ?? current.serviceState,
+          snapshot,
+        }));
+      },
       runtime: runtimeRef.current,
       storage: gatewayRef.current,
     });
@@ -453,8 +469,10 @@ export function useAppModel() {
       busyAction: 'share',
     }));
 
+    let importedFiles: ImportedDeviceFile[] = [];
+
     try {
-      const importedFiles = await pickDeviceFilesForShare();
+      importedFiles = await pickDeviceFilesForShare();
       if (importedFiles.length === 0) {
         setState(currentState => ({
           ...currentState,
@@ -463,14 +481,13 @@ export function useAppModel() {
         return;
       }
 
-      // Files chosen on the phone are treated the same as browser uploads:
-      // they enter the current project first, then get added to the share list.
       for (const file of importedFiles) {
         const savedFile = await gatewayRef.current!.saveInboundFile({
-          bytes: file.bytes,
+          byteLength: file.byteLength,
           mimeType: file.mimeType,
           name: file.name,
           relativePath: file.relativePath,
+          sourcePath: file.sourcePath,
         });
         await gatewayRef.current!.addSharedFile(savedFile.id);
       }
@@ -488,6 +505,8 @@ export function useAppModel() {
           tone: 'error',
         },
       }));
+    } finally {
+      await cleanupImportedDeviceFiles(importedFiles);
     }
   };
 
@@ -548,8 +567,15 @@ export function useAppModel() {
     }));
 
     try {
-      const preparedFile = await gatewayRef.current!.prepareFileBytes(file.id);
-      const result = await exportPreparedFile(preparedFile.file, preparedFile.bytes);
+      const result =
+        file.compression === 'none'
+          ? await exportStoredFile(file)
+          : await (async () => {
+              const preparedFile = await gatewayRef.current!.prepareFileBytes(
+                file.id,
+              );
+              return exportPreparedFile(preparedFile.file, preparedFile.bytes);
+            })();
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,

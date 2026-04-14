@@ -2,9 +2,11 @@ import {NativeEventEmitter, NativeModules} from 'react-native';
 
 import {
   ServiceRuntime,
+  TransferBase64Body,
   ServiceRuntimeHandle,
   TransferRequest,
   TransferResponse,
+  isTransferBase64Body,
 } from './transferServiceController';
 
 type NativeServerModule = {
@@ -131,6 +133,19 @@ function toNativeResponse(response: TransferResponse) {
   const headers = {...(response.headers ?? {})};
   const body = response.body;
 
+  if (isTransferBase64Body(body)) {
+    if (!headers['content-length'] && body.byteLength != null) {
+      headers['content-length'] = String(body.byteLength);
+    }
+
+    return {
+      body: body.base64,
+      bodyEncoding: 'base64' as const,
+      headers,
+      status: response.status,
+    };
+  }
+
   if (body instanceof Uint8Array) {
     return {
       body: bytesToBase64(body),
@@ -240,19 +255,7 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
 
     try {
       const headers = normalizeHeaders(event.headers);
-      const requestBytes = event.bodyBase64
-        ? base64ToBytes(event.bodyBase64)
-        : undefined;
-      // Native bridges pass request bodies as base64 so JS can reconstruct either
-      // raw bytes or JSON without depending on platform-specific temp files.
-      const requestBody =
-        headers['content-type']?.includes('application/json')
-          ? event.bodyText
-            ? JSON.parse(event.bodyText)
-            : requestBytes
-              ? JSON.parse(bytesToUtf8(requestBytes))
-              : undefined
-          : requestBytes;
+      const requestBody = resolveRequestBody(headers, event);
 
       const response = await this.handleRequest({
         body: requestBody,
@@ -295,4 +298,58 @@ export function createReactNativeHttpRuntime() {
   return new ReactNativeHttpRuntime({
     keepAlive: true,
   });
+}
+
+function resolveRequestBody(
+  headers: Record<string, string | undefined>,
+  event: NativeServerRequestEvent,
+) {
+  const contentType = headers['content-type'] ?? '';
+
+  if (contentType.includes('application/json')) {
+    if (event.bodyText) {
+      return JSON.parse(event.bodyText);
+    }
+
+    if (event.bodyBase64) {
+      return JSON.parse(bytesToUtf8(base64ToBytes(event.bodyBase64)));
+    }
+
+    return undefined;
+  }
+
+  if (contentType.startsWith('text/') && typeof event.bodyText === 'string') {
+    return event.bodyText;
+  }
+
+  if (!event.bodyBase64) {
+    return event.bodyText;
+  }
+
+  return {
+    base64: event.bodyBase64,
+    byteLength:
+      parseContentLength(headers['content-length']) ??
+      base64ByteLength(event.bodyBase64),
+    kind: 'base64',
+  } satisfies TransferBase64Body;
+}
+
+function parseContentLength(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function base64ByteLength(value: string) {
+  const sanitized = value.replace(/[^A-Za-z0-9+/=]/g, '');
+  if (!sanitized) {
+    return 0;
+  }
+
+  const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
+  return (sanitized.length / 4) * 3 - padding;
 }

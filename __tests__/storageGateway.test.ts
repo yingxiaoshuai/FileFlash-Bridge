@@ -74,6 +74,41 @@ describe('InboundStorageGateway', () => {
     }
   });
 
+  test('copies large local files into storage and serves download chunks without loading the full file', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const fileSystem = new NodeFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-large-copy',
+    });
+
+    try {
+      await gateway.initialize();
+      const sourcePath = join(rootDir, 'source-large.bin');
+      await fileSystem.writeFile(sourcePath, encoder.encode('0123456789abcdef'));
+
+      const storedFile = await gateway.saveInboundFile({
+        byteLength: 16,
+        name: 'capture.bin',
+        sourcePath,
+      });
+      const chunk = await gateway.prepareFileChunk(storedFile.id, 4, 6);
+
+      expect(storedFile.compression).toBe('none');
+      expect('base64' in chunk).toBe(true);
+      if (!('base64' in chunk)) {
+        throw new Error('Expected a base64-backed chunk for large files.');
+      }
+
+      expect(Buffer.from(chunk.base64, 'base64').toString('utf8')).toBe('456789');
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('persists the active project, messages, and shared files across gateway restarts', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const fileSystem = new NodeFileSystemAdapter();

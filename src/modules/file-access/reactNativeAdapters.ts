@@ -100,6 +100,11 @@ function sanitizeFileName(fileName: string) {
 }
 
 export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
+  async copyFile(sourcePath: string, destinationPath: string) {
+    await RNFS.mkdir(destinationPath.split('/').slice(0, -1).join('/'));
+    await RNFS.copyFile(sourcePath, destinationPath);
+  }
+
   async deletePath(path: string) {
     const exists = await RNFS.exists(path);
     if (!exists) {
@@ -122,6 +127,10 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
     return items.map(item => item.name);
   }
 
+  async readFileChunkBase64(path: string, offset: number, length: number) {
+    return RNFS.read(path, length, offset, 'base64');
+  }
+
   async readFile(path: string) {
     const base64 = await RNFS.readFile(path, 'base64');
     return base64ToBytes(base64);
@@ -134,6 +143,29 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
   async writeFile(path: string, content: Uint8Array) {
     await RNFS.mkdir(path.split('/').slice(0, -1).join('/'));
     await RNFS.writeFile(path, bytesToBase64(content), 'base64');
+  }
+
+  async appendFile(path: string, content: Uint8Array) {
+    const dir = path.split('/').slice(0, -1).join('/');
+    if (dir) {
+      await RNFS.mkdir(dir);
+    }
+
+    await RNFS.appendFile(path, bytesToBase64(content), 'base64');
+  }
+
+  async appendFileBase64(path: string, contentBase64: string) {
+    const dir = path.split('/').slice(0, -1).join('/');
+    if (dir) {
+      await RNFS.mkdir(dir);
+    }
+
+    await RNFS.appendFile(path, contentBase64, 'base64');
+  }
+
+  async writeFileBase64(path: string, contentBase64: string) {
+    await RNFS.mkdir(path.split('/').slice(0, -1).join('/'));
+    await RNFS.writeFile(path, contentBase64, 'base64');
   }
 
   async writeText(path: string, content: string) {
@@ -171,10 +203,12 @@ export interface ExportResult {
 }
 
 export interface ImportedDeviceFile {
-  bytes: Uint8Array;
+  byteLength: number;
+  cleanupPath?: string;
   mimeType?: string;
   name: string;
   relativePath: string;
+  sourcePath: string;
 }
 
 function isUserCancellation(error: unknown) {
@@ -232,20 +266,16 @@ export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
         throw new Error('所选文件缺少可读取的本地路径。');
       }
 
-      // `copyTo: cachesDirectory` gives us a stable local file to read across providers,
-      // then we immediately clean it up after importing into the session store.
       const normalizedPath = normalizeFileUri(sourceUri);
-      const base64 = await RNFS.readFile(normalizedPath, 'base64');
+      const fileStat = await RNFS.stat(normalizedPath);
       importedFiles.push({
-        bytes: base64ToBytes(base64),
+        byteLength: Number(fileStat.size) || 0,
+        cleanupPath: file.fileCopyUri ? normalizedPath : undefined,
         mimeType: file.type ?? undefined,
         name: file.name ?? fileNameFromPath(normalizedPath),
         relativePath: file.name ?? fileNameFromPath(normalizedPath),
+        sourcePath: normalizedPath,
       });
-
-      if (file.fileCopyUri) {
-        await safeDeletePath(normalizedPath);
-      }
     }
 
     return importedFiles;
@@ -256,6 +286,14 @@ export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
 
     throw error;
   }
+}
+
+export async function cleanupImportedDeviceFiles(files: ImportedDeviceFile[]) {
+  await Promise.all(
+    files.map(file =>
+      file.cleanupPath ? safeDeletePath(file.cleanupPath) : Promise.resolve(),
+    ),
+  );
 }
 
 async function shareFromTemporaryFile(
@@ -293,6 +331,23 @@ async function shareFromTemporaryFile(
   }
 }
 
+async function shareExistingFile(
+  file: SharedFileRecord,
+  sourcePath: string,
+): Promise<ExportResult> {
+  await Share.open({
+    failOnCancel: false,
+    filename: file.displayName,
+    saveToFiles: Platform.OS === 'ios',
+    type: file.mimeType,
+    url: encodeURI(`file://${sourcePath}`),
+  });
+
+  return {
+    method: Platform.OS === 'ios' ? 'ios-files' : 'share',
+  };
+}
+
 async function saveToAndroidDocumentUri(
   file: SharedFileRecord,
   bytes: Uint8Array,
@@ -320,6 +375,33 @@ async function saveToAndroidDocumentUri(
   };
 }
 
+async function saveExistingFileToAndroidDocumentUri(
+  file: SharedFileRecord,
+  sourcePath: string,
+): Promise<ExportResult> {
+  const documentPicker = NativeModules.RNDocumentPicker as
+    | AndroidDocumentPickerModule
+    | undefined;
+
+  if (!documentPicker?.createDocument) {
+    throw new Error('Android export picker is unavailable.');
+  }
+
+  const destination = await documentPicker.createDocument(
+    file.displayName,
+    file.mimeType ?? 'application/octet-stream',
+  );
+  if (!destination?.uri) {
+    throw new Error('No destination URI was returned by the system picker.');
+  }
+
+  await RNFS.copyFile(sourcePath, destination.uri);
+  return {
+    destinationUri: destination.uri,
+    method: 'android-saf',
+  };
+}
+
 export async function exportPreparedFile(
   file: SharedFileRecord,
   bytes: Uint8Array,
@@ -337,4 +419,20 @@ export async function exportPreparedFile(
   }
 
   return shareFromTemporaryFile(file, bytes);
+}
+
+export async function exportStoredFile(file: SharedFileRecord) {
+  if (Platform.OS === 'android') {
+    try {
+      return await saveExistingFileToAndroidDocumentUri(file, file.storagePath);
+    } catch (error) {
+      if (isUserCancellation(error)) {
+        throw new Error('已取消导出。');
+      }
+
+      return shareExistingFile(file, file.storagePath);
+    }
+  }
+
+  return shareExistingFile(file, file.storagePath);
 }

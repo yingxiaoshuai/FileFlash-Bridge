@@ -1,61 +1,132 @@
 # FileFlash-Bridge Mobile
 
-基于 React Native + TypeScript 的 `FileFlash-Bridge` 移动端骨架，当前实现重点覆盖以下 OpenSpec 基线：
+基于 **React Native 0.85** + **TypeScript** 的局域网「浏览器 ↔ 手机」文件与文本交换应用：手机端启动本地 HTTP 服务，同一 Wi-Fi 或热点下的设备通过浏览器访问门户页即可上传文件、提交文本；用户可在 App 内将会话文件加入共享列表，供浏览器分块下载取回。
 
-- `service`：统一的服务状态模型、网络模式解析、访问地址与本地 HTTP 控制器。
-- `file-access`：会话内入站存储、文本项目持久化、共享列表与解压读出网关。
-- `portal`：由 App 本地服务托管的响应式浏览器门户页面与同源交互脚本。
-- `security`：简单模式 / 安全模式、`key` 校验、活跃连接上限与链接刷新逻辑。
+## 能力概览
 
-## 目录
+| 能力 | 说明 |
+|------|------|
+| 本地传输服务 | 探测可用局域网地址，展示访问 URL 与二维码；简单 / 安全模式、`key` 与连接数控制。 |
+| 浏览器门户 | 内嵌响应式页面：上传（小文件整包、大文件自动分块）、文本提交、共享文件列表与分块下载。 |
+| 会话存储 | 入站内容写入 App 内会话目录；小文件可压缩封装，大文件跳过压缩；导出走系统文档选择器 / 分享。 |
+| 安全控制 | 安全模式下 URL 携带 `key`；刷新 key 后旧链接失效。 |
 
-```text
-mobile/
-  App.tsx
-  src/
-    app/
-    modules/
-      service/
-      file-access/
-      portal/
-      security/
-    test-support/
-```
+更细的产品与接口约定见仓库内 **OpenSpec**：`openspec/changes/launch-fileflash-bridge-v1/`（`proposal.md`、`design.md`、各 `specs/`）。
 
-## 开发命令
+## 环境要求
+
+- **Node.js**：`>= 22.11.0`（见 `package.json` 的 `engines`）。
+- **Android**：JDK 17、Android SDK（建议 **compileSdk 35**）、Android Studio 或已配置命令行工具；真机或 AVD 用于调试。
+- **iOS**（可选）：Xcode、CocoaPods；首次需 `bundle install` 与 `bundle exec pod install`。
+- **Windows**：Android 打包脚本使用 `gradlew.bat`；PowerShell 下 `npm run android:apk` 已在脚本中进入 `android` 目录调用 Gradle。
+
+## 快速开始
 
 ```bash
 npm install
+```
+
+安装后会执行 **`patch-package`**，应用 `patches/` 下对 `react-native-static-server` 等依赖的补丁，请勿删除 `postinstall`。
+
+### 启动 Metro 与 Android
+
+建议使用**两个终端**：
+
+```bash
+# 终端 1：JS 打包器
 npm run start
+```
+
+```bash
+# 终端 2：编译并安装 Debug 到设备
 npm run android
-npm run ios
+```
+
+**关于模拟器**：`react-native run-android` 仅在 `adb devices` 无可用目标时尝试拉起 AVD，且需正确配置 **`ANDROID_HOME` / `ANDROID_SDK_ROOT`**，并将 **`$ANDROID_HOME/emulator`** 加入 `PATH`，否则可能无法自动启动。更稳妥的做法是先手动启动模拟器或连接真机，再执行 `npm run android`。
+
+### 其他脚本
+
+| 命令 | 说明 |
+|------|------|
+| `npm run ios` | 在已配置好的 macOS + Xcode 环境下构建并运行 iOS。 |
+| `npm run test:unit` | Jest 单元测试（`--runInBand`）。 |
+| `npm run typecheck` | `tsc --noEmit`。 |
+| `npm run lint` | ESLint。 |
+| `npm run android:apk` | 在项目根目录执行 Windows 下的 `android\gradlew.bat assembleRelease`，产出 `android/app/build/outputs/apk/release/app-release.apk`。 |
+
+**Release AAB（上架用）** 可在 `android` 目录执行：
+
+```bash
+cd android
+.\gradlew.bat bundleRelease
+```
+
+产物位于 `android/app/build/outputs/bundle/release/`。正式上架前请在 `android/app/build.gradle` 中配置**正式签名**，勿长期使用 debug 签名打 Release。
+
+## 仓库结构
+
+```text
+FileFlash-Bridge/
+  App.tsx                 # 应用根 UI
+  android/                # Android 工程
+  ios/                    # iOS 工程
+  patches/                # patch-package 补丁（含静态服务桥接等）
+  openspec/               # OpenSpec 变更与规格
+  src/
+    app/                  # 主题、useAppModel 等
+    modules/
+      service/            # 传输服务、HTTP 运行时、网络解析
+      file-access/        # 入站存储网关、RN 文件适配
+      portal/             # 浏览器门户 HTML 文档
+      security/           # 访问控制、key、连接注册
+    test-support/         # Node 侧测试用 FileSystem / HTTP 运行时
+```
+
+## 依赖说明（主要）
+
+- **react-native-static-server**（已打补丁）：本机 HTTP 服务，承载门户与同源 API；与 `reactNativeHttpRuntime` 配合将请求桥接到 JS 层。
+- **@react-native-community/netinfo**：Wi-Fi / 热点与地址相关状态。
+- **react-native-fs**：会话目录、分块上传落盘、导出与复制。
+- **react-native-qrcode-svg** + **react-native-svg**：展示访问链接二维码。
+- **react-native-document-picker** / **react-native-share**：显式导出到用户选定位置或系统分享。
+- **pako**：与存储网关配合的压缩/解压（与 Node 测试侧 `zlib` 对应）。
+
+## Android 说明
+
+- 推荐使用 **Android Studio** 与 **SDK 35** 对齐工程配置。
+- **`AndroidManifest.xml`** 已包含网络相关基础权限；静态服务补丁涉及前台服务类型等，以 `patches/` 与合并后的清单为准。
+- **大文件浏览器上传**：超过门户配置的 `chunkSize`（默认 1MB）时，门户会走 `begin → part → finish` 分块接口，避免单次请求体过大导致原生 OOM；小文件仍为单次 `POST /api/upload`。
+- **调试**：若 Metro 与设备不在同一网段策略下，可使用 `adb reverse tcp:8081 tcp:8081`（USB 连接时）以便加载 JS。
+
+## iOS 说明
+
+- 首次安装依赖后：`bundle install`、`bundle exec pod install`。
+- 在 **`Info.plist`** 中配置本地网络用途说明（如 `NSLocalNetworkUsageDescription`），否则局域网发现与访问可能受限。
+- 若需后台长时间保活或 Bonjour，需在后续迭代中补充后台模式与权限文案。
+
+## 测试与质量
+
+```bash
 npm run test:unit
 npm run typecheck
 ```
 
-## 依赖说明
+CI 或提交前建议至少跑通单元测试与类型检查。
 
-- `react-native-static-server`：本地 HTTP 服务承载门户页与同源 API。
-- `@react-native-community/netinfo`：探测 Wi-Fi / 热点状态和地址变化。
-- `react-native-fs`：会话内存储、共享文件读写与导出桥接。
-- `react-native-qrcode-svg` + `react-native-svg`：生成二维码。
-- `react-native-document-picker`：用户显式导出到外部位置。
-- `react-native-share`：会话内显式分享 / 导出。
+## 常见问题（简要）
 
-## iOS 构建要求
+1. **`adb` 无设备 / `installDebug` 失败**  
+   确认已连接真机（USB 调试或无线调试）或已启动 AVD，且 `adb devices` 为 `device` 状态。
 
-- 首次安装依赖后执行 `bundle install` 和 `bundle exec pod install`。
-- 需要在 `Info.plist` 中配置本地网络权限文案，如 `NSLocalNetworkUsageDescription`。
-- 如后续接入后台保活与 Bonjour 广播，需要补充相应后台模式与服务声明。
+2. **Metro 连不上手机**  
+   同网段访问开发机 IP:8081，或使用 `adb reverse`；防火墙需放行 8081。
 
-## Android 构建要求
+3. **Gradle / 缓存类构建错误**  
+   可尝试 `cd android && .\gradlew.bat clean` 后重编；若依赖 AAR 损坏可清理用户目录下 `.gradle/caches` 中对应条目后重试。
 
-- 使用 Android Studio Flamingo+ / Android SDK 35 以上环境。
-- 调试设备需允许明文局域网访问，`AndroidManifest.xml` 已保留 `INTERNET` 入口，后续前台服务与网络状态权限可在同一文件继续扩展。
-- 后续落地后台保活时，需要增加前台服务通知与 Android 13+ 通知权限处理。
+4. **`patch-package` 报错**  
+   确认未手动删除 `patches/` 内文件；升级依赖后需重新生成或调整补丁。
 
-## 当前状态
+## 许可证
 
-- 已初始化真实 React Native 工程。
-- 已提供共享状态模型、会话内存储网关和浏览器门户模板。
-- 原生网络服务、导出适配和真机验证任务仍需要在后续增量中继续补齐。
+见仓库根目录 `LICENSE`。

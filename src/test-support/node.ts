@@ -1,5 +1,14 @@
 import {createServer, IncomingMessage, ServerResponse} from 'node:http';
-import {mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {
+  appendFile as fsAppendFile,
+  copyFile,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import {dirname} from 'node:path';
 import {promisify} from 'node:util';
 import {gzip, gunzip} from 'node:zlib';
@@ -11,6 +20,7 @@ import {
 import {
   ServiceRuntime,
   ServiceRuntimeHandle,
+  isTransferBase64Body,
   TransferRequest,
   TransferResponse,
 } from '../modules/service/transferServiceController';
@@ -19,6 +29,11 @@ const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
 export class NodeFileSystemAdapter implements FileSystemAdapter {
+  async copyFile(sourcePath: string, destinationPath: string) {
+    await mkdir(dirname(destinationPath), {recursive: true});
+    await copyFile(sourcePath, destinationPath);
+  }
+
   async deletePath(path: string) {
     await rm(path, {force: true, recursive: true});
   }
@@ -45,6 +60,17 @@ export class NodeFileSystemAdapter implements FileSystemAdapter {
     return readdir(path);
   }
 
+  async readFileChunkBase64(path: string, offset: number, length: number) {
+    const fileHandle = await open(path, 'r');
+    try {
+      const buffer = Buffer.alloc(length);
+      const {bytesRead} = await fileHandle.read(buffer, 0, length, offset);
+      return buffer.subarray(0, bytesRead).toString('base64');
+    } finally {
+      await fileHandle.close();
+    }
+  }
+
   async readFile(path: string) {
     return new Uint8Array(await readFile(path));
   }
@@ -56,6 +82,19 @@ export class NodeFileSystemAdapter implements FileSystemAdapter {
   async writeFile(path: string, content: Uint8Array) {
     await mkdir(dirname(path), {recursive: true});
     await writeFile(path, Buffer.from(content));
+  }
+
+  async appendFile(path: string, content: Uint8Array) {
+    await fsAppendFile(path, Buffer.from(content));
+  }
+
+  async appendFileBase64(path: string, contentBase64: string) {
+    await fsAppendFile(path, Buffer.from(contentBase64, 'base64'));
+  }
+
+  async writeFileBase64(path: string, contentBase64: string) {
+    await mkdir(dirname(path), {recursive: true});
+    await writeFile(path, Buffer.from(contentBase64, 'base64'));
   }
 
   async writeText(path: string, content: string) {
@@ -144,6 +183,8 @@ export class NodeHttpRuntime implements ServiceRuntime {
     const body =
       rawBody && contentType.includes('application/json')
         ? JSON.parse(rawBody)
+        : rawBody && contentType.startsWith('text/')
+          ? rawBody
         : rawBuffer.length > 0
           ? new Uint8Array(rawBuffer)
           : undefined;
@@ -168,6 +209,11 @@ export class NodeHttpRuntime implements ServiceRuntime {
 
     for (const [key, value] of Object.entries(transferResponse.headers ?? {})) {
       response.setHeader(key, value);
+    }
+
+    if (isTransferBase64Body(transferResponse.body)) {
+      response.end(Buffer.from(transferResponse.body.base64, 'base64'));
+      return;
     }
 
     if (transferResponse.body instanceof Uint8Array) {

@@ -519,7 +519,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         return payload;
       }
 
-      function uploadBinaryWithProgress(file, onProgress) {
+      function uploadBinarySingle(file, onProgress) {
         return new Promise((resolve, reject) => {
           const request = new XMLHttpRequest();
           const uploadUrl = new URL(withKey('/api/upload'));
@@ -568,19 +568,95 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         });
       }
 
+      async function uploadBinaryWithProgress(file, onProgress) {
+        const relativePath = file.webkitRelativePath || file.name;
+        const mimeType = file.type || 'application/octet-stream';
+
+        if (file.size <= chunkSize) {
+          return uploadBinarySingle(file, onProgress);
+        }
+
+        let uploadId;
+        try {
+          const beginPayload = await postJson('/api/upload/begin', {
+            mimeType: mimeType,
+            name: file.name,
+            relativePath: relativePath,
+            totalBytes: file.size,
+          });
+          uploadId = beginPayload.uploadId;
+          if (!uploadId || typeof uploadId !== 'string') {
+            throw new Error('服务器未返回有效的 uploadId。');
+          }
+
+          const totalChunks = Math.ceil(file.size / chunkSize);
+          for (let index = 0; index < totalChunks; index += 1) {
+            const start = index * chunkSize;
+            const end = Math.min(file.size, start + chunkSize);
+            const slice = file.slice(start, end);
+            const buffer = await slice.arrayBuffer();
+            const response = await fetch(
+              withKey(
+                '/api/upload/part?uploadId=' + encodeURIComponent(uploadId),
+              ),
+              {
+                body: buffer,
+                headers: getClientHeaders({
+                  'content-type': 'application/octet-stream',
+                }),
+                method: 'POST',
+              },
+            );
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              throw new Error(payload.message || '分块上传失败');
+            }
+            onProgress(end / file.size);
+          }
+
+          return await postJson('/api/upload/finish', {uploadId: uploadId});
+        } catch (error) {
+          if (uploadId) {
+            try {
+              await fetch(
+                withKey(
+                  '/api/upload/abort?uploadId=' + encodeURIComponent(uploadId),
+                ),
+                {
+                  body: JSON.stringify({uploadId: uploadId}),
+                  headers: getClientHeaders({
+                    'content-type': 'application/json',
+                  }),
+                  method: 'POST',
+                },
+              );
+            } catch {
+              /* ignore abort failures */
+            }
+          }
+          throw error;
+        }
+      }
+
       async function uploadQueuedFiles() {
         if (fileQueue.length === 0) {
           updateBanner('请先选择要上传的文件或文件夹。', 'warn');
           return;
         }
 
-        for (const file of fileQueue.splice(0, fileQueue.length)) {
+        const filesToUpload = fileQueue.splice(0, fileQueue.length);
+        uploadList.innerHTML = '';
+
+        for (const file of filesToUpload) {
           const entryId = 'upload-' + Math.random().toString(16).slice(2);
           uploadList.insertAdjacentHTML(
-            'afterbegin',
+            'beforeend',
             '<div class="item" id="' + entryId + '"><div class="item-head"><div class="item-title">' +
               file.name +
-              '</div><div class="chip warn">上传中</div></div><div class="item-status">正在发送到手机端 App 会话…</div></div>',
+              '</div><div class="chip warn">上传中</div></div><div class="item-meta">' +
+              formatBytes(file.size) +
+              (file.webkitRelativePath ? ' · ' + file.webkitRelativePath : '') +
+              '</div><div class="item-status">正在发送到手机端 App 会话…</div></div>',
           );
 
           try {

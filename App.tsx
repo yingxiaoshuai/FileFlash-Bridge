@@ -27,21 +27,18 @@ function App(): React.JSX.Element {
   const isBusy = Boolean(model.busyAction);
   const {width} = useWindowDimensions();
   const isServiceRunning = model.serviceState.phase === 'running';
-  const isPhoneLayout = width < 760;
-  const isSidebarCompact = width < 640;
+  const isStackedLayout = width < 880;
+  const isCompactScreen = width < 560;
   const stackOverviewCards = width < 1180;
   const stackProjectPanels = width < 1020;
   const qrSize = width < 480 ? 118 : 156;
   const pagePadding = width < 480 ? 12 : 16;
+  const serviceCardContentMax = stackOverviewCards
+    ? width - pagePadding * 2 - 36
+    : Math.max(160, Math.floor((width - pagePadding * 2 - 14) / 2) - 36);
+  const serviceQrSize = Math.min(qrSize, Math.max(112, serviceCardContentMax));
 
-  // Keep project history visible on the left, but avoid wasting the full left column on long mobile pages.
-  const sidebarWidth = isPhoneLayout
-    ? width < 420
-      ? 138
-      : 152
-    : width < 980
-      ? 240
-      : 296;
+  const sidebarWidth = width < 1040 ? 272 : 312;
 
   const projectTitleById = React.useMemo(
     () => new Map(model.projects.map(project => [project.id, project.title])),
@@ -76,30 +73,6 @@ function App(): React.JSX.Element {
 
   const sidebarContent = (
     <>
-      <View style={styles.sidebarCard}>
-        <Text style={styles.sidebarEyebrow}>FileFlash Bridge</Text>
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.sidebarTitle,
-            isSidebarCompact ? styles.sidebarTitleCompact : null,
-          ]}>
-          项目
-        </Text>
-        <StatusChip
-          accent={isServiceRunning ? theme.colors.success : theme.colors.inkSoft}
-          label={isServiceRunning ? '服务在线' : '服务离线'}
-        />
-        <View
-          style={[
-            styles.sidebarMetrics,
-            isSidebarCompact ? styles.sidebarMetricsCompact : null,
-          ]}>
-          <SidebarMetric label="项目" value={String(model.projects.length)} />
-          <SidebarMetric label="共享" value={String(model.sharedFiles.length)} />
-        </View>
-      </View>
-
       <View style={styles.sidebarListCard}>
         <Text style={styles.sidebarSectionTitle}>项目历史</Text>
         {model.projects.length === 0 ? (
@@ -109,7 +82,7 @@ function App(): React.JSX.Element {
             {model.projects.map(project => (
               <ProjectPill
                 active={project.id === model.activeProject?.id}
-                compact={isSidebarCompact}
+                compact={isCompactScreen}
                 key={project.id}
                 onPress={() => {
                   void model.selectProject(project.id);
@@ -122,39 +95,49 @@ function App(): React.JSX.Element {
       </View>
 
       <View style={styles.sidebarActions}>
-        <PrimaryButton
-          disabled={isBusy}
-          label={isServiceRunning ? '停止服务' : '启动服务'}
-          onPress={() => {
-            void model.toggleService();
-          }}
-        />
-        <GhostButton
-          disabled={isBusy}
-          label="新建项目"
-          onPress={() => {
-            void model.createProject();
-          }}
-        />
-        <GhostButton
-          disabled={isBusy}
-          label="选文件"
-          onPress={() => {
-            void model.importFilesForShare();
-          }}
-        />
+        <View style={styles.sidebarActionCell}>
+          <PrimaryButton
+            disabled={isBusy}
+            fullWidth
+            label={isServiceRunning ? '停止服务' : '启动服务'}
+            onPress={() => {
+              void model.toggleService();
+            }}
+          />
+        </View>
+        <View style={styles.sidebarActionCell}>
+          <GhostButton
+            disabled={isBusy}
+            fullWidth
+            label="新建项目"
+            onPress={() => {
+              void model.createProject();
+            }}
+          />
+        </View>
+        <View style={styles.sidebarActionCell}>
+          <GhostButton
+            disabled={isBusy}
+            fullWidth
+            label="选文件"
+            onPress={() => {
+              void model.importFilesForShare();
+            }}
+          />
+        </View>
       </View>
     </>
   );
 
   const summaryContent = (
     <>
-      <View style={[styles.header, isPhoneLayout ? styles.headerCompact : null]}>
+      <View
+        style={[styles.header, isCompactScreen ? styles.headerCompact : null]}>
         <View style={styles.headerMain}>
           <Text
             style={[
               styles.headerTitle,
-              isPhoneLayout ? styles.headerTitleCompact : null,
+              isCompactScreen ? styles.headerTitleCompact : null,
             ]}>
             工作台
           </Text>
@@ -187,11 +170,6 @@ function App(): React.JSX.Element {
       ) : null}
 
       <View style={styles.metricRow}>
-        <InfoBadge
-          tone={isServiceRunning ? 'success' : 'neutral'}
-          label="服务"
-          value={isServiceRunning ? '在线' : '离线'}
-        />
         <InfoBadge
           label="连接"
           value={String(model.serviceState.activeConnections.length)}
@@ -248,29 +226,19 @@ function App(): React.JSX.Element {
           styles.topGrid,
           stackOverviewCards ? styles.topGridCompact : null,
         ]}>
-        <View style={styles.card}>
-          <View style={styles.cardHeaderRow}>
-            <SectionTitle title="服务" />
-            <StatusChip
-              accent={
-                isServiceRunning ? theme.colors.success : theme.colors.inkSoft
-              }
-              label={isServiceRunning ? '在线' : '离线'}
-            />
+        <View style={[styles.card, styles.serviceCard, styles.serviceCardLayout]}>
+          <View style={styles.serviceHeaderRow}>
+            <View style={styles.serviceHeaderTitleWrap}>
+              <SectionTitle title="服务" />
+            </View>
+            <NetworkTag text={model.serviceState.network.label} />
           </View>
 
-          <View
-            style={[
-              styles.serviceSummaryGrid,
-              isSidebarCompact ? styles.serviceSummaryGridCompact : null,
-            ]}>
+          <View style={styles.serviceAddressSection}>
             <KeyValueTile
+              fill
               label="地址"
               value={model.serviceState.accessUrl ?? '未启动'}
-            />
-            <KeyValueTile
-              label="网络"
-              value={model.serviceState.network.label}
             />
           </View>
 
@@ -279,7 +247,7 @@ function App(): React.JSX.Element {
               <QRCode
                 backgroundColor={theme.colors.surface}
                 color={theme.colors.ink}
-                size={qrSize}
+                size={serviceQrSize}
                 value={model.serviceState.qrValue}
               />
             </View>
@@ -336,7 +304,7 @@ function App(): React.JSX.Element {
             <View
               style={[
                 styles.activeProjectHeader,
-                isPhoneLayout ? styles.activeProjectHeaderCompact : null,
+                isCompactScreen ? styles.activeProjectHeaderCompact : null,
               ]}>
               <View style={styles.activeProjectHeaderMain}>
                 <Text style={styles.activeProjectTitle}>
@@ -438,15 +406,21 @@ function App(): React.JSX.Element {
           <ScrollView
             contentContainerStyle={[styles.page, {padding: pagePadding}]}
             showsVerticalScrollIndicator={false}>
-            {isPhoneLayout ? (
-              <View style={styles.phoneLayout}>
-                <View style={styles.phoneTopRow}>
-                  <View style={[styles.sidebar, {width: sidebarWidth}]}>
-                    {sidebarContent}
-                  </View>
-                  <View style={styles.phoneSummary}>{summaryContent}</View>
+            <View style={styles.globalTopBar}>
+              <StatusChip
+                accent={
+                  isServiceRunning ? theme.colors.success : theme.colors.inkSoft
+                }
+                label={isServiceRunning ? '服务在线' : '服务离线'}
+              />
+            </View>
+            {isStackedLayout ? (
+              <View style={styles.stackedWorkspace}>
+                <View style={styles.sidebarStack}>{sidebarContent}</View>
+                <View style={styles.main}>
+                  {summaryContent}
+                  {detailContent}
                 </View>
-                <View style={styles.phoneMain}>{detailContent}</View>
               </View>
             ) : (
               <View style={styles.workspace}>
@@ -474,6 +448,21 @@ function SectionTitle({title}: SectionTitleProps) {
   return <Text style={styles.sectionTitle}>{title}</Text>;
 }
 
+type NetworkTagProps = {
+  text: string;
+};
+
+function NetworkTag({text}: NetworkTagProps) {
+  return (
+    <View style={styles.networkTag}>
+      <Text style={styles.networkTagLabel}>网络</Text>
+      <Text numberOfLines={1} style={styles.networkTagValue}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
 type StatusChipProps = {
   accent: string;
   label: string;
@@ -484,20 +473,6 @@ function StatusChip({accent, label}: StatusChipProps) {
     <View style={[styles.statusChip, {borderColor: accent}]}>
       <View style={[styles.statusDot, {backgroundColor: accent}]} />
       <Text style={styles.statusChipText}>{label}</Text>
-    </View>
-  );
-}
-
-type SidebarMetricProps = {
-  label: string;
-  value: string;
-};
-
-function SidebarMetric({label, value}: SidebarMetricProps) {
-  return (
-    <View style={styles.sidebarMetric}>
-      <Text style={styles.sidebarMetricValue}>{value}</Text>
-      <Text style={styles.sidebarMetricLabel}>{label}</Text>
     </View>
   );
 }
@@ -522,43 +497,59 @@ function InfoBadge({label, tone = 'neutral', value}: InfoBadgeProps) {
 }
 
 type KeyValueTileProps = {
+  fill?: boolean;
   label: string;
   value: string;
 };
 
-function KeyValueTile({label, value}: KeyValueTileProps) {
+function KeyValueTile({fill, label, value}: KeyValueTileProps) {
   return (
-    <View style={styles.keyValueTile}>
+    <View style={[styles.keyValueTile, fill ? styles.keyValueTileFill : null]}>
       <Text style={styles.keyLabel}>{label}</Text>
-      <Text style={styles.keyValue}>{value}</Text>
+      <Text selectable style={styles.keyValue}>
+        {value}
+      </Text>
     </View>
   );
 }
 
 type ButtonProps = {
   disabled?: boolean;
+  fullWidth?: boolean;
   label: string;
   onPress: () => void;
 };
 
-function PrimaryButton({disabled, label, onPress}: ButtonProps) {
+function PrimaryButton({disabled, fullWidth, label, onPress}: ButtonProps) {
   return (
     <Pressable
       disabled={disabled}
       onPress={onPress}
-      style={[styles.primaryButton, disabled ? styles.buttonDisabled : null]}>
-      <Text style={styles.primaryButtonLabel}>{label}</Text>
+      style={[
+        styles.primaryButton,
+        fullWidth ? styles.sidebarToolbarButton : null,
+        disabled ? styles.buttonDisabled : null,
+      ]}>
+      <Text numberOfLines={1} style={styles.primaryButtonLabel}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
 
-function GhostButton({disabled, label, onPress}: ButtonProps) {
+function GhostButton({disabled, fullWidth, label, onPress}: ButtonProps) {
   return (
     <Pressable
       disabled={disabled}
       onPress={onPress}
-      style={[styles.ghostButton, disabled ? styles.buttonDisabled : null]}>
-      <Text style={styles.ghostButtonLabel}>{label}</Text>
+      style={[
+        styles.ghostButton,
+        fullWidth ? styles.sidebarToolbarButton : null,
+        disabled ? styles.buttonDisabled : null,
+      ]}>
+      <Text numberOfLines={1} style={styles.ghostButtonLabel}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -821,10 +812,28 @@ const styles = StyleSheet.create({
   page: {
     paddingBottom: 24,
   },
+  globalTopBar: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 6,
+    minHeight: 36,
+  },
   workspace: {
     flexDirection: 'row',
     gap: 14,
     alignItems: 'flex-start',
+  },
+  stackedWorkspace: {
+    alignItems: 'stretch',
+    flexDirection: 'column',
+    gap: 14,
+    width: '100%',
+  },
+  sidebarStack: {
+    gap: 12,
+    width: '100%',
   },
   phoneLayout: {
     gap: 14,
@@ -845,54 +854,6 @@ const styles = StyleSheet.create({
   sidebar: {
     gap: 12,
   },
-  sidebarCard: {
-    backgroundColor: theme.colors.surfaceStrong,
-    borderRadius: 24,
-    padding: 18,
-    gap: 12,
-  },
-  sidebarEyebrow: {
-    color: theme.colors.surfaceTint,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
-  sidebarTitle: {
-    color: theme.colors.inkOnStrong,
-    fontSize: 30,
-    fontWeight: '800',
-  },
-  sidebarTitleCompact: {
-    fontSize: 24,
-  },
-  sidebarMetrics: {
-    flexDirection: 'row',
-    gap: 8,
-    flexWrap: 'wrap',
-  },
-  sidebarMetricsCompact: {
-    flexDirection: 'column',
-  },
-  sidebarMetric: {
-    flex: 1,
-    minWidth: 0,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 2,
-  },
-  sidebarMetricValue: {
-    color: theme.colors.inkOnStrong,
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  sidebarMetricLabel: {
-    color: theme.colors.inkOnStrongSoft,
-    fontSize: 11,
-    fontWeight: '700',
-  },
   sidebarListCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: 24,
@@ -907,7 +868,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   sidebarActions: {
-    gap: 10,
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    gap: 8,
+    width: '100%',
+  },
+  sidebarActionCell: {
+    flex: 1,
+    minWidth: 0,
+  },
+  sidebarToolbarButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    width: '100%',
   },
   projectSidebarList: {
     gap: 10,
@@ -1072,12 +1046,52 @@ const styles = StyleSheet.create({
     color: theme.colors.ink,
     fontWeight: '700',
   },
-  serviceSummaryGrid: {
-    flexDirection: 'row',
-    gap: 12,
+  serviceCardLayout: {
+    minWidth: 0,
   },
-  serviceSummaryGridCompact: {
-    flexDirection: 'column',
+  serviceHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  serviceHeaderTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  networkTag: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexShrink: 1,
+    gap: 6,
+    maxWidth: '56%',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  networkTagLabel: {
+    color: theme.colors.inkSoft,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  networkTagValue: {
+    color: theme.colors.ink,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    minWidth: 0,
+  },
+  serviceAddressSection: {
+    alignSelf: 'stretch',
+    width: '100%',
   },
   keyValueTile: {
     flex: 1,
@@ -1100,6 +1114,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '600',
+  },
+  keyValueTileFill: {
+    alignSelf: 'stretch',
+    flex: 0,
+    width: '100%',
   },
   modeRow: {
     flexDirection: 'row',
@@ -1125,12 +1144,23 @@ const styles = StyleSheet.create({
   modePillLabelActive: {
     color: theme.colors.inkOnStrong,
   },
+  serviceCard: {
+    elevation: 3,
+    overflow: 'hidden',
+    zIndex: 2,
+  },
   qrPanel: {
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 18,
+    alignSelf: 'stretch',
     backgroundColor: theme.colors.surfaceMuted,
+    borderRadius: 18,
+    elevation: 4,
+    justifyContent: 'center',
+    maxWidth: '100%',
+    overflow: 'hidden',
+    padding: 16,
+    width: '100%',
+    zIndex: 3,
   },
   projectPill: {
     borderRadius: 18,

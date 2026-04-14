@@ -151,4 +151,132 @@ describe('TransferServiceController', () => {
       await rm(rootDir, {force: true, recursive: true});
     }
   });
+
+  test('accepts base64 bridge uploads and returns base64-backed download chunks for large files', async () => {
+    const {controller, rootDir, storage} = await createController();
+
+    try {
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key') ?? '';
+      const base64Payload = Buffer.from('bridge upload payload').toString('base64');
+
+      const uploadResponse = await controller.handleRequest({
+        body: {
+          base64: base64Payload,
+          byteLength: Buffer.byteLength('bridge upload payload'),
+          kind: 'base64',
+        },
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-client-id': 'client-a',
+        },
+        method: 'POST',
+        path: '/api/upload',
+        query: new URLSearchParams({
+          key,
+          name: 'bridge.bin',
+          relativePath: 'incoming/bridge.bin',
+        }),
+      });
+
+      expect(uploadResponse.status).toBe(200);
+
+      const uploadedFile = (await storage.listProjectFiles()).find(
+        file => file.displayName === 'bridge.bin',
+      );
+      expect(uploadedFile).toBeTruthy();
+      await storage.addSharedFile(uploadedFile!.id);
+
+      const downloadResponse = await controller.handleRequest({
+        headers: {'x-client-id': 'client-a'},
+        method: 'GET',
+        path: `/api/shared/${uploadedFile!.id}/download`,
+        query: new URLSearchParams({
+          key,
+          offset: '0',
+          length: '6',
+        }),
+      });
+
+      expect(downloadResponse.status).toBe(206);
+      const downloadBody = downloadResponse.body;
+      if (downloadBody instanceof Uint8Array) {
+        expect(Buffer.from(downloadBody).toString('utf8')).toBe('bridge');
+      } else {
+        expect(downloadBody).toEqual(
+          expect.objectContaining({
+            kind: 'base64',
+          }),
+        );
+        const body = downloadBody as {base64: string};
+        expect(Buffer.from(body.base64, 'base64').toString('utf8')).toBe('bridge');
+      }
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('accepts chunked upload via begin, part, and finish', async () => {
+    const {controller, rootDir, storage} = await createController();
+
+    try {
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key') ?? '';
+      const headers = {'x-client-id': 'client-a'};
+
+      const begin = await controller.handleRequest({
+        body: {
+          mimeType: 'application/octet-stream',
+          name: 'chunked.bin',
+          relativePath: 'dir/chunked.bin',
+          totalBytes: 10,
+        },
+        headers: {
+          ...headers,
+          'content-type': 'application/json',
+        },
+        method: 'POST',
+        path: '/api/upload/begin',
+        query: new URLSearchParams({key}),
+      });
+
+      expect(begin.status).toBe(200);
+      const uploadId = (begin.body as {uploadId?: string}).uploadId;
+      expect(uploadId).toBeTruthy();
+
+      const part = await controller.handleRequest({
+        body: new TextEncoder().encode('0123456789'),
+        headers: {
+          ...headers,
+          'content-type': 'application/octet-stream',
+        },
+        method: 'POST',
+        path: '/api/upload/part',
+        query: new URLSearchParams({key, uploadId: uploadId ?? ''}),
+      });
+      expect(part.status).toBe(200);
+
+      const finish = await controller.handleRequest({
+        body: {uploadId},
+        headers: {
+          ...headers,
+          'content-type': 'application/json',
+        },
+        method: 'POST',
+        path: '/api/upload/finish',
+        query: new URLSearchParams({key}),
+      });
+
+      expect(finish.status).toBe(200);
+      const files = (finish.body as {files?: {displayName: string}[]}).files;
+      expect(files?.[0]?.displayName).toBe('chunked.bin');
+
+      const listed = await storage.listProjectFiles();
+      expect(listed.some(f => f.displayName === 'chunked.bin')).toBe(true);
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
 });

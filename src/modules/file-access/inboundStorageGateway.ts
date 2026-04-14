@@ -11,12 +11,21 @@ export const SESSION_DELETION_WARNING =
   '删除将清除该会话的数据及关联文件。如需保留文件，请先进入该会话执行“保存到…”或导出。';
 
 export interface FileSystemAdapter {
+  appendFile?(path: string, content: Uint8Array): Promise<void>;
+  appendFileBase64?(path: string, contentBase64: string): Promise<void>;
+  copyFile?(sourcePath: string, destinationPath: string): Promise<void>;
   deletePath(path: string): Promise<void>;
   ensureDir(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   listFiles(path: string): Promise<string[]>;
+  readFileChunkBase64?(
+    path: string,
+    offset: number,
+    length: number,
+  ): Promise<string>;
   readFile(path: string): Promise<Uint8Array>;
   readText(path: string): Promise<string>;
+  writeFileBase64?(path: string, contentBase64: string): Promise<void>;
   writeFile(path: string, content: Uint8Array): Promise<void>;
   writeText(path: string, content: string): Promise<void>;
 }
@@ -26,13 +35,31 @@ export interface CompressionAdapter {
   decompress(content: Uint8Array): Promise<Uint8Array>;
 }
 
-export interface SaveInboundFileInput {
-  bytes: Uint8Array;
+interface SaveInboundFileInputBase {
   mimeType?: string;
   name: string;
   projectId?: string;
   relativePath?: string;
 }
+
+interface SaveInboundBytesInput extends Omit<SaveInboundFileInputBase, 'bytes'> {
+  bytes: Uint8Array;
+}
+
+interface SaveInboundBase64Input extends Omit<SaveInboundFileInputBase, 'bytes'> {
+  base64: string;
+  byteLength: number;
+}
+
+interface SaveInboundPathInput extends Omit<SaveInboundFileInputBase, 'bytes'> {
+  byteLength: number;
+  sourcePath: string;
+}
+
+export type SaveInboundFileInput =
+  | SaveInboundBytesInput
+  | SaveInboundBase64Input
+  | SaveInboundPathInput;
 
 export interface InboundStorageGatewayOptions {
   compression: CompressionAdapter;
@@ -45,8 +72,42 @@ export interface InboundStorageGatewayOptions {
 const SNAPSHOT_FILE_NAME = 'session-state.json';
 const TEMP_DIR_NAME = 'temp';
 
+/** 单次 HTTP 分块体上限，避免原生 NanoHTTPD 将整段读入内存时 OOM。 */
+const MAX_INBOUND_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
+/** 单次会话声明的总大小上限。 */
+const MAX_INBOUND_UPLOAD_TOTAL_BYTES = 12 * 1024 * 1024 * 1024;
+
+type PendingInboundUpload = {
+  mimeType?: string;
+  name: string;
+  receivedBytes: number;
+  relativePath: string;
+  tempPath: string;
+  totalBytes: number;
+};
+
+type StoredFileChunk =
+  | {
+      base64: string;
+      bytes?: never;
+      contentLength: number;
+      file: SharedFileRecord;
+      totalSize: number;
+    }
+  | {
+      base64?: never;
+      bytes: Uint8Array;
+      contentLength: number;
+      file: SharedFileRecord;
+      totalSize: number;
+    };
+
+export type PreparedFileChunk = StoredFileChunk;
+
 export class InboundStorageGateway {
   private snapshot?: StorageSnapshot;
+
+  private readonly pendingInboundUploads = new Map<string, PendingInboundUpload>();
 
   constructor(private readonly options: InboundStorageGatewayOptions) {}
 
@@ -165,12 +226,10 @@ export class InboundStorageGateway {
       project,
       input.relativePath ?? input.name,
     );
+    const originalSize = this.inputByteLength(input);
     const shouldCompress =
-      input.bytes.byteLength < this.options.compressionThreshold;
+      originalSize < this.options.compressionThreshold;
     const compression: CompressionMode = shouldCompress ? 'gzip' : 'none';
-    const storedBytes = shouldCompress
-      ? await this.options.compression.compress(input.bytes)
-      : input.bytes;
     const fileId = createId('file');
     const storagePath = `${this.options.rootDir}/projects/${project.id}/${fileId}${
       shouldCompress ? '.gz' : '.bin'
@@ -179,7 +238,12 @@ export class InboundStorageGateway {
     await this.options.fileSystem.ensureDir(
       `${this.options.rootDir}/projects/${project.id}`,
     );
-    await this.options.fileSystem.writeFile(storagePath, storedBytes);
+    const storedSize = await this.writeStoredFile(
+      storagePath,
+      input,
+      compression,
+      shouldCompress,
+    );
 
     const fileRecord: SharedFileRecord = {
       id: fileId,
@@ -190,9 +254,9 @@ export class InboundStorageGateway {
       compression,
       createdAt: new Date().toISOString(),
       mimeType: input.mimeType,
-      originalSize: input.bytes.byteLength,
-      size: input.bytes.byteLength,
-      storedSize: storedBytes.byteLength,
+      originalSize,
+      size: originalSize,
+      storedSize,
       isLargeFile: !shouldCompress,
     };
 
@@ -276,6 +340,56 @@ export class InboundStorageGateway {
     };
   }
 
+  async prepareFileChunk(
+    fileId: string,
+    offset: number,
+    length: number,
+  ): Promise<PreparedFileChunk> {
+    const snapshot = await this.requireSnapshot();
+    const file = snapshot.files[fileId];
+    if (!file) {
+      throw new Error(`Unknown file: ${fileId}`);
+    }
+
+    const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+    const safeLength = Number.isFinite(length) ? Math.max(0, length) : 0;
+    const end = Math.min(file.size, start + safeLength);
+    const contentLength = Math.max(0, end - start);
+
+    if (contentLength === 0) {
+      return {
+        bytes: new Uint8Array(0),
+        contentLength: 0,
+        file,
+        totalSize: file.size,
+      } satisfies StoredFileChunk;
+    }
+
+    if (
+      file.compression === 'none' &&
+      this.options.fileSystem.readFileChunkBase64
+    ) {
+      return {
+        base64: await this.options.fileSystem.readFileChunkBase64(
+          file.storagePath,
+          start,
+          contentLength,
+        ),
+        contentLength,
+        file,
+        totalSize: file.size,
+      } satisfies StoredFileChunk;
+    }
+
+    const prepared = await this.prepareFileBytes(fileId);
+    return {
+      bytes: prepared.bytes.slice(start, end),
+      contentLength,
+      file,
+      totalSize: prepared.bytes.byteLength,
+    } satisfies StoredFileChunk;
+  }
+
   async cleanupTemporaryArtifacts() {
     const tempDirPath = this.tempDirPath();
     if (!(await this.options.fileSystem.exists(tempDirPath))) {
@@ -288,6 +402,131 @@ export class InboundStorageGateway {
         this.options.fileSystem.deletePath(`${tempDirPath}/${entry}`),
       ),
     );
+  }
+
+  async beginInboundUpload(options: {
+    mimeType?: string;
+    name: string;
+    relativePath: string;
+    totalBytes: number;
+  }): Promise<{uploadId: string}> {
+    const name = options.name.trim();
+    if (!name) {
+      throw new Error('文件名不能为空。');
+    }
+
+    const totalBytes = options.totalBytes;
+    if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
+      throw new Error('无效的文件大小。');
+    }
+
+    if (totalBytes > MAX_INBOUND_UPLOAD_TOTAL_BYTES) {
+      throw new Error('文件超过当前会话允许的最大大小。');
+    }
+
+    await this.requireSnapshot();
+    const uploadId = createId('up');
+    const tempPath = `${this.tempDirPath()}/upload-${uploadId}.part`;
+    await this.options.fileSystem.ensureDir(this.tempDirPath());
+    await this.options.fileSystem.writeFile(tempPath, new Uint8Array(0));
+
+    const relativePath = (options.relativePath?.trim() || name).replace(/\\/g, '/');
+    this.pendingInboundUploads.set(uploadId, {
+      mimeType: options.mimeType,
+      name,
+      receivedBytes: 0,
+      relativePath,
+      tempPath,
+      totalBytes,
+    });
+
+    return {uploadId};
+  }
+
+  async appendInboundUpload(uploadId: string, body: unknown): Promise<void> {
+    const pending = this.pendingInboundUploads.get(uploadId);
+    if (!pending) {
+      throw new Error('无效或已过期的上传会话。');
+    }
+
+    let chunkBytes = 0;
+
+    if (isInboundBase64Chunk(body)) {
+      chunkBytes =
+        body.byteLength ?? inboundBase64ByteLength(body.base64);
+      if (chunkBytes > MAX_INBOUND_UPLOAD_CHUNK_BYTES) {
+        throw new Error('单个分块过大，请刷新页面后重试。');
+      }
+
+      if (!this.options.fileSystem.appendFileBase64) {
+        throw new Error('当前环境不支持分块上传。');
+      }
+
+      await this.options.fileSystem.appendFileBase64(
+        pending.tempPath,
+        body.base64,
+      );
+    } else if (body instanceof Uint8Array) {
+      chunkBytes = body.byteLength;
+      if (chunkBytes > MAX_INBOUND_UPLOAD_CHUNK_BYTES) {
+        throw new Error('单个分块过大，请刷新页面后重试。');
+      }
+
+      if (!this.options.fileSystem.appendFile) {
+        throw new Error('当前环境不支持分块上传。');
+      }
+
+      await this.options.fileSystem.appendFile(pending.tempPath, body);
+    } else {
+      throw new Error('无效的分块数据。');
+    }
+
+    if (chunkBytes === 0) {
+      return;
+    }
+
+    if (pending.receivedBytes + chunkBytes > pending.totalBytes) {
+      throw new Error('已超出声明的文件总大小，上传已中止。');
+    }
+
+    pending.receivedBytes += chunkBytes;
+  }
+
+  async finalizeInboundUpload(uploadId: string): Promise<SharedFileRecord> {
+    const pending = this.pendingInboundUploads.get(uploadId);
+    if (!pending) {
+      throw new Error('无效或已过期的上传会话。');
+    }
+
+    if (pending.receivedBytes !== pending.totalBytes) {
+      throw new Error(
+        `上传未完成：已接收 ${pending.receivedBytes} / ${pending.totalBytes} 字节。`,
+      );
+    }
+
+    this.pendingInboundUploads.delete(uploadId);
+
+    try {
+      return await this.saveInboundFile({
+        byteLength: pending.totalBytes,
+        mimeType: pending.mimeType,
+        name: pending.name,
+        relativePath: pending.relativePath,
+        sourcePath: pending.tempPath,
+      });
+    } finally {
+      await this.options.fileSystem.deletePath(pending.tempPath).catch(() => {});
+    }
+  }
+
+  async abortInboundUpload(uploadId: string): Promise<void> {
+    const pending = this.pendingInboundUploads.get(uploadId);
+    if (!pending) {
+      return;
+    }
+
+    this.pendingInboundUploads.delete(uploadId);
+    await this.options.fileSystem.deletePath(pending.tempPath).catch(() => {});
   }
 
   private async requireSnapshot() {
@@ -393,4 +632,101 @@ export class InboundStorageGateway {
 
     return JSON.parse(JSON.stringify(this.snapshot)) as StorageSnapshot;
   }
+
+  private async writeStoredFile(
+    storagePath: string,
+    input: SaveInboundFileInput,
+    compression: CompressionMode,
+    shouldCompress: boolean,
+  ) {
+    if (shouldCompress) {
+      const sourceBytes = await this.resolveInputBytes(input);
+      const storedBytes = await this.options.compression.compress(sourceBytes);
+      await this.options.fileSystem.writeFile(storagePath, storedBytes);
+      return storedBytes.byteLength;
+    }
+
+    if ('sourcePath' in input && this.options.fileSystem.copyFile) {
+      await this.options.fileSystem.copyFile(input.sourcePath, storagePath);
+      return input.byteLength;
+    }
+
+    if ('base64' in input && this.options.fileSystem.writeFileBase64) {
+      await this.options.fileSystem.writeFileBase64(storagePath, input.base64);
+      return input.byteLength;
+    }
+
+    const storedBytes =
+      compression === 'none' ? await this.resolveInputBytes(input) : new Uint8Array(0);
+    await this.options.fileSystem.writeFile(storagePath, storedBytes);
+    return storedBytes.byteLength;
+  }
+
+  private inputByteLength(input: SaveInboundFileInput) {
+    if ('bytes' in input) {
+      return input.bytes.byteLength;
+    }
+
+    return input.byteLength;
+  }
+
+  private async resolveInputBytes(input: SaveInboundFileInput) {
+    if ('bytes' in input) {
+      return input.bytes;
+    }
+
+    if ('sourcePath' in input) {
+      return this.options.fileSystem.readFile(input.sourcePath);
+    }
+
+    return decodeBase64(input.base64);
+  }
+}
+
+function decodeBase64(value: string) {
+  const bufferCtor = (
+    globalThis as {
+      Buffer?: {
+        from(input: string, encoding: 'base64'): Uint8Array;
+      };
+    }
+  ).Buffer;
+
+  if (bufferCtor) {
+    return new Uint8Array(bufferCtor.from(value, 'base64'));
+  }
+
+  if (typeof globalThis.atob === 'function') {
+    const binary = globalThis.atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+
+  throw new Error('Base64 decode is not available in this runtime.');
+}
+
+function isInboundBase64Chunk(
+  value: unknown,
+): value is {base64: string; byteLength?: number; kind: 'base64'} {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as {base64?: unknown; kind?: unknown};
+  return (
+    candidate.kind === 'base64' && typeof candidate.base64 === 'string'
+  );
+}
+
+function inboundBase64ByteLength(value: string) {
+  const sanitized = value.replace(/[^A-Za-z0-9+/=]/g, '');
+  if (!sanitized) {
+    return 0;
+  }
+
+  const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
+  return (sanitized.length / 4) * 3 - padding;
 }
