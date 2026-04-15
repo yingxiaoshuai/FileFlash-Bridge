@@ -114,6 +114,38 @@ describe('InboundStorageGateway', () => {
     }
   });
 
+  test('keeps image uploads uncompressed and preserves their original bytes and extension', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 1024 * 1024,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-image-binary',
+    });
+
+    const pngLikeBytes = Uint8Array.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x11, 0x22, 0x33,
+      0x44, 0x55, 0x66, 0x77, 0x88, 0x99,
+    ]);
+
+    try {
+      await gateway.initialize();
+      const storedFile = await gateway.saveInboundFile({
+        bytes: pngLikeBytes,
+        mimeType: 'image/png',
+        name: 'photo.png',
+      });
+      const restored = await gateway.prepareFileBytes(storedFile.id);
+
+      expect(storedFile.compression).toBe('none');
+      expect(storedFile.storagePath.endsWith('.png')).toBe(true);
+      expect(Buffer.from(restored.bytes)).toEqual(Buffer.from(pngLikeBytes));
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('persists the active project, messages, and shared files across gateway restarts', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const fileSystem = new NodeFileSystemAdapter();

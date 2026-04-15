@@ -228,12 +228,14 @@ export class InboundStorageGateway {
     );
     const originalSize = this.inputByteLength(input);
     const shouldCompress =
-      originalSize < this.options.compressionThreshold;
+      originalSize < this.options.compressionThreshold &&
+      shouldCompressInboundPayload(input.mimeType, normalizedRelativePath);
     const compression: CompressionMode = shouldCompress ? 'gzip' : 'none';
     const fileId = createId('file');
-    const storagePath = `${this.options.rootDir}/projects/${project.id}/${fileId}${
-      shouldCompress ? '.gz' : '.bin'
-    }`;
+    const storagePath = `${this.options.rootDir}/projects/${project.id}/${fileId}${resolveStorageExtension(
+      normalizedRelativePath,
+      compression,
+    )}`;
 
     await this.options.fileSystem.ensureDir(
       `${this.options.rootDir}/projects/${project.id}`,
@@ -729,4 +731,54 @@ function inboundBase64ByteLength(value: string) {
 
   const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
   return (sanitized.length / 4) * 3 - padding;
+}
+
+function shouldCompressInboundPayload(
+  mimeType: string | undefined,
+  relativePath: string,
+) {
+  const normalizedMimeType = mimeType?.toLowerCase();
+  if (normalizedMimeType) {
+    if (normalizedMimeType.startsWith('text/')) {
+      return true;
+    }
+
+    if (
+      normalizedMimeType === 'application/json' ||
+      normalizedMimeType === 'application/ld+json' ||
+      normalizedMimeType === 'application/xml' ||
+      normalizedMimeType === 'application/javascript' ||
+      normalizedMimeType === 'application/x-javascript' ||
+      normalizedMimeType === 'application/x-www-form-urlencoded' ||
+      normalizedMimeType === 'image/svg+xml'
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  const normalizedPath = relativePath.toLowerCase();
+  return /\.(txt|md|markdown|csv|tsv|json|xml|html|htm|css|js|jsx|ts|tsx|mjs|cjs|yml|yaml|ini|conf|log|svg)$/i.test(
+    normalizedPath,
+  );
+}
+
+function resolveStorageExtension(
+  relativePath: string,
+  compression: CompressionMode,
+) {
+  if (compression === 'gzip') {
+    return '.gz';
+  }
+
+  const normalizedPath = relativePath.replace(/\\/g, '/');
+  const fileName = normalizedPath.split('/').pop() ?? normalizedPath;
+  const dotIndex = fileName.lastIndexOf('.');
+  if (dotIndex <= 0) {
+    return '.bin';
+  }
+
+  const extension = fileName.slice(dotIndex).toLowerCase();
+  return /^\.[a-z0-9]{1,16}$/.test(extension) ? extension : '.bin';
 }

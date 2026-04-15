@@ -22,6 +22,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
@@ -287,16 +288,72 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
       return null;
     }
 
+    Long contentLength = parseContentLength(session.getHeaders().get("content-length"));
+    if (contentLength != null) {
+      if (contentLength <= 0L) {
+        return null;
+      }
+      return readFixedLengthBody(session.getInputStream(), contentLength);
+    }
+
     Map<String, String> files = new HashMap<>();
     session.parseBody(files);
-    String bodyPath = files.get("postData");
-    if (bodyPath == null || bodyPath.isEmpty()) {
+
+    String rawContentPath = files.get("content");
+    if (rawContentPath != null && !rawContentPath.isEmpty()) {
+      return readBodyFileBytes(rawContentPath);
+    }
+
+    String postData = files.get("postData");
+    return postData == null || postData.isEmpty()
+        ? null
+        : postData.getBytes(StandardCharsets.UTF_8);
+  }
+
+  private Long parseContentLength(String value) {
+    if (value == null || value.trim().isEmpty()) {
       return null;
     }
 
-    File bodyFile = new File(bodyPath);
+    try {
+      long parsed = Long.parseLong(value.trim());
+      return parsed >= 0L ? parsed : null;
+    } catch (NumberFormatException ignored) {
+      return null;
+    }
+  }
+
+  private byte[] readFixedLengthBody(InputStream inputStream, long contentLength)
+      throws IOException {
+    ByteArrayOutputStream outputStream =
+        new ByteArrayOutputStream((int) Math.min(contentLength, 8192L));
+    byte[] buffer = new byte[8192];
+    long remaining = contentLength;
+
+    while (remaining > 0L) {
+      int bytesRead =
+          inputStream.read(buffer, 0, (int) Math.min((long) buffer.length, remaining));
+      if (bytesRead == -1) {
+        break;
+      }
+
+      outputStream.write(buffer, 0, bytesRead);
+      remaining -= bytesRead;
+    }
+
+    if (remaining > 0L) {
+      throw new IOException(
+          "Request body ended early. Expected " + contentLength + " bytes but received "
+              + (contentLength - remaining) + ".");
+    }
+
+    return outputStream.toByteArray();
+  }
+
+  private byte[] readBodyFileBytes(String path) throws IOException {
+    File bodyFile = new File(path);
     if (!bodyFile.exists()) {
-      return bodyPath.getBytes(StandardCharsets.UTF_8);
+      throw new IOException("Request body temp file is missing: " + path);
     }
 
     try (FileInputStream inputStream = new FileInputStream(bodyFile);

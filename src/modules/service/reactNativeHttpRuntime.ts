@@ -339,7 +339,11 @@ function resolveRequestBody(
     return undefined;
   }
 
-  if (contentType.startsWith('text/') && typeof event.bodyText === 'string') {
+  if (
+    event.path === '/api/text' &&
+    contentType.startsWith('text/') &&
+    typeof event.bodyText === 'string'
+  ) {
     return event.bodyText;
   }
 
