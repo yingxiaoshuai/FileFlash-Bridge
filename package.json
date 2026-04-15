@@ -10,7 +10,8 @@
     "test": "jest",
     "test:unit": "jest --runInBand",
     "typecheck": "tsc --noEmit",
-    "android:apk": "cd android && gradlew.bat assembleRelease"
+    "android:apk": "cd android && gradlew.bat assembleRelease",
+    "icons:generate": "node scripts/generate-app-icons.mjs"
   },
   "dependencies": {
     "@react-native-clipboard/clipboard": "^1.16.3",
@@ -48,6 +49,7 @@
     "jest": "^29.6.3",
     "prettier": "2.8.8",
     "react-test-renderer": "19.2.3",
+    "sharp": "^0.34.1",
     "typescript": "^5.8.3"
   },
   "engines": {

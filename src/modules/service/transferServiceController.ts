@@ -49,6 +49,7 @@ export interface ServiceRuntimeHandle {
    */
   origin?: string;
   port: number;
+  refreshOrigin?(): Promise<string | undefined>;
   stop(): Promise<void>;
 }
 
@@ -138,8 +139,7 @@ export class TransferServiceController {
     };
   }
 
-  private resolveAddressFromRuntime() {
-    const origin = this.runtimeHandle?.origin;
+  private addressFromOrigin(origin?: string) {
     if (!origin) {
       return undefined;
     }
@@ -161,6 +161,16 @@ export class TransferServiceController {
     }
   }
 
+  private async resolveAddressFromRuntime(options?: {refresh?: boolean}) {
+    let origin = this.runtimeHandle?.origin;
+
+    if (options?.refresh && this.runtimeHandle?.refreshOrigin) {
+      origin = (await this.runtimeHandle.refreshOrigin()) ?? origin;
+    }
+
+    return this.addressFromOrigin(origin);
+  }
+
   async start() {
     await this.initialize();
 
@@ -173,8 +183,8 @@ export class TransferServiceController {
       }
 
       const probed = resolveNetworkSnapshot(await this.options.networkProvider());
-      const runtimeAddress = this.resolveAddressFromRuntime();
-      const address = probed.address ?? runtimeAddress;
+      const runtimeAddress = await this.resolveAddressFromRuntime();
+      const address = runtimeAddress ?? probed.address;
 
       if (!address) {
         this.setError({
@@ -274,8 +284,10 @@ export class TransferServiceController {
     }
 
     const probed = resolveNetworkSnapshot(await this.options.networkProvider());
-    const runtimeAddress = this.resolveAddressFromRuntime();
-    const address = probed.address ?? runtimeAddress;
+    const runtimeAddress = await this.resolveAddressFromRuntime({
+      refresh: true,
+    });
+    const address = runtimeAddress ?? probed.address;
 
     if (!address) {
       this.setError({
@@ -825,7 +837,7 @@ function decodeUtf8(bytes: Uint8Array) {
   for (let index = 0; index < bytes.length; index += 1) {
     value += String.fromCharCode(bytes[index]);
   }
-  return value;
+  return decodeURIComponent(escape(value));
 }
 
 function decodeBase64(value: string) {

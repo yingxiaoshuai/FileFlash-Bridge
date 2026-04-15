@@ -38,7 +38,7 @@ export function mergeNetworkSnapshotWithRuntimeAddress(
   probed: NetworkSnapshot,
   runtimeAddress: string | undefined,
 ): NetworkSnapshot {
-  const address = probed.address ?? runtimeAddress;
+  const address = runtimeAddress ?? probed.address;
   if (!address) {
     return probed;
   }
@@ -46,7 +46,7 @@ export function mergeNetworkSnapshotWithRuntimeAddress(
   if (probed.reachable) {
     return {
       ...probed,
-      address: probed.address ?? address,
+      address,
     };
   }
 

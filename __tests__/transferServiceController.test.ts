@@ -4,7 +4,10 @@ import {join} from 'node:path';
 
 import {InboundStorageGateway} from '../src/modules/file-access/inboundStorageGateway';
 import {DEFAULT_SERVICE_CONFIG} from '../src/modules/service/models';
-import {TransferServiceController} from '../src/modules/service/transferServiceController';
+import {
+  ServiceRuntime,
+  TransferServiceController,
+} from '../src/modules/service/transferServiceController';
 import {
   NodeFileSystemAdapter,
   NodeHttpRuntime,
@@ -152,6 +155,78 @@ describe('TransferServiceController', () => {
     }
   });
 
+  test('refreshAddress rebuilds the link from the refreshed runtime origin after the device IP changes', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-refresh-origin-'));
+    const storage = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 128,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'refresh-origin-session',
+    });
+
+    let currentOrigin = 'http://192.168.0.8:8668';
+    const runtime: ServiceRuntime = {
+      async start({port}) {
+        const handle = {
+          origin: currentOrigin,
+          port,
+          refreshOrigin: async () => {
+            currentOrigin = 'http://192.168.0.25:8668';
+            handle.origin = currentOrigin;
+            return handle.origin;
+          },
+          stop: async () => {},
+        };
+
+        return handle;
+      },
+      async isRunning() {
+        return true;
+      },
+    };
+
+    const controller = new TransferServiceController({
+      config: {
+        ...DEFAULT_SERVICE_CONFIG,
+        accessKey: 'test-refresh-key',
+        port: 8668,
+        securityMode: 'secure',
+      },
+      networkProvider: async () => [
+        {
+          address: '192.168.0.8',
+          family: 'IPv4',
+          internal: false,
+          modeHint: 'wifi',
+          name: 'Wi-Fi',
+        },
+      ],
+      runtime,
+      storage,
+    });
+
+    try {
+      const started = await controller.start();
+      const startedUrl = new URL(started.accessUrl ?? '');
+      const startedKey = startedUrl.searchParams.get('key');
+
+      expect(startedUrl.hostname).toBe('192.168.0.8');
+      expect(startedKey).toBe('test-refresh-key');
+
+      const refreshed = await controller.refreshAddress({rotateAccessKey: true});
+      const refreshedUrl = new URL(refreshed.accessUrl ?? '');
+
+      expect(refreshedUrl.hostname).toBe('192.168.0.25');
+      expect(refreshed.network.address).toBe('192.168.0.25');
+      expect(refreshedUrl.searchParams.get('key')).toBeTruthy();
+      expect(refreshedUrl.searchParams.get('key')).not.toBe(startedKey);
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('accepts base64 bridge uploads and returns base64-backed download chunks for large files', async () => {
     const {controller, rootDir, storage} = await createController();
 
@@ -211,6 +286,57 @@ describe('TransferServiceController', () => {
         const body = downloadBody as {base64: string};
         expect(Buffer.from(body.base64, 'base64').toString('utf8')).toBe('bridge');
       }
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('decodes base64-backed text submissions as UTF-8 even without Buffer or TextDecoder globals', async () => {
+    const {controller, rootDir, storage} = await createController();
+
+    try {
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key') ?? '';
+      const browserText = '\u6d4f\u89c8\u5668\u53d1\u9001\u7684\u4e2d\u6587\u5185\u5bb9';
+      const originalBuffer = (globalThis as {Buffer?: typeof Buffer}).Buffer;
+      const originalTextDecoder = (
+        globalThis as {TextDecoder?: typeof TextDecoder}
+      ).TextDecoder;
+      const base64Payload = Buffer.from(browserText, 'utf8').toString('base64');
+
+      try {
+        (
+          globalThis as {Buffer?: typeof Buffer; TextDecoder?: typeof TextDecoder}
+        ).Buffer = undefined;
+        (
+          globalThis as {Buffer?: typeof Buffer; TextDecoder?: typeof TextDecoder}
+        ).TextDecoder = undefined;
+
+        const textResponse = await controller.handleRequest({
+          body: {
+            base64: base64Payload,
+            byteLength: browserText.length,
+            kind: 'base64',
+          },
+          headers: {
+            'content-type': 'text/plain; charset=utf-8',
+            'x-client-id': 'client-a',
+          },
+          method: 'POST',
+          path: '/api/text',
+          query: new URLSearchParams({key}),
+        });
+
+        expect(textResponse.status).toBe(200);
+      } finally {
+        (globalThis as {Buffer?: typeof Buffer}).Buffer = originalBuffer;
+        (globalThis as {TextDecoder?: typeof TextDecoder}).TextDecoder =
+          originalTextDecoder;
+      }
+
+      const snapshot = await storage.getSnapshot();
+      expect(snapshot.projects[0]?.messages.at(-1)?.content).toBe(browserText);
     } finally {
       await controller.stop();
       await rm(rootDir, {force: true, recursive: true});

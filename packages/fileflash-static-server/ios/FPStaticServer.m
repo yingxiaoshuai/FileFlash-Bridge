@@ -1,4 +1,7 @@
 #import "FPStaticServer.h"
+#include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 
 @interface FPStaticServer()
 
@@ -67,7 +70,7 @@ RCT_EXPORT_METHOD(start: (NSString *)port
                   rejecter:(RCTPromiseRejectBlock)reject) {
 
     if(_webServer.isRunning == YES) {
-        resolve(self.url);
+        resolve([self currentOrigin]);
         return;
     }
 
@@ -127,9 +130,8 @@ RCT_EXPORT_METHOD(start: (NSString *)port
         if(_webServer.serverURL == NULL) {
             reject(@"server_error", @"StaticServer could not start", error);
         } else {
-            self.url = [NSString stringWithFormat: @"%@://%@:%@", [_webServer.serverURL scheme], [_webServer.serverURL host], [_webServer.serverURL port]];
             [self updateBackgroundTaskForCurrentApplicationState];
-            resolve(self.url);
+            resolve([self currentOrigin]);
         }
     } else {
         reject(@"server_error", @"StaticServer could not start", error);
@@ -146,7 +148,7 @@ RCT_EXPORT_METHOD(stop) {
 RCT_EXPORT_METHOD(origin:(RCTPromiseResolveBlock)resolve
                  rejecter:(RCTPromiseRejectBlock)reject) {
     if(_webServer.isRunning == YES) {
-        resolve(self.url);
+        resolve([self currentOrigin]);
     } else {
         resolve(@"");
     }
@@ -233,6 +235,64 @@ RCT_EXPORT_METHOD(respond:(NSString *)requestId
     UIBackgroundTaskIdentifier taskIdentifier = self.backgroundTaskIdentifier;
     self.backgroundTaskIdentifier = UIBackgroundTaskInvalid;
     [application endBackgroundTask:taskIdentifier];
+}
+
+- (NSString *)currentOrigin {
+    if (_webServer == nil || _webServer.isRunning != YES) {
+        return @"";
+    }
+
+    NSString *host = self.localhost_only ? @"127.0.0.1" : [self currentIPv4Address];
+    NSNumber *activePort = self.port ?: @(_webServer.port);
+    self.url = [NSString stringWithFormat:@"http://%@:%@", host ?: @"127.0.0.1", activePort];
+    return self.url;
+}
+
+- (NSString *)currentIPv4Address {
+    struct ifaddrs *interfaces = NULL;
+    NSString *preferredAddress = nil;
+    NSString *fallbackAddress = nil;
+
+    if (getifaddrs(&interfaces) == 0) {
+        for (struct ifaddrs *interface = interfaces; interface != NULL; interface = interface->ifa_next) {
+            if (interface->ifa_addr == NULL || interface->ifa_addr->sa_family != AF_INET) {
+                continue;
+            }
+
+            if ((interface->ifa_flags & IFF_LOOPBACK) == IFF_LOOPBACK) {
+                continue;
+            }
+
+            char addressBuffer[INET_ADDRSTRLEN];
+            const struct sockaddr_in *address = (const struct sockaddr_in *)interface->ifa_addr;
+            const char *result =
+                inet_ntop(AF_INET, &(address->sin_addr), addressBuffer, INET_ADDRSTRLEN);
+            if (result == NULL) {
+                continue;
+            }
+
+            NSString *resolvedAddress = [NSString stringWithUTF8String:addressBuffer];
+            NSString *interfaceName =
+                interface->ifa_name != NULL
+                    ? [NSString stringWithUTF8String:interface->ifa_name]
+                    : @"";
+
+            if ([interfaceName isEqualToString:@"en0"] ||
+                [interfaceName hasPrefix:@"bridge"] ||
+                [interfaceName hasPrefix:@"ap"]) {
+                preferredAddress = resolvedAddress;
+                break;
+            }
+
+            if (fallbackAddress == nil) {
+                fallbackAddress = resolvedAddress;
+            }
+        }
+
+        freeifaddrs(interfaces);
+    }
+
+    return preferredAddress ?: fallbackAddress ?: @"127.0.0.1";
 }
 
 - (void)registerBridgeHandlers {

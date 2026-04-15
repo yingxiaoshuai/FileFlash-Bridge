@@ -94,6 +94,7 @@ FileFlash-Bridge/
 
 - 推荐使用 **Android Studio** 与 **SDK 35** 对齐工程配置。
 - **`AndroidManifest.xml`** 已包含网络相关基础权限；本地静态服务模块内已包含前台服务与数据同步前台服务类型声明。
+- **应用图标**：源图为仓库根目录 **`app.png`**。更新该图后执行 **`npm run icons:generate`**，会重写 Android 各 `mipmap-*` 的 `ic_launcher` / `ic_launcher_round` 与 iOS `AppIcon.appiconset` 资源，再将变更一并提交。
 - **大文件浏览器上传**：超过门户配置的 `chunkSize`（默认 1MB）时，门户会走 `begin → part → finish` 分块接口，避免单次请求体过大导致原生 OOM；小文件仍为单次 `POST /api/upload`。
 - **调试**：若 Metro 与设备不在同一网段策略下，可使用 `adb reverse tcp:8081 tcp:8081`（USB 连接时）以便加载 JS。
 

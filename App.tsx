@@ -347,6 +347,7 @@ function AppScreen(): React.JSX.Element {
                   (model.busyAction === 'share' ||
                     model.busyAction === `export:${file.id}`)
                 }
+                compact={isCompactScreen}
                 file={file}
                 key={`shared-${file.id}`}
                 onExport={() => {
@@ -421,6 +422,7 @@ function AppScreen(): React.JSX.Element {
                           model.busyAction === 'file' ||
                           model.busyAction === `export:${file.id}`)
                       }
+                      compact={isCompactScreen}
                       file={file}
                       isShared={model.isFileShared(file.id)}
                       key={file.id}
@@ -854,6 +856,7 @@ function MessageCard({message, onCopy, onDelete}: MessageCardProps) {
 
 type FileCardProps = {
   busy?: boolean;
+  compact?: boolean;
   file: SharedFileRecord;
   isShared: boolean;
   onDelete: () => void;
@@ -863,6 +866,7 @@ type FileCardProps = {
 
 function FileCard({
   busy,
+  compact,
   file,
   isShared,
   onDelete,
@@ -871,7 +875,11 @@ function FileCard({
 }: FileCardProps) {
   return (
     <PanelSurface style={styles.fileCard}>
-      <View style={styles.fileCardHeader}>
+      <View
+        style={[
+          styles.fileCardHeader,
+          compact ? styles.fileCardHeaderCompact : null,
+        ]}>
         <View style={styles.fileCardHeaderMain}>
           <Text numberOfLines={2} style={styles.fileName}>
             {file.displayName}
@@ -885,7 +893,11 @@ function FileCard({
           {isShared ? '已共享' : '未共享'}
         </Text>
       </View>
-      <View style={styles.fileCardActionsRow}>
+      <View
+        style={[
+          styles.fileCardActionsRow,
+          compact ? styles.fileCardActionsRowCompact : null,
+        ]}>
         <View style={styles.fileCardActionCell}>
           <GhostButton
             compact
@@ -920,6 +932,7 @@ function FileCard({
 
 type SharedListCardProps = {
   busy?: boolean;
+  compact?: boolean;
   file: SharedFileRecord;
   onExport: () => void;
   onOpenProject: () => void;
@@ -929,6 +942,7 @@ type SharedListCardProps = {
 
 function SharedListCard({
   busy,
+  compact,
   file,
   onExport,
   onOpenProject,
@@ -937,7 +951,11 @@ function SharedListCard({
 }: SharedListCardProps) {
   return (
     <PanelSurface style={styles.fileCard}>
-      <View style={styles.fileCardHeader}>
+      <View
+        style={[
+          styles.fileCardHeader,
+          compact ? styles.fileCardHeaderCompact : null,
+        ]}>
         <View style={styles.fileCardHeaderMain}>
           <Text numberOfLines={2} style={styles.fileName}>
             {file.displayName}
@@ -947,7 +965,11 @@ function SharedListCard({
           </Text>
         </View>
       </View>
-      <View style={styles.fileCardActionsRow}>
+      <View
+        style={[
+          styles.fileCardActionsRow,
+          compact ? styles.fileCardActionsRowCompact : null,
+        ]}>
         <View style={styles.fileCardActionCell}>
           <GhostButton
             compact
@@ -1598,9 +1620,11 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   projectContentGridCompact: {
+    alignItems: 'stretch',
     flexDirection: 'column',
   },
   subsection: {
+    alignSelf: 'stretch',
     flex: 1,
     gap: 10,
   },
@@ -1627,13 +1651,18 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   fileCardHeader: {
+    alignItems: 'flex-start',
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 12,
   },
+  fileCardHeaderCompact: {
+    flexDirection: 'column',
+  },
   fileCardHeaderMain: {
     flex: 1,
     gap: 4,
+    minWidth: 0,
   },
   fileName: {
     color: theme.colors.ink,
@@ -1683,6 +1712,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'nowrap',
     gap: 8,
+  },
+  fileCardActionsRowCompact: {
+    flexDirection: 'column',
   },
   fileCardActionCell: {
     flex: 1,

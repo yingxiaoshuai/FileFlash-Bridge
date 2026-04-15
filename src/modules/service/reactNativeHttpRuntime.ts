@@ -16,6 +16,7 @@ type NativeServerModule = {
     localOnly: boolean,
     keepAlive: boolean,
   ) => Promise<string>;
+  origin?: () => Promise<string>;
   stop: () => Promise<void> | void;
   isRunning: () => Promise<boolean>;
   respond: (
@@ -232,13 +233,32 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
     const resolvedOrigin = new URL(origin);
     this.port = Number(resolvedOrigin.port) || options.port;
 
-    return {
+    const handle: ServiceRuntimeHandle = {
       origin,
       port: this.port,
+      refreshOrigin: async () => {
+        if (!nativeServer.origin) {
+          return handle.origin;
+        }
+
+        const nextOrigin = await nativeServer.origin();
+        if (!nextOrigin) {
+          return handle.origin;
+        }
+
+        this.origin = nextOrigin;
+        const nextResolvedOrigin = new URL(nextOrigin);
+        this.port = Number(nextResolvedOrigin.port) || handle.port;
+        handle.origin = nextOrigin;
+        handle.port = this.port;
+        return handle.origin;
+      },
       stop: async () => {
         await nativeServer.stop();
       },
     };
+
+    return handle;
   }
 
   async isRunning() {

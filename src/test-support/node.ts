@@ -147,9 +147,10 @@ export class NodeHttpRuntime implements ServiceRuntime {
 
     this.server = server;
 
-    return {
+    const handle = {
       origin: `http://127.0.0.1:${address.port}`,
       port: address.port,
+      refreshOrigin: async () => handle.origin,
       stop: async () => {
         await new Promise<void>((resolve, reject) => {
           server.close(error => {
@@ -164,6 +165,8 @@ export class NodeHttpRuntime implements ServiceRuntime {
         this.server = undefined;
       },
     };
+
+    return handle;
   }
 
   async isRunning() {

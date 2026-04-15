@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -69,7 +70,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
   @ReactMethod
   public void start(String requestedPort, String root, Boolean localhost, Boolean keepAlive, Promise promise) {
     if (server != null) {
-      promise.resolve(url);
+      promise.resolve(buildCurrentOrigin());
       return;
     }
 
@@ -95,11 +96,10 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
        * on the host after `adb forward tcp:PORT tcp:PORT`.
        */
       final String bindHostname = localhostOnly ? "127.0.0.1" : null;
-      final String displayHost = localhostOnly ? "127.0.0.1" : getLocalIpAddress();
       server = new BridgeWebServer(bindHostname, port, session -> handleHttpRequest(session));
       server.start();
       port = server.getListeningPort();
-      url = "http://" + displayHost + ":" + port;
+      url = buildCurrentOrigin();
 
       if (this.keepAlive) {
         startForegroundService();
@@ -125,7 +125,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
 
   @ReactMethod
   public void origin(Promise promise) {
-    promise.resolve(server != null ? url : "");
+    promise.resolve(server != null ? buildCurrentOrigin() : "");
   }
 
   @ReactMethod
@@ -198,7 +198,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
       if (bodyBytes != null && bodyBytes.length > 0) {
         payload.putString("bodyBase64", Base64.encodeToString(bodyBytes, Base64.NO_WRAP));
         String contentType = session.getHeaders().get("content-type");
-        if (contentType != null && contentType.contains("application/json")) {
+        if (isUtf8TextRequest(contentType)) {
           payload.putString("bodyText", new String(bodyBytes, StandardCharsets.UTF_8));
         }
       }
@@ -330,6 +330,16 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     return result;
   }
 
+  private boolean isUtf8TextRequest(String contentType) {
+    if (contentType == null) {
+      return false;
+    }
+
+    String normalized = contentType.toLowerCase(Locale.ROOT);
+    return normalized.contains("application/json")
+        || normalized.startsWith("text/");
+  }
+
   private void startForegroundService() {
     Intent serviceIntent = new Intent(reactContext, FPStaticServerForegroundService.class);
     ContextCompat.startForegroundService(reactContext, serviceIntent);
@@ -338,6 +348,13 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
   private void stopForegroundService() {
     Intent serviceIntent = new Intent(reactContext, FPStaticServerForegroundService.class);
     reactContext.stopService(serviceIntent);
+  }
+
+  private String buildCurrentOrigin() {
+    int activePort = server != null ? server.getListeningPort() : port;
+    String displayHost = localhostOnly ? "127.0.0.1" : getLocalIpAddress();
+    url = "http://" + displayHost + ":" + activePort;
+    return url;
   }
 
   private String getLocalIpAddress() {
