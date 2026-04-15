@@ -1,0 +1,25 @@
+import {theme} from '../../app/theme';
+
+export const portalTheme = {
+  accent: theme.colors.primary,
+  accentSoft: theme.colors.primarySoft,
+  accentStrong: theme.colors.primaryStrong,
+  backdrop: theme.colors.background,
+  border: 'rgba(187, 200, 216, 0.68)',
+  danger: theme.colors.danger,
+  dangerSoft: theme.colors.dangerSoft,
+  glowPrimary: 'rgba(20, 115, 230, 0.18)',
+  glowSecondary: 'rgba(47, 158, 103, 0.11)',
+  glowTertiary: 'rgba(220, 232, 246, 0.9)',
+  ink: theme.colors.ink,
+  lineSoft: 'rgba(255, 255, 255, 0.82)',
+  muted: theme.colors.inkSoft,
+  panel: 'rgba(255, 255, 255, 0.78)',
+  panelStrong: 'rgba(255, 255, 255, 0.92)',
+  shadow: 'rgba(15, 23, 42, 0.12)',
+  success: theme.colors.success,
+  successSoft: theme.colors.successSoft,
+  surfaceTint: theme.colors.surfaceTint,
+  warning: theme.colors.warning,
+  warningSoft: theme.colors.warningSoft,
+};

@@ -7,14 +7,29 @@ import {
   ScrollView,
   StatusBar,
   StyleSheet,
+  Switch,
   Text,
   useWindowDimensions,
   View,
 } from 'react-native';
+import {Drawer, Menu, PaperProvider} from 'react-native-paper';
 import QRCode from 'react-native-qrcode-svg';
-import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
+import {paperTheme} from './src/app/paperTheme';
 import {theme} from './src/app/theme';
+import {
+  ActionButton,
+  EmptyStateCard,
+  FeedbackBanner,
+  GlyphIconButton,
+  InlineMeta,
+  PanelSurface,
+} from './src/app/ui';
 import {useAppModel} from './src/app/useAppModel';
 import {
   ProjectRecord,
@@ -22,10 +37,15 @@ import {
   TextMessage,
 } from './src/modules/service/models';
 
-function App(): React.JSX.Element {
+function AppScreen(): React.JSX.Element {
   const model = useAppModel();
   const isBusy = Boolean(model.busyAction);
+  const [isProjectHistoryOpen, setProjectHistoryOpen] = React.useState(false);
+  const [projectActionMenuId, setProjectActionMenuId] = React.useState<
+    string | undefined
+  >();
   const {width} = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isServiceRunning = model.serviceState.phase === 'running';
   const isStackedLayout = width < 880;
   const isCompactScreen = width < 560;
@@ -39,11 +59,45 @@ function App(): React.JSX.Element {
   const serviceQrSize = Math.min(qrSize, Math.max(112, serviceCardContentMax));
 
   const sidebarWidth = width < 1040 ? 272 : 312;
+  const mobileSidebarWidth = Math.min(Math.max(280, Math.floor(width * 0.82)), 340);
 
   const projectTitleById = React.useMemo(
     () => new Map(model.projects.map(project => [project.id, project.title])),
     [model.projects],
   );
+
+  const previousActiveProjectIdRef = React.useRef<string | undefined>(
+    model.activeProject?.id,
+  );
+
+  React.useEffect(() => {
+    if (!isStackedLayout && isProjectHistoryOpen) {
+      setProjectHistoryOpen(false);
+    }
+  }, [isProjectHistoryOpen, isStackedLayout]);
+
+  React.useEffect(() => {
+    if (
+      projectActionMenuId &&
+      !model.projects.some(project => project.id === projectActionMenuId)
+    ) {
+      setProjectActionMenuId(undefined);
+    }
+  }, [model.projects, projectActionMenuId]);
+
+  React.useEffect(() => {
+    const previousActiveProjectId = previousActiveProjectIdRef.current;
+    if (
+      isStackedLayout &&
+      isProjectHistoryOpen &&
+      previousActiveProjectId &&
+      previousActiveProjectId !== model.activeProject?.id
+    ) {
+      setProjectHistoryOpen(false);
+    }
+
+    previousActiveProjectIdRef.current = model.activeProject?.id;
+  }, [isProjectHistoryOpen, isStackedLayout, model.activeProject?.id]);
 
   const handleCopyLink = () => {
     if (!model.serviceState.accessUrl) {
@@ -71,66 +125,61 @@ function App(): React.JSX.Element {
     ]);
   };
 
-  const sidebarContent = (
-    <>
+  const sidebarContent = () => (
+    <PanelSurface style={styles.sidebarPanel}>
       <View style={styles.sidebarListCard}>
-        <Text style={styles.sidebarSectionTitle}>项目历史</Text>
-        {model.projects.length === 0 ? (
-          <EmptyState title="还没有项目" />
-        ) : (
-          <View style={styles.projectSidebarList}>
-            {model.projects.map(project => (
-              <ProjectPill
-                active={project.id === model.activeProject?.id}
-                compact={isCompactScreen}
-                key={project.id}
-                onPress={() => {
-                  void model.selectProject(project.id);
-                }}
-                project={project}
-              />
-            ))}
+        <View style={styles.sidebarHeaderRow}>
+          <View style={styles.sidebarHeader}>
+            <Text style={styles.sidebarSectionTitle}>项目历史</Text>
+            <Text style={styles.sidebarSectionMeta}>
+              {model.projects.length} 个项目
+            </Text>
           </View>
-        )}
-      </View>
-
-      <View style={styles.sidebarActions}>
-        <View style={styles.sidebarActionCell}>
-          <PrimaryButton
-            disabled={isBusy}
-            fullWidth
-            label={isServiceRunning ? '停止服务' : '启动服务'}
-            onPress={() => {
-              void model.toggleService();
-            }}
-          />
-        </View>
-        <View style={styles.sidebarActionCell}>
           <GhostButton
             disabled={isBusy}
-            fullWidth
-            label="新建项目"
+            label="新建"
             onPress={() => {
               void model.createProject();
             }}
+            testID="sidebar-create-project"
           />
         </View>
-        <View style={styles.sidebarActionCell}>
-          <GhostButton
-            disabled={isBusy}
-            fullWidth
-            label="选文件"
-            onPress={() => {
-              void model.importFilesForShare();
-            }}
-          />
-        </View>
+        {model.projects.length === 0 ? (
+          <EmptyState title="还没有项目" />
+        ) : (
+          <Drawer.Section style={styles.projectDrawerSection}>
+            {model.projects.map(project => (
+              <ProjectHistoryRow
+                active={project.id === model.activeProject?.id}
+                key={project.id}
+                lastItem={project.id === model.projects[model.projects.length - 1]?.id}
+                menuVisible={projectActionMenuId === project.id}
+                onDelete={() => {
+                  setProjectActionMenuId(undefined);
+                  confirmDeleteProject(project);
+                }}
+                onDismissMenu={() => {
+                  setProjectActionMenuId(undefined);
+                }}
+                onOpenMenu={() => {
+                  setProjectActionMenuId(project.id);
+                }}
+                onPress={() => {
+                  setProjectActionMenuId(undefined);
+                  void model.selectProject(project.id);
+                }}
+                project={project}
+                statusBarHeight={0}
+              />
+            ))}
+          </Drawer.Section>
+        )}
       </View>
-    </>
+    </PanelSurface>
   );
 
   const summaryContent = (
-    <>
+    <PanelSurface style={styles.summaryShell}>
       <View
         style={[styles.header, isCompactScreen ? styles.headerCompact : null]}>
         <View style={styles.headerMain}>
@@ -190,33 +239,41 @@ function App(): React.JSX.Element {
 
       <View style={styles.quickToolsCard}>
         <Text style={styles.quickToolsTitle}>访问模式</Text>
-        <View style={styles.modeRow}>
-          <ModePill
-            active={model.serviceState.config.securityMode === 'simple'}
-            label="简单模式"
-            onPress={() => {
-              void model.setSecurityMode('simple');
-            }}
-          />
-          <ModePill
-            active={model.serviceState.config.securityMode === 'secure'}
-            label="安全模式"
-            onPress={() => {
-              void model.setSecurityMode('secure');
-            }}
-          />
-        </View>
-        <View style={styles.inlineActions}>
-          <GhostButton
+        <View style={styles.securityModeSwitchRow}>
+          <View style={styles.securityModeSwitchText}>
+            <View style={styles.securityModeTitleRow}>
+              <Text style={styles.securityModeSwitchTitle}>安全模式</Text>
+              <GlyphIconButton
+                accessibilityLabel="查看安全模式说明"
+                disabled={isBusy}
+                glyph="!"
+                onPress={() => {
+                  Alert.alert(
+                    '安全模式',
+                    '开启后链接与二维码携带访问密钥；关闭为简单模式。',
+                  );
+                }}
+                testID="security-mode-help"
+              />
+            </View>
+          </View>
+          <Switch
+            accessibilityLabel="安全模式"
             disabled={isBusy}
-            label="刷新 key"
-            onPress={() => {
-              void model.rotateKey();
+            ios_backgroundColor={theme.colors.border}
+            onValueChange={nextSecure => {
+              void model.setSecurityMode(nextSecure ? 'secure' : 'simple');
             }}
+            thumbColor={theme.colors.surfaceElevated}
+            trackColor={{
+              false: theme.colors.border,
+              true: theme.colors.primary,
+            }}
+            value={model.serviceState.config.securityMode === 'secure'}
           />
         </View>
       </View>
-    </>
+    </PanelSurface>
   );
 
   const detailContent = (
@@ -226,7 +283,8 @@ function App(): React.JSX.Element {
           styles.topGrid,
           stackOverviewCards ? styles.topGridCompact : null,
         ]}>
-        <View style={[styles.card, styles.serviceCard, styles.serviceCardLayout]}>
+        <PanelSurface
+          style={[styles.card, styles.topGridPanel, styles.serviceCard]}>
           <View style={styles.serviceHeaderRow}>
             <View style={styles.serviceHeaderTitleWrap}>
               <SectionTitle title="服务" />
@@ -234,13 +292,23 @@ function App(): React.JSX.Element {
             <NetworkTag text={model.serviceState.network.label} />
           </View>
 
-          <View style={styles.serviceAddressSection}>
-            <KeyValueTile
-              fill
-              label="地址"
-              value={model.serviceState.accessUrl ?? '未启动'}
-            />
-          </View>
+        <View style={styles.serviceAddressSection}>
+          <KeyValueTile
+            fill
+            label="地址"
+            value={model.serviceState.accessUrl ?? '未启动'}
+          />
+        </View>
+
+        <PrimaryButton
+          disabled={isBusy}
+          fullWidth
+          label={isServiceRunning ? '停止服务' : '启动服务'}
+          onPress={() => {
+            void model.toggleService();
+          }}
+          testID="home-toggle-service"
+        />
 
           {model.serviceState.qrValue ? (
             <View style={styles.qrPanel}>
@@ -254,9 +322,9 @@ function App(): React.JSX.Element {
           ) : (
             <EmptyState title="服务未启动" />
           )}
-        </View>
+        </PanelSurface>
 
-        <View style={styles.card}>
+        <PanelSurface style={[styles.card, styles.topGridPanel]}>
           <View style={styles.cardHeaderRow}>
             <SectionTitle title="共享文件" />
             <GhostButton
@@ -265,6 +333,7 @@ function App(): React.JSX.Element {
               onPress={() => {
                 void model.importFilesForShare();
               }}
+              testID="home-import-files"
             />
           </View>
 
@@ -295,33 +364,20 @@ function App(): React.JSX.Element {
               />
             ))
           )}
-        </View>
+        </PanelSurface>
       </View>
 
-      <View style={styles.card}>
+      <PanelSurface style={styles.card}>
         {model.activeProject ? (
           <>
-            <View
-              style={[
-                styles.activeProjectHeader,
-                isCompactScreen ? styles.activeProjectHeaderCompact : null,
-              ]}>
-              <View style={styles.activeProjectHeaderMain}>
-                <Text style={styles.activeProjectTitle}>
-                  {model.activeProject.title}
-                </Text>
-                <Text style={styles.activeProjectMeta}>
-                  {model.activeProject.messages.length} 条消息 ·{' '}
-                  {model.activeProjectFiles.length} 个文件
-                </Text>
-              </View>
-              <DangerGhostButton
-                disabled={isBusy}
-                label="删除项目"
-                onPress={() => {
-                  confirmDeleteProject(model.activeProject!);
-                }}
-              />
+            <View style={styles.activeProjectHeaderMain}>
+              <Text style={styles.activeProjectTitle}>
+                {model.activeProject.title}
+              </Text>
+              <Text style={styles.activeProjectMeta}>
+                {model.activeProject.messages.length} 条消息 ·{' '}
+                {model.activeProjectFiles.length} 个文件
+              </Text>
             </View>
 
             <View
@@ -386,56 +442,112 @@ function App(): React.JSX.Element {
         ) : (
           <EmptyState title="先创建一个项目" />
         )}
-      </View>
+      </PanelSurface>
     </>
   );
 
   return (
-    <SafeAreaProvider>
+    <SafeAreaView style={styles.safeArea}>
       <StatusBar
         barStyle="dark-content"
         backgroundColor={theme.colors.background}
       />
-      <SafeAreaView style={styles.safeArea}>
-        {!model.isReady ? (
-          <View style={styles.loadingShell}>
-            <ActivityIndicator color={theme.colors.primary} size="large" />
-            <Text style={styles.loadingTitle}>正在加载</Text>
+          <View pointerEvents="none" style={styles.backdropLayer}>
+            <View style={[styles.backdropGlow, styles.backdropGlowPrimary]} />
+            <View style={[styles.backdropGlow, styles.backdropGlowSecondary]} />
           </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={[styles.page, {padding: pagePadding}]}
-            showsVerticalScrollIndicator={false}>
-            <View style={styles.globalTopBar}>
-              <StatusChip
-                accent={
-                  isServiceRunning ? theme.colors.success : theme.colors.inkSoft
-                }
-                label={isServiceRunning ? '服务在线' : '服务离线'}
-              />
+          {!model.isReady ? (
+            <View style={styles.loadingShell}>
+              <ActivityIndicator color={theme.colors.primary} size="large" />
+              <Text style={styles.loadingTitle}>正在加载</Text>
             </View>
-            {isStackedLayout ? (
-              <View style={styles.stackedWorkspace}>
-                <View style={styles.sidebarStack}>{sidebarContent}</View>
-                <View style={styles.main}>
-                  {summaryContent}
-                  {detailContent}
-                </View>
+          ) : (
+            <ScrollView
+              contentContainerStyle={[styles.page, {padding: pagePadding}]}
+              showsVerticalScrollIndicator={false}>
+              <View
+                style={[
+                  styles.globalTopBar,
+                  isStackedLayout ? styles.globalTopBarStacked : null,
+                ]}>
+                {isStackedLayout ? (
+                  <IconButton
+                    accessibilityLabel="打开项目历史"
+                    disabled={isBusy}
+                    icon="☰"
+                    onPress={() => {
+                      setProjectHistoryOpen(true);
+                    }}
+                    testID="sidebar-open"
+                  />
+                ) : null}
+                <StatusChip
+                  accent={
+                    isServiceRunning ? theme.colors.success : theme.colors.inkSoft
+                  }
+                  label={isServiceRunning ? '服务在线' : '服务离线'}
+                />
               </View>
-            ) : (
-              <View style={styles.workspace}>
-                <View style={[styles.sidebar, {width: sidebarWidth}]}>
-                  {sidebarContent}
+              {isStackedLayout ? (
+                <View style={styles.stackedWorkspace}>
+                  <View style={styles.main}>
+                    {summaryContent}
+                    {detailContent}
+                  </View>
                 </View>
-                <View style={styles.main}>
-                  {summaryContent}
-                  {detailContent}
+              ) : (
+                <View style={styles.workspace}>
+                  <View style={[styles.sidebar, {width: sidebarWidth}]}>
+                    {sidebarContent()}
+                  </View>
+                  <View style={styles.main}>
+                    {summaryContent}
+                    {detailContent}
+                  </View>
                 </View>
+              )}
+            </ScrollView>
+          )}
+          {isStackedLayout && isProjectHistoryOpen ? (
+            <View style={styles.mobileSidebarOverlay} testID="mobile-sidebar-overlay">
+              <Pressable
+                onPress={() => {
+                  setProjectActionMenuId(undefined);
+                  setProjectHistoryOpen(false);
+                }}
+                style={styles.mobileSidebarBackdrop}
+                testID="sidebar-backdrop"
+              />
+              <View
+                style={[
+                  styles.mobileSidebarPanel,
+                  {
+                    paddingBottom: pagePadding + insets.bottom,
+                    paddingHorizontal: pagePadding,
+                    paddingTop: pagePadding,
+                    top: insets.top,
+                    width: mobileSidebarWidth,
+                  },
+                ]}
+                testID="mobile-sidebar-panel">
+                <ScrollView
+                  contentContainerStyle={styles.mobileSidebarScrollContent}
+                  showsVerticalScrollIndicator={false}>
+                  {sidebarContent()}
+                </ScrollView>
               </View>
-            )}
-          </ScrollView>
-        )}
-      </SafeAreaView>
+            </View>
+          ) : null}
+    </SafeAreaView>
+  );
+}
+
+function App(): React.JSX.Element {
+  return (
+    <SafeAreaProvider>
+      <PaperProvider theme={paperTheme}>
+        <AppScreen />
+      </PaperProvider>
     </SafeAreaProvider>
   );
 }
@@ -514,113 +626,207 @@ function KeyValueTile({fill, label, value}: KeyValueTileProps) {
 }
 
 type ButtonProps = {
+  accessibilityLabel?: string;
+  compact?: boolean;
   disabled?: boolean;
   fullWidth?: boolean;
+  icon?: string;
   label: string;
   onPress: () => void;
+  testID?: string;
 };
 
-function PrimaryButton({disabled, fullWidth, label, onPress}: ButtonProps) {
+function PrimaryButton({
+  accessibilityLabel,
+  compact,
+  disabled,
+  fullWidth,
+  label,
+  onPress,
+  testID,
+}: ButtonProps) {
   return (
-    <Pressable
+    <ActionButton
+      accessibilityLabel={accessibilityLabel}
+      compact={compact}
       disabled={disabled}
+      fullWidth={fullWidth}
+      label={label}
       onPress={onPress}
-      style={[
-        styles.primaryButton,
-        fullWidth ? styles.sidebarToolbarButton : null,
-        disabled ? styles.buttonDisabled : null,
-      ]}>
-      <Text numberOfLines={1} style={styles.primaryButtonLabel}>
-        {label}
-      </Text>
-    </Pressable>
+      testID={testID}
+      tone="primary"
+    />
   );
 }
 
-function GhostButton({disabled, fullWidth, label, onPress}: ButtonProps) {
+function GhostButton({
+  accessibilityLabel,
+  compact,
+  disabled,
+  fullWidth,
+  label,
+  onPress,
+  testID,
+}: ButtonProps) {
   return (
-    <Pressable
+    <ActionButton
+      accessibilityLabel={accessibilityLabel}
+      compact={compact}
       disabled={disabled}
+      fullWidth={fullWidth}
+      label={label}
       onPress={onPress}
-      style={[
-        styles.ghostButton,
-        fullWidth ? styles.sidebarToolbarButton : null,
-        disabled ? styles.buttonDisabled : null,
-      ]}>
-      <Text numberOfLines={1} style={styles.ghostButtonLabel}>
-        {label}
-      </Text>
-    </Pressable>
+      testID={testID}
+      tone="secondary"
+    />
   );
 }
 
-function DangerGhostButton({disabled, label, onPress}: ButtonProps) {
+function DangerGhostButton({
+  accessibilityLabel,
+  compact,
+  disabled,
+  fullWidth,
+  label,
+  onPress,
+  testID,
+}: ButtonProps) {
   return (
-    <Pressable
+    <ActionButton
+      accessibilityLabel={accessibilityLabel}
+      compact={compact}
       disabled={disabled}
+      fullWidth={fullWidth}
+      label={label}
       onPress={onPress}
-      style={[
-        styles.dangerGhostButton,
-        disabled ? styles.buttonDisabled : null,
-      ]}>
-      <Text style={styles.dangerGhostButtonLabel}>{label}</Text>
-    </Pressable>
+      testID={testID}
+      tone="danger"
+    />
   );
 }
 
-type ModePillProps = {
-  active: boolean;
-  label: string;
+type IconButtonProps = Omit<ButtonProps, 'fullWidth' | 'label'> & {
+  icon: string;
+};
+
+function IconButton({
+  accessibilityLabel,
+  disabled,
+  icon,
+  onPress,
+  testID,
+}: IconButtonProps) {
+  return (
+    <GlyphIconButton
+      accessibilityLabel={accessibilityLabel}
+      disabled={disabled}
+      glyph={icon}
+      onPress={onPress}
+      testID={testID}
+    />
+  );
+}
+
+type MenuTriggerButtonProps = {
   onPress: () => void;
+  testID?: string;
 };
 
-function ModePill({active, label, onPress}: ModePillProps) {
+function MenuTriggerButton({onPress, testID}: MenuTriggerButtonProps) {
   return (
-    <Pressable
+    <GlyphIconButton
+      accessibilityLabel="打开项目操作"
+      glyph="⋯"
       onPress={onPress}
-      style={[styles.modePill, active ? styles.modePillActive : null]}>
-      <Text
-        style={[
-          styles.modePillLabel,
-          active ? styles.modePillLabelActive : null,
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
+      testID={testID}
+    />
   );
 }
 
-type ProjectPillProps = {
+type ProjectHistoryRowProps = {
   active: boolean;
-  compact?: boolean;
+  lastItem?: boolean;
+  menuVisible: boolean;
+  onDelete: () => void;
+  onDismissMenu: () => void;
+  onOpenMenu: () => void;
   onPress: () => void;
   project: ProjectRecord;
+  statusBarHeight?: number;
 };
 
-function ProjectPill({active, compact, onPress, project}: ProjectPillProps) {
+function ProjectHistoryRow({
+  active,
+  lastItem,
+  menuVisible,
+  onDelete,
+  onDismissMenu,
+  onOpenMenu,
+  onPress,
+  project,
+  statusBarHeight,
+}: ProjectHistoryRowProps) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.projectPill, active ? styles.projectPillActive : null]}>
-      <Text
-        numberOfLines={compact ? 2 : 1}
-        style={[
-          styles.projectTitle,
-          compact ? styles.projectTitleCompact : null,
-          active ? styles.projectTitleActive : null,
-        ]}>
-        {project.title}
-      </Text>
-      <Text
-        numberOfLines={2}
-        style={[
-          styles.projectMeta,
-          compact ? styles.projectMetaCompact : null,
-          active ? styles.projectMetaActive : null,
-        ]}>
-        {project.messages.length} 条消息 · {project.fileIds.length} 个文件
-      </Text>
-    </Pressable>
+    <View
+      style={[
+        styles.projectHistoryRow,
+        active ? styles.projectHistoryRowActive : null,
+        !lastItem ? styles.projectHistoryRowDivider : null,
+      ]}>
+      <Pressable
+        onPress={onPress}
+        style={styles.projectHistoryRowBody}
+        testID={`project-drawer-item-${project.id}`}>
+        <View style={styles.projectHistoryRowHeader}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.projectHistoryRowTitle,
+              active ? styles.projectHistoryRowTitleActive : null,
+            ]}>
+            {project.title}
+          </Text>
+          <Text style={styles.projectHistoryRowDate}>
+            {formatDate(project.createdAt)}
+          </Text>
+        </View>
+        <InlineMeta style={styles.projectHistoryRowMetaWrap}>
+          <Text
+            style={[
+              styles.projectHistoryRowMeta,
+              active ? styles.projectHistoryRowMetaActive : null,
+            ]}>
+            {project.fileIds.length} 个文件
+          </Text>
+          <Text
+            style={[
+              styles.projectHistoryRowMeta,
+              active ? styles.projectHistoryRowMetaActive : null,
+            ]}>
+            {project.messages.length} 条消息
+          </Text>
+        </InlineMeta>
+      </Pressable>
+      <Menu
+        anchor={
+          <MenuTriggerButton
+            onPress={onOpenMenu}
+            testID={`project-row-menu-open-${project.id}`}
+          />
+        }
+        anchorPosition="bottom"
+        onDismiss={onDismissMenu}
+        statusBarHeight={statusBarHeight}
+        testID={`project-row-menu-${project.id}`}
+        visible={menuVisible}>
+        <Menu.Item
+          onPress={onDelete}
+          testID={`project-row-menu-delete-${project.id}`}
+          title="删除项目"
+          titleStyle={styles.projectHistoryMenuDeleteLabel}
+        />
+      </Menu>
+    </View>
   );
 }
 
@@ -632,7 +838,7 @@ type MessageCardProps = {
 
 function MessageCard({message, onCopy, onDelete}: MessageCardProps) {
   return (
-    <View style={styles.messageCard}>
+    <PanelSurface style={styles.messageCard}>
       <Text style={styles.messageBody}>{message.content}</Text>
       <Text style={styles.messageMeta}>
         {formatDateTime(message.createdAt)} ·{' '}
@@ -640,9 +846,9 @@ function MessageCard({message, onCopy, onDelete}: MessageCardProps) {
       </Text>
       <View style={styles.inlineActions}>
         <GhostButton label="复制" onPress={onCopy} />
-        <GhostButton label="删除" onPress={onDelete} />
+        <DangerGhostButton label="删除" onPress={onDelete} />
       </View>
-    </View>
+    </PanelSurface>
   );
 }
 
@@ -664,7 +870,7 @@ function FileCard({
   onToggleShare,
 }: FileCardProps) {
   return (
-    <View style={styles.fileCard}>
+    <PanelSurface style={styles.fileCard}>
       <View style={styles.fileCardHeader}>
         <View style={styles.fileCardHeaderMain}>
           <Text numberOfLines={2} style={styles.fileName}>
@@ -679,16 +885,36 @@ function FileCard({
           {isShared ? '已共享' : '未共享'}
         </Text>
       </View>
-      <View style={styles.inlineActions}>
-        <GhostButton
-          disabled={busy}
-          label={isShared ? '移出共享' : '加入共享'}
-          onPress={onToggleShare}
-        />
-        <GhostButton disabled={busy} label="导出" onPress={onExport} />
-        <DangerGhostButton disabled={busy} label="删除" onPress={onDelete} />
+      <View style={styles.fileCardActionsRow}>
+        <View style={styles.fileCardActionCell}>
+          <GhostButton
+            compact
+            disabled={busy}
+            fullWidth
+            label={isShared ? '移出共享' : '加入共享'}
+            onPress={onToggleShare}
+          />
+        </View>
+        <View style={styles.fileCardActionCell}>
+          <GhostButton
+            compact
+            disabled={busy}
+            fullWidth
+            label="导出"
+            onPress={onExport}
+          />
+        </View>
+        <View style={styles.fileCardActionCell}>
+          <DangerGhostButton
+            compact
+            disabled={busy}
+            fullWidth
+            label="删除"
+            onPress={onDelete}
+          />
+        </View>
       </View>
-    </View>
+    </PanelSurface>
   );
 }
 
@@ -710,7 +936,7 @@ function SharedListCard({
   projectTitle,
 }: SharedListCardProps) {
   return (
-    <View style={styles.fileCard}>
+    <PanelSurface style={styles.fileCard}>
       <View style={styles.fileCardHeader}>
         <View style={styles.fileCardHeaderMain}>
           <Text numberOfLines={2} style={styles.fileName}>
@@ -721,12 +947,37 @@ function SharedListCard({
           </Text>
         </View>
       </View>
-      <View style={styles.inlineActions}>
-        <GhostButton disabled={busy} label="项目" onPress={onOpenProject} />
-        <GhostButton disabled={busy} label="导出" onPress={onExport} />
-        <GhostButton disabled={busy} label="移出" onPress={onRemoveShare} />
+      <View style={styles.fileCardActionsRow}>
+        <View style={styles.fileCardActionCell}>
+          <GhostButton
+            compact
+            disabled={busy}
+            fullWidth
+            label="项目"
+            onPress={onOpenProject}
+            testID={`shared-file-project-${file.id}`}
+          />
+        </View>
+        <View style={styles.fileCardActionCell}>
+          <GhostButton
+            compact
+            disabled={busy}
+            fullWidth
+            label="导出"
+            onPress={onExport}
+          />
+        </View>
+        <View style={styles.fileCardActionCell}>
+          <GhostButton
+            compact
+            disabled={busy}
+            fullWidth
+            label="移出"
+            onPress={onRemoveShare}
+          />
+        </View>
       </View>
-    </View>
+    </PanelSurface>
   );
 }
 
@@ -735,11 +986,7 @@ type EmptyStateProps = {
 };
 
 function EmptyState({title}: EmptyStateProps) {
-  return (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyStateTitle}>{title}</Text>
-    </View>
-  );
+  return <EmptyStateCard title={title} />;
 }
 
 type NoticeBannerProps = {
@@ -749,22 +996,7 @@ type NoticeBannerProps = {
 };
 
 function NoticeBanner({message, onDismiss, tone}: NoticeBannerProps) {
-  return (
-    <View
-      style={[
-        styles.noticeBanner,
-        tone === 'success'
-          ? styles.noticeBannerSuccess
-          : tone === 'error'
-            ? styles.noticeBannerError
-            : styles.noticeBannerInfo,
-      ]}>
-      <Text style={styles.noticeMessage}>{message}</Text>
-      <Pressable onPress={onDismiss} style={styles.noticeDismiss}>
-        <Text style={styles.noticeDismissLabel}>关闭</Text>
-      </Pressable>
-    </View>
-  );
+  return <FeedbackBanner message={message} onDismiss={onDismiss} tone={tone} />;
 }
 
 function formatBytes(size: number) {
@@ -793,10 +1025,52 @@ function formatDateTime(value: string) {
   });
 }
 
+function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString('zh-CN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
+    position: 'relative',
+  },
+  backdropLayer: {
+    bottom: 0,
+    left: 0,
+    overflow: 'hidden',
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  backdropGlow: {
+    borderRadius: 999,
+    position: 'absolute',
+  },
+  backdropGlowPrimary: {
+    backgroundColor: theme.colors.primarySoft,
+    height: 260,
+    opacity: 0.9,
+    right: -40,
+    top: -36,
+    width: 260,
+  },
+  backdropGlowSecondary: {
+    backgroundColor: theme.colors.surfaceTint,
+    bottom: 80,
+    height: 220,
+    left: -60,
+    opacity: 0.75,
+    width: 220,
   },
   loadingShell: {
     flex: 1,
@@ -810,7 +1084,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   page: {
-    paddingBottom: 24,
+    paddingBottom: 32,
+    paddingTop: 4,
   },
   globalTopBar: {
     alignItems: 'center',
@@ -819,6 +1094,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     marginBottom: 6,
     minHeight: 36,
+  },
+  globalTopBarStacked: {
+    justifyContent: 'space-between',
   },
   workspace: {
     flexDirection: 'row',
@@ -854,28 +1132,35 @@ const styles = StyleSheet.create({
   sidebar: {
     gap: 12,
   },
+  sidebarPanel: {
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
   sidebarListCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 24,
-    padding: 12,
+    gap: 12,
+  },
+  sidebarHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 10,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+  },
+  sidebarHeader: {
+    gap: 4,
+    flex: 1,
+    minWidth: 0,
   },
   sidebarSectionTitle: {
     color: theme.colors.ink,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
-  sidebarActions: {
-    alignItems: 'stretch',
-    flexDirection: 'row',
-    gap: 8,
-    width: '100%',
-  },
-  sidebarActionCell: {
-    flex: 1,
-    minWidth: 0,
+  sidebarSectionMeta: {
+    color: theme.colors.inkSoft,
+    fontSize: 12,
+    lineHeight: 18,
   },
   sidebarToolbarButton: {
     alignItems: 'center',
@@ -883,13 +1168,111 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     width: '100%',
   },
-  projectSidebarList: {
+  projectDrawerSection: {
+    marginHorizontal: 0,
+    marginVertical: 0,
+  },
+  projectHistoryRow: {
+    alignItems: 'center',
+    borderRadius: 20,
+    flexDirection: 'row',
+    gap: 8,
+    minHeight: 64,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  projectHistoryRowActive: {
+    backgroundColor: theme.colors.primarySoft,
+    borderLeftColor: theme.colors.primaryStrong,
+    borderLeftWidth: 3,
+    paddingLeft: 10,
+  },
+  projectHistoryRowDivider: {
+    borderBottomColor: theme.colors.border,
+    borderBottomWidth: 1,
+  },
+  projectHistoryRowBody: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
+    paddingVertical: 4,
+  },
+  projectHistoryRowHeader: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  projectHistoryRowTitle: {
+    color: theme.colors.ink,
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '800',
+    minWidth: 0,
+  },
+  projectHistoryRowTitleActive: {
+    color: theme.colors.ink,
+  },
+  projectHistoryRowDate: {
+    color: theme.colors.inkMuted,
+    fontSize: 11,
+    lineHeight: 18,
+  },
+  projectHistoryRowMetaWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 10,
+  },
+  projectHistoryRowMeta: {
+    color: theme.colors.inkSoft,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  projectHistoryRowMetaActive: {
+    color: theme.colors.ink,
+  },
+  projectHistoryMenuDeleteLabel: {
+    color: theme.colors.dangerStrong,
   },
   main: {
     flex: 1,
     minWidth: 0,
-    gap: 14,
+    gap: 16,
+  },
+  mobileSidebarOverlay: {
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    zIndex: 20,
+  },
+  mobileSidebarBackdrop: {
+    backgroundColor: theme.colors.backdrop,
+    bottom: 0,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  mobileSidebarPanel: {
+    backgroundColor: theme.colors.background,
+    borderColor: theme.colors.border,
+    borderRightWidth: 1,
+    bottom: 0,
+    left: 0,
+    paddingTop: 12,
+    position: 'absolute',
+    top: 0,
+  },
+  mobileSidebarScrollContent: {
+    gap: 0,
+    paddingBottom: 24,
+  },
+  summaryShell: {
+    gap: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
   },
   header: {
     flexDirection: 'row',
@@ -906,15 +1289,15 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: theme.colors.ink,
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: '800',
   },
   headerTitleCompact: {
-    fontSize: 26,
+    fontSize: 28,
   },
   headerMeta: {
     color: theme.colors.inkSoft,
-    marginTop: 4,
+    marginTop: 6,
   },
   headerActions: {
     flexDirection: 'row',
@@ -927,17 +1310,18 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   infoBadge: {
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: theme.colors.border,
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.surface,
-    gap: 2,
+    paddingVertical: 12,
+    backgroundColor: theme.colors.surfaceElevated,
+    gap: 4,
+    minWidth: 92,
   },
   infoBadgeSuccess: {
-    backgroundColor: '#E2F2E8',
-    borderColor: '#B9D9C4',
+    backgroundColor: theme.colors.successSoft,
+    borderColor: theme.colors.success,
   },
   infoBadgeLabel: {
     color: theme.colors.inkSoft,
@@ -950,10 +1334,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   quickToolsCard: {
-    borderRadius: 20,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surface,
+    backgroundColor: theme.colors.surfaceMuted,
     padding: 16,
     gap: 12,
   },
@@ -966,7 +1350,7 @@ const styles = StyleSheet.create({
   },
   topGrid: {
     flexDirection: 'row',
-    gap: 14,
+    gap: 16,
     alignItems: 'flex-start',
   },
   topGridCompact: {
@@ -974,12 +1358,10 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    backgroundColor: theme.colors.surface,
-    borderRadius: 24,
-    padding: 18,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surfaceElevated,
+    borderRadius: theme.radius.card,
+    gap: 16,
+    padding: 20,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -1005,10 +1387,10 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surfaceMuted,
   },
   noticeBannerSuccess: {
-    backgroundColor: '#E2F2E8',
+    backgroundColor: theme.colors.successSoft,
   },
   noticeBannerError: {
-    backgroundColor: '#FBE3D8',
+    backgroundColor: theme.colors.dangerSoft,
   },
   noticeMessage: {
     color: theme.colors.ink,
@@ -1032,10 +1414,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderRadius: 999,
+    borderRadius: theme.radius.pill,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    backgroundColor: theme.colors.surfaceMuted,
+    backgroundColor: theme.colors.surfaceElevated,
   },
   statusDot: {
     width: 8,
@@ -1046,7 +1428,8 @@ const styles = StyleSheet.create({
     color: theme.colors.ink,
     fontWeight: '700',
   },
-  serviceCardLayout: {
+  topGridPanel: {
+    alignSelf: 'stretch',
     minWidth: 0,
   },
   serviceHeaderRow: {
@@ -1064,9 +1447,9 @@ const styles = StyleSheet.create({
   networkTag: {
     alignItems: 'center',
     alignSelf: 'center',
-    backgroundColor: theme.colors.surfaceMuted,
+    backgroundColor: theme.colors.secondarySoft,
     borderColor: theme.colors.border,
-    borderRadius: 999,
+    borderRadius: theme.radius.pill,
     borderWidth: 1,
     flexDirection: 'row',
     flexShrink: 1,
@@ -1098,6 +1481,8 @@ const styles = StyleSheet.create({
     minWidth: 0,
     borderRadius: 18,
     backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+    borderWidth: 1,
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 6,
@@ -1120,32 +1505,29 @@ const styles = StyleSheet.create({
     flex: 0,
     width: '100%',
   },
-  modeRow: {
+  securityModeSwitchRow: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
+    gap: 14,
+    justifyContent: 'space-between',
   },
-  modePill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: theme.colors.surfaceMuted,
+  securityModeSwitchText: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 4,
   },
-  modePillActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
+  securityModeTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 2,
   },
-  modePillLabel: {
+  securityModeSwitchTitle: {
     color: theme.colors.ink,
+    fontSize: 16,
     fontWeight: '700',
   },
-  modePillLabelActive: {
-    color: theme.colors.inkOnStrong,
-  },
   serviceCard: {
-    elevation: 3,
     overflow: 'hidden',
     zIndex: 2,
   },
@@ -1153,8 +1535,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'stretch',
     backgroundColor: theme.colors.surfaceMuted,
-    borderRadius: 18,
-    elevation: 4,
+    borderColor: theme.colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
     justifyContent: 'center',
     maxWidth: '100%',
     overflow: 'hidden',
@@ -1197,22 +1580,12 @@ const styles = StyleSheet.create({
   projectMetaActive: {
     color: theme.colors.ink,
   },
-  activeProjectHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  activeProjectHeaderCompact: {
-    flexDirection: 'column',
-  },
   activeProjectHeaderMain: {
-    flex: 1,
     gap: 4,
   },
   activeProjectTitle: {
     color: theme.colors.ink,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '800',
   },
   activeProjectMeta: {
@@ -1237,8 +1610,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   messageCard: {
-    backgroundColor: theme.colors.surfaceMuted,
-    borderRadius: 18,
     gap: 10,
     padding: 16,
   },
@@ -1252,8 +1623,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   fileCard: {
-    backgroundColor: theme.colors.surfaceMuted,
-    borderRadius: 18,
     gap: 12,
     padding: 16,
   },
@@ -1287,11 +1656,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     paddingHorizontal: 10,
     paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.pill,
+    backgroundColor: theme.colors.surfaceMuted,
   },
   fileTagShared: {
-    color: theme.colors.primary,
+    color: theme.colors.primaryStrong,
   },
   emptyState: {
     borderRadius: 18,
@@ -1308,6 +1677,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
+  },
+  fileCardActionsRow: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    gap: 8,
+  },
+  fileCardActionCell: {
+    flex: 1,
+    minWidth: 0,
   },
   primaryButton: {
     borderRadius: 999,
@@ -1335,16 +1714,50 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textAlign: 'center',
   },
+  iconButton: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
+  },
+  iconButtonGlyph: {
+    color: theme.colors.ink,
+    fontSize: 20,
+    fontWeight: '800',
+    lineHeight: 22,
+    marginTop: -2,
+    textAlign: 'center',
+  },
+  menuTriggerButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  menuTriggerGlyph: {
+    color: theme.colors.inkSoft,
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    lineHeight: 18,
+    marginTop: -6,
+    textAlign: 'center',
+  },
   dangerGhostButton: {
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#E2A786',
+    borderColor: theme.colors.dangerSoft,
     paddingHorizontal: 18,
     paddingVertical: 12,
-    backgroundColor: '#FFF2EB',
+    backgroundColor: theme.colors.dangerSoft,
   },
   dangerGhostButtonLabel: {
-    color: '#A44D19',
+    color: theme.colors.dangerStrong,
     fontWeight: '700',
     fontSize: 15,
     textAlign: 'center',

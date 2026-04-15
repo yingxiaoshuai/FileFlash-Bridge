@@ -103,7 +103,12 @@ describe('InboundStorageGateway', () => {
         throw new Error('Expected a base64-backed chunk for large files.');
       }
 
-      expect(Buffer.from(chunk.base64, 'base64').toString('utf8')).toBe('456789');
+      const base64Chunk = chunk.base64;
+      if (!base64Chunk) {
+        throw new Error('Expected the chunk to include base64 content.');
+      }
+
+      expect(Buffer.from(base64Chunk, 'base64').toString('utf8')).toBe('456789');
     } finally {
       await rm(rootDir, {force: true, recursive: true});
     }
@@ -184,6 +189,41 @@ describe('InboundStorageGateway', () => {
       expect(projectFiles).toHaveLength(0);
       expect(sharedFiles).toHaveLength(0);
       await expect(fileSystem.exists(file.storagePath)).resolves.toBe(false);
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('falls back to another project or a replacement project after deleting the active project', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const fileSystem = new NodeFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 1024,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-delete-active',
+    });
+
+    try {
+      await gateway.initialize();
+      const initialSnapshot = await gateway.getSnapshot();
+      const initialProjectId = initialSnapshot.activeProjectId;
+      const secondProject = await gateway.createProject('第二轮项目');
+
+      await gateway.setActiveProject(secondProject.id);
+      await gateway.deleteProject(secondProject.id);
+
+      let snapshot = await gateway.getSnapshot();
+      expect(snapshot.activeProjectId).toBe(initialProjectId);
+      expect(snapshot.projects.map(project => project.id)).toEqual([initialProjectId]);
+
+      await gateway.deleteProject(initialProjectId);
+
+      snapshot = await gateway.getSnapshot();
+      expect(snapshot.projects).toHaveLength(1);
+      expect(snapshot.activeProjectId).toBe(snapshot.projects[0]?.id);
+      expect(snapshot.projects[0]?.title).toBe('当前分享轮次');
     } finally {
       await rm(rootDir, {force: true, recursive: true});
     }

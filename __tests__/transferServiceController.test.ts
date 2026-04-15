@@ -279,4 +279,57 @@ describe('TransferServiceController', () => {
       await rm(rootDir, {force: true, recursive: true});
     }
   });
+
+  test('routes browser text and files into the newly active project after a project switch', async () => {
+    const {controller, rootDir, storage} = await createController();
+
+    try {
+      const initialSnapshot = await storage.getSnapshot();
+      const initialProjectId = initialSnapshot.activeProjectId;
+      const secondProject = await storage.createProject('第二轮分享');
+      await storage.setActiveProject(secondProject.id);
+
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key');
+
+      const textResponse = await fetch(`${accessUrl.origin}/api/text?key=${key}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'text/plain; charset=utf-8',
+          'x-client-id': 'client-a',
+        },
+        body: '切换后的文本',
+      });
+      expect(textResponse.status).toBe(200);
+
+      const uploadResponse = await fetch(
+        `${accessUrl.origin}/api/upload?key=${key}&name=${encodeURIComponent(
+          'after-switch.txt',
+        )}`,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'text/plain',
+            'x-client-id': 'client-a',
+          },
+          body: Buffer.from('after-switch-file'),
+        },
+      );
+      expect(uploadResponse.status).toBe(200);
+
+      const snapshot = await storage.getSnapshot();
+      const firstProject = snapshot.projects.find(item => item.id === initialProjectId);
+      const activeProject = snapshot.projects.find(item => item.id === secondProject.id);
+      const activeProjectFiles = await storage.listProjectFiles(secondProject.id);
+
+      expect(firstProject?.messages).toHaveLength(0);
+      expect(activeProject?.messages.at(-1)?.content).toBe('切换后的文本');
+      expect(activeProjectFiles.some(file => file.displayName === 'after-switch.txt')).toBe(
+        true,
+      );
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
 });

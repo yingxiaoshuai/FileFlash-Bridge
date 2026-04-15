@@ -148,6 +148,7 @@ export class NodeHttpRuntime implements ServiceRuntime {
     this.server = server;
 
     return {
+      origin: `http://127.0.0.1:${address.port}`,
       port: address.port,
       stop: async () => {
         await new Promise<void>((resolve, reject) => {

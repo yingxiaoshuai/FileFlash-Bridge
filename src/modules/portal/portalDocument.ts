@@ -1,4 +1,5 @@
 import {SecurityMode} from '../service/models';
+import {portalTheme} from './portalTheme';
 
 export interface PortalDocumentModel {
   chunkSize: number;
@@ -27,54 +28,110 @@ export function buildPortalDocument(model: PortalDocumentModel) {
     <style>
       :root {
         color-scheme: light;
-        --bg: #f5efe3;
-        --paper: rgba(255, 249, 239, 0.92);
-        --ink: #182028;
-        --muted: #5d665c;
-        --line: #d7c6ac;
-        --accent: #d4642b;
-        --accent-strong: #9c451a;
-        --navy: #1f3a5f;
-        --green: #2e8a58;
-        --warn: #c46f1f;
+        --bg: ${portalTheme.backdrop};
+        --panel: ${portalTheme.panel};
+        --panel-strong: ${portalTheme.panelStrong};
+        --ink: ${portalTheme.ink};
+        --muted: ${portalTheme.muted};
+        --line: ${portalTheme.border};
+        --line-soft: ${portalTheme.lineSoft};
+        --accent: ${portalTheme.accent};
+        --accent-strong: ${portalTheme.accentStrong};
+        --accent-soft: ${portalTheme.accentSoft};
+        --green: ${portalTheme.success};
+        --green-soft: ${portalTheme.successSoft};
+        --warn: ${portalTheme.warning};
+        --warn-soft: ${portalTheme.warningSoft};
+        --danger: ${portalTheme.danger};
+        --danger-soft: ${portalTheme.dangerSoft};
+        --glow-primary: ${portalTheme.glowPrimary};
+        --glow-secondary: ${portalTheme.glowSecondary};
+        --glow-tertiary: ${portalTheme.glowTertiary};
+        --shadow: ${portalTheme.shadow};
       }
 
-      * { box-sizing: border-box; }
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        min-height: 100%;
+      }
 
       body {
         margin: 0;
-        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        position: relative;
+        overflow-x: hidden;
+        font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
         background:
-          radial-gradient(circle at top right, rgba(212, 100, 43, 0.18), transparent 28%),
-          radial-gradient(circle at left bottom, rgba(31, 58, 95, 0.12), transparent 28%),
+          radial-gradient(circle at top right, var(--glow-primary), transparent 32%),
+          radial-gradient(circle at left -10%, var(--glow-tertiary), transparent 42%),
+          radial-gradient(circle at right 22%, var(--glow-secondary), transparent 30%),
           var(--bg);
         color: var(--ink);
+      }
+
+      body::before,
+      body::after {
+        content: "";
+        pointer-events: none;
+        position: fixed;
+        inset: 0;
+      }
+
+      body::before {
+        background:
+          linear-gradient(120deg, rgba(255, 255, 255, 0.3), transparent 42%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 36%);
+      }
+
+      body::after {
+        opacity: 0.18;
+        background-image:
+          linear-gradient(rgba(17, 24, 39, 0.05) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(17, 24, 39, 0.05) 1px, transparent 1px);
+        background-size: 24px 24px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 78%);
       }
 
       .shell {
         max-width: 1120px;
         margin: 0 auto;
-        padding: 24px 16px 48px;
+        padding: 28px 16px 56px;
+        position: relative;
+        z-index: 1;
       }
 
       .hero,
       .panel {
-        backdrop-filter: blur(10px);
-        background: var(--paper);
-        border: 1px solid rgba(215, 198, 172, 0.95);
-        border-radius: 28px;
-        box-shadow: 0 24px 60px rgba(24, 32, 40, 0.08);
+        backdrop-filter: blur(18px) saturate(1.15);
+        background: var(--panel);
+        border: 1px solid var(--line-soft);
+        border-radius: 30px;
+        box-shadow: 0 24px 64px var(--shadow);
+        overflow: hidden;
+        position: relative;
+      }
+
+      .hero::after,
+      .panel::after {
+        content: "";
+        pointer-events: none;
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), transparent 38%);
       }
 
       .hero {
-        padding: 28px;
-        margin-bottom: 16px;
+        padding: 30px;
+        margin-bottom: 18px;
       }
 
       .hero-top {
         display: flex;
         justify-content: space-between;
-        gap: 12px;
+        gap: 18px;
         align-items: center;
       }
 
@@ -82,9 +139,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        background: rgba(31, 58, 95, 0.1);
-        color: var(--navy);
-        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.66);
+        border: 1px solid var(--line-soft);
+        color: var(--accent-strong);
+        padding: 8px 13px;
         border-radius: 999px;
         font-size: 12px;
         font-weight: 700;
@@ -92,18 +150,42 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         text-transform: uppercase;
       }
 
+      .device-pill {
+        align-self: flex-start;
+        background: rgba(255, 255, 255, 0.62);
+        border: 1px solid var(--line-soft);
+        border-radius: 999px;
+        color: var(--muted);
+        font-size: 13px;
+        padding: 10px 14px;
+      }
+
       h1 {
         margin: 18px 0 10px;
-        font-size: clamp(2.3rem, 4vw, 3.7rem);
+        font-size: clamp(2.4rem, 4vw, 3.9rem);
+        letter-spacing: -0.05em;
         line-height: 0.95;
+      }
+
+      .hero-copy {
+        color: var(--muted);
+        font-size: 15px;
+        line-height: 1.65;
+        margin: 0;
+        max-width: 620px;
+      }
+
+      .hero-actions {
+        margin-top: 18px;
       }
 
       .banner {
         margin-top: 18px;
         padding: 14px 16px;
         border-radius: 18px;
-        background: rgba(31, 58, 95, 0.08);
-        color: var(--navy);
+        background: rgba(231, 240, 253, 0.9);
+        border: 1px solid rgba(20, 115, 230, 0.14);
+        color: var(--accent-strong);
       }
 
       .banner[hidden] {
@@ -111,21 +193,22 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       .banner.warn {
-        background: rgba(196, 111, 31, 0.14);
-        color: #78460c;
+        background: var(--warn-soft);
+        border-color: rgba(217, 130, 43, 0.18);
+        color: #8b5717;
       }
 
       .service-pill {
-        margin-top: 18px;
         display: inline-flex;
         align-items: center;
         gap: 8px;
         padding: 10px 14px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.7);
-        border: 1px solid rgba(215, 198, 172, 0.9);
+        background: var(--panel-strong);
+        border: 1px solid var(--line-soft);
         font-size: 14px;
         font-weight: 800;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
       }
 
       .service-dot {
@@ -142,29 +225,44 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       .grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 16px;
+        gap: 18px;
       }
 
       .panel {
         padding: 22px;
       }
 
+      .panel-head {
+        margin-bottom: 16px;
+      }
+
+      .eyebrow {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+      }
+
       .panel h2 {
         margin: 0 0 8px;
         font-size: 1.35rem;
+        letter-spacing: -0.03em;
       }
 
       .dropzone {
-        border: 2px dashed rgba(31, 58, 95, 0.2);
+        border: 1px dashed rgba(20, 115, 230, 0.26);
         border-radius: 22px;
         padding: 24px;
         text-align: center;
-        background: rgba(255, 255, 255, 0.62);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(243, 246, 250, 0.94));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
       }
 
       .dropzone.active {
-        border-color: rgba(212, 100, 43, 0.7);
-        background: rgba(212, 100, 43, 0.08);
+        border-color: rgba(20, 115, 230, 0.45);
+        background: rgba(231, 240, 253, 0.86);
       }
 
       .button-row,
@@ -177,30 +275,32 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       button,
       .file-button {
         appearance: none;
-        border: none;
+        border: 1px solid transparent;
         border-radius: 999px;
         padding: 12px 16px;
         font: inherit;
         font-weight: 800;
         cursor: pointer;
-        transition: transform 120ms ease, opacity 120ms ease;
+        text-decoration: none;
+        transition: transform 120ms ease, opacity 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
       }
 
       button:hover,
       .file-button:hover {
         transform: translateY(-1px);
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
       }
 
       button.primary,
       .file-button.primary {
-        background: var(--accent);
-        color: #fff7f0;
+        background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+        color: #ffffff;
       }
 
       button.ghost,
       .file-button.ghost {
-        background: rgba(255, 255, 255, 0.72);
-        border: 1px solid rgba(215, 198, 172, 0.92);
+        background: var(--panel-strong);
+        border-color: var(--line);
         color: var(--ink);
       }
 
@@ -209,11 +309,12 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         min-height: 160px;
         resize: vertical;
         border-radius: 20px;
-        border: 1px solid rgba(215, 198, 172, 0.95);
+        border: 1px solid var(--line);
         padding: 16px;
         font: inherit;
         line-height: 1.55;
-        background: rgba(255, 255, 255, 0.8);
+        background: var(--panel-strong);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
       }
 
       .muted {
@@ -232,8 +333,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       .item {
         padding: 14px 16px;
         border-radius: 18px;
-        background: rgba(255, 255, 255, 0.72);
-        border: 1px solid rgba(215, 198, 172, 0.92);
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
       }
 
       .item-head {
@@ -267,17 +369,22 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       .chip.ok {
-        background: rgba(46, 138, 88, 0.14);
+        background: var(--green-soft);
         color: var(--green);
       }
 
       .chip.warn {
-        background: rgba(196, 111, 31, 0.14);
-        color: #8a4e0e;
+        background: var(--warn-soft);
+        color: #8a5717;
       }
 
       .hidden-input {
         display: none;
+      }
+
+      #text-feedback {
+        margin: 14px 0 0;
+        min-height: 22px;
       }
 
       @media (max-width: 760px) {
@@ -294,6 +401,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           align-items: flex-start;
           flex-direction: column;
         }
+
+        .hero {
+          padding: 24px;
+        }
+
+        .button-row,
+        .status-actions {
+          flex-direction: column;
+        }
       }
     </style>
   </head>
@@ -301,23 +417,32 @@ export function buildPortalDocument(model: PortalDocumentModel) {
     <div class="shell">
       <section class="hero">
         <div class="hero-top">
-          <div class="badge">FileFlash Bridge</div>
-          <div class="muted">设备：${deviceName}</div>
+          <div>
+            <div class="badge">FileFlash Bridge</div>
+            <h1>浏览器投递</h1>
+            <p class="hero-copy">把文件、文本和共享内容轻快地送到这台手机。无需额外安装，只保留清晰、安静、可读的传输工作台。</p>
+          </div>
+          <div class="device-pill">设备：${deviceName}</div>
         </div>
-        <h1>浏览器投递</h1>
-        <div id="service-pill" class="service-pill">
-          <span class="service-dot"></span>
-          <span id="service-state">服务离线</span>
+        <div class="hero-actions">
+          <div id="service-pill" class="service-pill">
+            <span class="service-dot"></span>
+            <span id="service-state">服务离线</span>
+          </div>
         </div>
         <div hidden id="status-banner" class="banner"></div>
       </section>
 
       <div class="grid">
         <section class="panel">
-          <h2>上传</h2>
+          <div class="panel-head">
+            <div class="eyebrow">Drop & Deliver</div>
+            <h2>上传到手机</h2>
+            <div class="muted">支持拖拽、文件选择和文件夹选择；浏览器支持目录上传时会保留相对路径结构。</div>
+          </div>
           <div id="dropzone" class="dropzone">
             <div class="item-title">把文件拖到这里，或者选择文件 / 文件夹</div>
-            <p class="muted">支持目录上传的浏览器会保留相对路径结构。</p>
+            <p class="muted">文件会先进入手机端 App 内会话，外部保存仍由手机用户主动导出。</p>
             <div class="button-row">
               <label class="file-button primary" for="file-input">选择文件</label>
               <label class="file-button ghost" for="folder-input">选择文件夹</label>
@@ -330,7 +455,11 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         </section>
 
         <section class="panel">
-          <h2>文本</h2>
+          <div class="panel-head">
+            <div class="eyebrow">Paste & Send</div>
+            <h2>发送文本</h2>
+            <div class="muted">提交后的内容会进入手机端当前活跃项目，浏览器侧无需自行选择项目。</div>
+          </div>
           <textarea id="text-input" placeholder="在这里粘贴内容，提交后会进入手机端接收区。"></textarea>
           <div class="status-actions" style="margin-top: 14px">
             <button id="text-submit" class="primary" type="button">提交文本</button>
@@ -341,10 +470,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       </div>
 
       <section class="panel" style="margin-top: 16px">
-        <h2>共享文件</h2>
-        <div class="muted">大文件按 ${Math.floor(
-          model.chunkSize / (1024 * 1024),
-        )} MB 分块下载。</div>
+        <div class="panel-head">
+          <div class="eyebrow">Shared From Phone</div>
+          <h2>共享文件</h2>
+          <div class="muted">大文件按 ${Math.floor(
+            model.chunkSize / (1024 * 1024),
+          )} MB 分块下载，单分块失败时会自动重试。</div>
+        </div>
         <div id="download-list" class="download-list"></div>
       </section>
     </div>

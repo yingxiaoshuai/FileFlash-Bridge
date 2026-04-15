@@ -322,7 +322,9 @@ export function useAppModel() {
     }));
 
     try {
-      const nextServiceState = await controllerRef.current!.refreshAddress();
+      const nextServiceState = await controllerRef.current!.refreshAddress({
+        rotateAccessKey: true,
+      });
       const nextSnapshot = await gatewayRef.current!.getSnapshot();
       setState(currentState => ({
         ...currentState,
@@ -334,41 +336,10 @@ export function useAppModel() {
               tone: nextServiceState.phase === 'error' ? 'error' : 'info',
             }
           : {
-              message: '访问地址已按当前网络环境刷新。',
+              message:
+                '访问地址与访问密钥已更新，请使用 App 内最新链接与二维码；旧链接与旧二维码已失效。',
               tone: 'success',
             },
-        serviceState: nextServiceState,
-        snapshot: nextSnapshot,
-      }));
-    } catch (error) {
-      setState(currentState => ({
-        ...currentState,
-        busyAction: undefined,
-        notice: {
-          message: asErrorMessage(error),
-          tone: 'error',
-        },
-      }));
-    }
-  };
-
-  const rotateKey = async () => {
-    setState(currentState => ({
-      ...currentState,
-      busyAction: 'security',
-    }));
-
-    try {
-      const nextServiceState = await controllerRef.current!.rotateAccessKey();
-      const nextSnapshot = await gatewayRef.current!.getSnapshot();
-      setState(currentState => ({
-        ...currentState,
-        busyAction: undefined,
-        isReady: true,
-        notice: {
-          message: '新的 key 已生成，旧链接和旧二维码立即失效。',
-          tone: 'success',
-        },
         serviceState: nextServiceState,
         snapshot: nextSnapshot,
       }));
@@ -398,13 +369,13 @@ export function useAppModel() {
         ...currentState,
         busyAction: undefined,
         isReady: true,
-        notice: {
-          message:
-            securityMode === 'secure'
-              ? '已切换到安全模式，访问需要携带 key。'
-              : '已切换到简单模式，建议只在可信网络中使用。',
-          tone: 'info',
-        },
+        notice:
+          securityMode === 'secure'
+            ? {
+                message: '已切换到安全模式，访问需要携带 key。',
+                tone: 'info' as const,
+              }
+            : undefined,
         serviceState: nextServiceState,
         snapshot: nextSnapshot,
       }));
@@ -626,7 +597,6 @@ export function useAppModel() {
     notice: state.notice,
     projects,
     refreshAddress,
-    rotateKey,
     securityCopy,
     selectProject,
     serviceState: state.serviceState,

@@ -1,5 +1,64 @@
 import {NetworkMode, NetworkSnapshot} from './models';
 
+function inferSnapshotFromBindAddress(
+  address: string,
+): Pick<NetworkSnapshot, 'mode' | 'label' | 'interfaceName'> {
+  if (/^10\.0\.2\./.test(address)) {
+    return {
+      mode: 'unknown',
+      label: '安卓模拟器',
+      interfaceName: 'emulator',
+    };
+  }
+
+  if (
+    /^192\.168\.43\./.test(address) ||
+    /^192\.168\.137\./.test(address) ||
+    /^192\.168\.49\./.test(address)
+  ) {
+    return {
+      mode: 'hotspot',
+      label: '手机热点',
+      interfaceName: '热点 (HTTP)',
+    };
+  }
+
+  return {
+    mode: 'unknown',
+    label: '本机网络',
+    interfaceName: 'HTTP 服务',
+  };
+}
+
+/**
+ * NetInfo 在热点等场景下常拿不到 IPv4，此时用 HTTP runtime 的 bind 地址兜底。
+ * 若仍沿用离线态的 label，界面会一直显示「无可用局域网」——这里按地址重写展示字段。
+ */
+export function mergeNetworkSnapshotWithRuntimeAddress(
+  probed: NetworkSnapshot,
+  runtimeAddress: string | undefined,
+): NetworkSnapshot {
+  const address = probed.address ?? runtimeAddress;
+  if (!address) {
+    return probed;
+  }
+
+  if (probed.reachable) {
+    return {
+      ...probed,
+      address: probed.address ?? address,
+    };
+  }
+
+  const inferred = inferSnapshotFromBindAddress(address);
+  return {
+    ...probed,
+    ...inferred,
+    reachable: true,
+    address,
+  };
+}
+
 export interface NetworkInterfaceDescriptor {
   name: string;
   address: string;

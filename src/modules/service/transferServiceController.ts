@@ -1,12 +1,17 @@
 import {InboundStorageGateway} from '../file-access/inboundStorageGateway';
 import {buildPortalDocument} from '../portal/portalDocument';
+import {portalTheme} from '../portal/portalTheme';
 import {
   ConnectionRegistry,
   authorizeRequest,
   buildAccessUrl,
   generateAccessKey,
 } from '../security/accessControl';
-import {NetworkInterfaceDescriptor, resolveNetworkSnapshot} from './networkResolver';
+import {
+  NetworkInterfaceDescriptor,
+  mergeNetworkSnapshotWithRuntimeAddress,
+  resolveNetworkSnapshot,
+} from './networkResolver';
 import {
   ActiveConnection,
   ServiceConfig,
@@ -37,6 +42,12 @@ export interface TransferResponse {
 }
 
 export interface ServiceRuntimeHandle {
+  /**
+   * Runtime-reported origin. When available, it is preferred over the network
+   * probe for building the access URL (e.g. Android hotspot where NetInfo may
+   * not expose an IP address even though the native server is reachable).
+   */
+  origin?: string;
   port: number;
   stop(): Promise<void>;
 }
@@ -127,19 +138,31 @@ export class TransferServiceController {
     };
   }
 
+  private resolveAddressFromRuntime() {
+    const origin = this.runtimeHandle?.origin;
+    if (!origin) {
+      return undefined;
+    }
+
+    try {
+      const url = new URL(origin);
+      const hostname = url.hostname;
+      if (
+        !hostname ||
+        hostname === '127.0.0.1' ||
+        hostname === '::1' ||
+        hostname === '0.0.0.0'
+      ) {
+        return undefined;
+      }
+      return hostname;
+    } catch {
+      return undefined;
+    }
+  }
+
   async start() {
     await this.initialize();
-    const network = resolveNetworkSnapshot(await this.options.networkProvider());
-
-    if (!network.reachable || !network.address) {
-      this.setError({
-        code: 'NETWORK_UNAVAILABLE',
-        message: '当前网络无法被同一局域网中的设备访问，请切换到可用 Wi-Fi 或热点。',
-        recoverable: true,
-        suggestedAction: '切换网络后重试',
-      });
-      return this.getState();
-    }
 
     try {
       if (this.options.runtime) {
@@ -149,8 +172,27 @@ export class TransferServiceController {
         });
       }
 
+      const probed = resolveNetworkSnapshot(await this.options.networkProvider());
+      const runtimeAddress = this.resolveAddressFromRuntime();
+      const address = probed.address ?? runtimeAddress;
+
+      if (!address) {
+        this.setError({
+          code: 'NETWORK_UNAVAILABLE',
+          message: '当前网络无法被同一局域网中的设备访问，请切换到可用 Wi-Fi 或热点。',
+          recoverable: true,
+          suggestedAction: '切换网络后重试',
+        });
+        return this.getState();
+      }
+
+      const network = mergeNetworkSnapshotWithRuntimeAddress(
+        probed,
+        runtimeAddress,
+      );
+
       const accessUrl = buildAccessUrl(
-        `http://${network.address}:${this.runtimeHandle?.port ?? this.state.config.port}`,
+        `http://${address}:${this.runtimeHandle?.port ?? this.state.config.port}`,
         this.state.config.securityMode,
         this.state.config.accessKey,
       );
@@ -220,10 +262,22 @@ export class TransferServiceController {
     };
   }
 
-  async refreshAddress() {
-    const network = resolveNetworkSnapshot(await this.options.networkProvider());
+  async refreshAddress(options?: {rotateAccessKey?: boolean}) {
+    if (options?.rotateAccessKey) {
+      this.state = {
+        ...this.state,
+        config: {
+          ...this.state.config,
+          accessKey: generateAccessKey(),
+        },
+      };
+    }
 
-    if (!network.reachable || !network.address) {
+    const probed = resolveNetworkSnapshot(await this.options.networkProvider());
+    const runtimeAddress = this.resolveAddressFromRuntime();
+    const address = probed.address ?? runtimeAddress;
+
+    if (!address) {
       this.setError({
         code: 'NETWORK_UNAVAILABLE',
         message: '没有探测到可被其他设备访问的地址，请检查当前 Wi-Fi 或热点连接。',
@@ -234,9 +288,14 @@ export class TransferServiceController {
     }
 
     const accessUrl = buildAccessUrl(
-      `http://${network.address}:${this.runtimeHandle?.port ?? this.state.config.port}`,
+      `http://${address}:${this.runtimeHandle?.port ?? this.state.config.port}`,
       this.state.config.securityMode,
       this.state.config.accessKey,
+    );
+
+    const network = mergeNetworkSnapshotWithRuntimeAddress(
+      probed,
+      runtimeAddress,
     );
 
     this.state = {
@@ -271,19 +330,7 @@ export class TransferServiceController {
   }
 
   async rotateAccessKey() {
-    this.state = {
-      ...this.state,
-      config: {
-        ...this.state.config,
-        accessKey: generateAccessKey(),
-      },
-    };
-
-    if (this.state.network.address) {
-      await this.refreshAddress();
-    }
-
-    return this.getState();
+    return this.refreshAddress({rotateAccessKey: true});
   }
 
   async handleRequest(request: TransferRequest): Promise<TransferResponse> {
@@ -599,26 +646,31 @@ export class TransferServiceController {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>访问受限</title>
-    <style>
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #f5efe3;
-        font-family: "Segoe UI", "PingFang SC", sans-serif;
-        color: #182028;
-      }
-      .card {
-        width: min(92vw, 540px);
-        background: rgba(255, 249, 239, 0.95);
-        border-radius: 26px;
-        padding: 28px;
-        border: 1px solid rgba(215, 198, 172, 0.95);
-      }
-      h1 { margin-top: 0; }
-      p { color: #5d665c; line-height: 1.6; }
-    </style>
+      <style>
+        body {
+          margin: 0;
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          background:
+            radial-gradient(circle at top right, ${portalTheme.glowPrimary}, transparent 30%),
+            radial-gradient(circle at left bottom, ${portalTheme.glowTertiary}, transparent 38%),
+            ${portalTheme.backdrop};
+          font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+          color: ${portalTheme.ink};
+        }
+        .card {
+          width: min(92vw, 540px);
+          backdrop-filter: blur(16px);
+          background: ${portalTheme.panelStrong};
+          border-radius: 30px;
+          padding: 30px;
+          border: 1px solid ${portalTheme.lineSoft};
+          box-shadow: 0 24px 64px ${portalTheme.shadow};
+        }
+        h1 { margin-top: 0; letter-spacing: -0.04em; }
+        p { color: ${portalTheme.muted}; line-height: 1.6; }
+      </style>
   </head>
   <body>
     <div class="card">

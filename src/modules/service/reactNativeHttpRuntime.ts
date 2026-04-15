@@ -233,6 +233,7 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
     this.port = Number(resolvedOrigin.port) || options.port;
 
     return {
+      origin,
       port: this.port,
       stop: async () => {
         await nativeServer.stop();

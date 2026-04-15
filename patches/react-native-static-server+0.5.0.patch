@@ -456,11 +456,18 @@ index 9a5ffc7..d7d3dd4 100644
 +    this.keepAlive = keepAlive != null && keepAlive;
 +
 +    try {
-+      final String host = localhostOnly ? "127.0.0.1" : getLocalIpAddress();
-+      server = new BridgeWebServer(host, port, session -> handleHttpRequest(session));
++      /*
++       * Bind: use null (all interfaces) when not localhost-only so adb reverse/forward
++       * can reach 127.0.0.1:port on the guest. Binding only getLocalIpAddress() (e.g.
++       * 10.0.2.15 on emulator) leaves nothing listening on loopback -> ERR_EMPTY_RESPONSE
++       * on the host after `adb forward tcp:PORT tcp:PORT`.
++       */
++      final String bindHostname = localhostOnly ? "127.0.0.1" : null;
++      final String displayHost = localhostOnly ? "127.0.0.1" : getLocalIpAddress();
++      server = new BridgeWebServer(bindHostname, port, session -> handleHttpRequest(session));
 +      server.start();
 +      port = server.getListeningPort();
-+      url = "http://" + host + ":" + port;
++      url = "http://" + displayHost + ":" + port;
 +
 +      if (this.keepAlive) {
 +        startForegroundService();

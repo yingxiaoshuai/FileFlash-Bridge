@@ -1,0 +1,117 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-android:
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: 22.11.0
+      JAVA_VERSION: 17
+      ANDROID_PLATFORM_VERSION: android-36
+      ANDROID_BUILD_TOOLS_VERSION: 36.0.0
+      ANDROID_NDK_VERSION: 27.1.12297006
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "platforms;${ANDROID_PLATFORM_VERSION}" \
+            "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" \
+            "ndk;${ANDROID_NDK_VERSION}"
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Derive Android version from tag
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must look like v0.0.1" >&2
+            exit 1
+          fi
+
+          IFS='.' read -r major minor patch <<< "${version}"
+          version_code=$((major * 1000000 + minor * 1000 + patch))
+
+          echo "version_name=${version}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${version_code}" >> "${GITHUB_OUTPUT}"
+
+      - name: Rebuild Android keystore from GitHub Secret
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [[ -z "${ANDROID_KEYSTORE_BASE64}" ]]; then
+            echo "Missing ANDROID_KEYSTORE_BASE64 secret" >&2
+            exit 1
+          fi
+
+          printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/fileflash-release.jks"
+
+      - name: Build signed Android artifacts
+        working-directory: android
+        shell: bash
+        env:
+          CI: true
+          ANDROID_VERSION_NAME: ${{ steps.version.outputs.version_name }}
+          ANDROID_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/fileflash-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean assembleRelease bundleRelease
+
+      - name: Generate SHA256 checksums
+        shell: bash
+        run: |
+          cd android/app/build/outputs
+          sha256sum apk/release/app-release.apk bundle/release/app-release.aab > SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Android ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            android/app/build/outputs/apk/release/app-release.apk
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/outputs/SHA256SUMS.txt
