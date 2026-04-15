@@ -16,7 +16,7 @@
 ## 环境要求
 
 - **Node.js**：`>= 22.11.0`（见 `package.json` 的 `engines`）。
-- **Android**：JDK 17、Android SDK（建议 **compileSdk 35**）、Android Studio 或已配置命令行工具；真机或 AVD 用于调试。
+- **Android**：JDK 17、Android SDK（建议 **compileSdk 36**）、Android Studio 或已配置命令行工具；真机或 AVD 用于调试。
 - **iOS**（可选）：Xcode、CocoaPods；首次需 `bundle install` 与 `bundle exec pod install`。
 - **Windows**：Android 打包脚本使用 `gradlew.bat`；PowerShell 下 `npm run android:apk` 已在脚本中进入 `android` 目录调用 Gradle。
 
@@ -25,8 +25,6 @@
 ```bash
 npm install
 ```
-
-安装后会执行 **`patch-package`**，应用 `patches/` 下对 `react-native-static-server` 等依赖的补丁，请勿删除 `postinstall`。
 
 ### 启动 Metro 与 Android
 
@@ -70,8 +68,9 @@ FileFlash-Bridge/
   App.tsx                 # 应用根 UI
   android/                # Android 工程
   ios/                    # iOS 工程
-  patches/                # patch-package 补丁（含静态服务桥接等）
   openspec/               # OpenSpec 变更与规格
+  packages/
+    fileflash-static-server/  # 仓库自带 RN 本地 HTTP 桥接模块
   src/
     app/                  # 主题、useAppModel 等
     modules/
@@ -84,17 +83,17 @@ FileFlash-Bridge/
 
 ## 依赖说明（主要）
 
-- **react-native-static-server**（已打补丁）：本机 HTTP 服务，承载门户与同源 API；与 `reactNativeHttpRuntime` 配合将请求桥接到 JS 层。
+- **@fileflash/react-native-static-server**：仓库内自维护的 RN 本地 HTTP 桥接模块，承载门户与同源 API；与 `reactNativeHttpRuntime` 配合将请求桥接到 JS 层。
 - **@react-native-community/netinfo**：Wi-Fi / 热点与地址相关状态。
 - **react-native-fs**：会话目录、分块上传落盘、导出与复制。
 - **react-native-qrcode-svg** + **react-native-svg**：展示访问链接二维码。
-- **react-native-document-picker** / **react-native-share**：显式导出到用户选定位置或系统分享。
+- **@react-native-documents/picker** / **react-native-share**：系统文件选择、另存为与分享导出。
 - **pako**：与存储网关配合的压缩/解压（与 Node 测试侧 `zlib` 对应）。
 
 ## Android 说明
 
 - 推荐使用 **Android Studio** 与 **SDK 35** 对齐工程配置。
-- **`AndroidManifest.xml`** 已包含网络相关基础权限；静态服务补丁涉及前台服务类型等，以 `patches/` 与合并后的清单为准。
+- **`AndroidManifest.xml`** 已包含网络相关基础权限；本地静态服务模块内已包含前台服务与数据同步前台服务类型声明。
 - **大文件浏览器上传**：超过门户配置的 `chunkSize`（默认 1MB）时，门户会走 `begin → part → finish` 分块接口，避免单次请求体过大导致原生 OOM；小文件仍为单次 `POST /api/upload`。
 - **调试**：若 Metro 与设备不在同一网段策略下，可使用 `adb reverse tcp:8081 tcp:8081`（USB 连接时）以便加载 JS。
 
@@ -122,7 +121,7 @@ http://127.0.0.1:8668
 
 安全模式下 URL 需带 `key` 等查询参数时，请从 App 内复制完整访问链接（或二维码解析结果）再访问，仅换主机与端口即可。
 
-**若浏览器提示 `ERR_EMPTY_RESPONSE`（127.0.0.1 未发送任何数据）**：`adb forward` 会把连接转到模拟器上的 **`127.0.0.1:端口`**。若原生 HTTP 只绑定在 **`getLocalIpAddress()`**（模拟器上常见为 `10.0.2.15`）而不监听回环，主机浏览器就会得到空响应。本仓库的 **`patches/react-native-static-server+0.5.0.patch`** 已改为在非 localhost 模式下绑定 **全部网卡**，同时仍用探测到的 IP 拼展示用 URL；请 **重新编译并安装** Debug 包（例如 `npm run android`）后再执行 `adb forward`。仍异常时请确认：App 内传输服务已启动、转发端口与 App 内端口一致、以及 `adb devices` 指向当前模拟器。
+**若浏览器提示 `ERR_EMPTY_RESPONSE`（127.0.0.1 未发送任何数据）**：`adb forward` 会把连接转到模拟器上的 **`127.0.0.1:端口`**。本仓库的本地 HTTP 模块在非 localhost 模式下会绑定 **全部网卡**，同时仍用探测到的 IP 拼展示用 URL；请 **重新编译并安装** Debug 包（例如 `npm run android`）后再执行 `adb forward`。仍异常时请确认：App 内传输服务已启动、转发端口与 App 内端口一致、以及 `adb devices` 指向当前模拟器。
 
 ## iOS 说明
 
@@ -150,8 +149,8 @@ CI 或提交前建议至少跑通单元测试与类型检查。
 3. **Gradle / 缓存类构建错误**  
    可尝试 `cd android && .\gradlew.bat clean` 后重编；若依赖 AAR 损坏可清理用户目录下 `.gradle/caches` 中对应条目后重试。
 
-4. **`patch-package` 报错**  
-   确认未手动删除 `patches/` 内文件；升级依赖后需重新生成或调整补丁。
+4. **iOS Pods 未同步**  
+   依赖变更后请在 macOS 上执行 `bundle exec pod install`，确保 `@react-native-documents/picker` 与仓库内静态服务模块都被 CocoaPods 重新集成。
 
 ## 许可证
 

@@ -1,5 +1,13 @@
-import {NativeModules, Platform} from 'react-native';
-import DocumentPicker from 'react-native-document-picker';
+import {Platform} from 'react-native';
+import {
+  errorCodes as documentPickerErrorCodes,
+  isErrorWithCode as isDocumentPickerErrorWithCode,
+  keepLocalCopy,
+  pick as pickDocuments,
+  saveDocuments,
+  type FileToCopy,
+  types as documentPickerTypes,
+} from '@react-native-documents/picker';
 import Share from 'react-native-share';
 import RNFS from 'react-native-fs';
 import {gzip, ungzip} from 'pako';
@@ -10,13 +18,6 @@ import {
   InboundStorageGateway,
 } from './inboundStorageGateway';
 import {DEFAULT_SERVICE_CONFIG, SharedFileRecord} from '../service/models';
-
-type AndroidDocumentPickerModule = {
-  createDocument?: (
-    suggestedName: string,
-    mimeType?: string,
-  ) => Promise<{uri?: string} | null>;
-};
 
 const BASE64_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -218,7 +219,8 @@ function isUserCancellation(error: unknown) {
 
   const candidate = error as {code?: string; message?: string};
   return (
-    DocumentPicker.isCancel(error) ||
+    (isDocumentPickerErrorWithCode(error) &&
+      candidate.code === documentPickerErrorCodes.OPERATION_CANCELED) ||
     candidate.code === 'DOCUMENT_PICKER_CANCELED' ||
     candidate.code === 'E_PICKER_CANCELLED' ||
     /cancel/i.test(candidate.message ?? '')
@@ -247,15 +249,42 @@ async function safeDeletePath(path: string) {
 
 export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
   try {
-    const selectedFiles = await DocumentPicker.pick({
+    const selectedFiles = await pickDocuments({
       allowMultiSelection: true,
-      copyTo: 'cachesDirectory',
-      type: [DocumentPicker.types.allFiles],
+      type: [documentPickerTypes.allFiles],
+    });
+    const filesToCopy = selectedFiles.map(file => ({
+      fileName: file.name ?? fileNameFromPath(file.uri),
+      ...(file.isVirtual && file.convertibleToMimeTypes?.[0]?.mimeType
+        ? {
+            convertVirtualFileToType:
+              file.convertibleToMimeTypes[0].mimeType,
+          }
+        : {}),
+      uri: file.uri,
+    })) as [FileToCopy, ...FileToCopy[]];
+    const localCopies = await keepLocalCopy({
+      destination: 'cachesDirectory',
+      files: filesToCopy,
+    });
+    const localCopiesBySourceUri = new Map(
+      localCopies.map(localCopy => [localCopy.sourceUri, localCopy]),
+    );
+    const normalizedFiles = selectedFiles.map(file => {
+      const localCopy = localCopiesBySourceUri.get(file.uri);
+      return {
+        ...file,
+        copyError:
+          localCopy?.status === 'error' ? localCopy.copyError : undefined,
+        fileCopyUri:
+          localCopy?.status === 'success' ? localCopy.localUri : undefined,
+      };
     });
 
     const importedFiles: ImportedDeviceFile[] = [];
-    for (const file of selectedFiles) {
-      if (file.copyError) {
+    for (const file of normalizedFiles) {
+      const localCopy = localCopiesBySourceUri.get(file.uri);
+      if (!localCopy || localCopy.status !== 'success') {
         throw new Error(
           `无法读取 ${file.name ?? '所选文件'}：${file.copyError}`,
         );
@@ -348,54 +377,25 @@ async function shareExistingFile(
   };
 }
 
-async function saveToAndroidDocumentUri(
-  file: SharedFileRecord,
-  bytes: Uint8Array,
-): Promise<ExportResult> {
-  const documentPicker = NativeModules.RNDocumentPicker as
-    | AndroidDocumentPickerModule
-    | undefined;
-
-  if (!documentPicker?.createDocument) {
-    throw new Error('Android export picker is unavailable.');
-  }
-
-  const destination = await documentPicker.createDocument(
-    file.displayName,
-    file.mimeType ?? 'application/octet-stream',
-  );
-  if (!destination?.uri) {
-    throw new Error('No destination URI was returned by the system picker.');
-  }
-
-  await RNFS.writeFile(destination.uri, bytesToBase64(bytes), 'base64');
-  return {
-    destinationUri: destination.uri,
-    method: 'android-saf',
-  };
+function toEncodedFileUri(path: string) {
+  return encodeURI(`file://${path}`);
 }
 
-async function saveExistingFileToAndroidDocumentUri(
+async function saveToSystemDocumentUri(
   file: SharedFileRecord,
-  sourcePath: string,
+  sourceUri: string,
 ): Promise<ExportResult> {
-  const documentPicker = NativeModules.RNDocumentPicker as
-    | AndroidDocumentPickerModule
-    | undefined;
-
-  if (!documentPicker?.createDocument) {
-    throw new Error('Android export picker is unavailable.');
-  }
-
-  const destination = await documentPicker.createDocument(
-    file.displayName,
-    file.mimeType ?? 'application/octet-stream',
-  );
+  const [destination] = await saveDocuments({
+    fileName: file.displayName,
+    mimeType: file.mimeType ?? 'application/octet-stream',
+    sourceUris: [sourceUri],
+  });
   if (!destination?.uri) {
     throw new Error('No destination URI was returned by the system picker.');
   }
-
-  await RNFS.copyFile(sourcePath, destination.uri);
+  if (destination.error) {
+    throw new Error(destination.error);
+  }
   return {
     destinationUri: destination.uri,
     method: 'android-saf',
@@ -407,14 +407,27 @@ export async function exportPreparedFile(
   bytes: Uint8Array,
 ) {
   if (Platform.OS === 'android') {
+    const temporaryDirectory =
+      RNFS.TemporaryDirectoryPath || RNFS.CachesDirectoryPath;
+    if (!temporaryDirectory) {
+      throw new Error('No temporary directory is available for export.');
+    }
+
+    const tempFilePath = `${temporaryDirectory}/ffb-export-${Date.now()}-${sanitizeFileName(
+      file.displayName,
+    )}`;
+    await RNFS.writeFile(tempFilePath, bytesToBase64(bytes), 'base64');
+
     try {
-      return await saveToAndroidDocumentUri(file, bytes);
+      return await saveToSystemDocumentUri(file, toEncodedFileUri(tempFilePath));
     } catch (error) {
       if (isUserCancellation(error)) {
         throw new Error('已取消导出。');
       }
 
       return shareFromTemporaryFile(file, bytes);
+    } finally {
+      await safeDeletePath(tempFilePath);
     }
   }
 
@@ -424,7 +437,10 @@ export async function exportPreparedFile(
 export async function exportStoredFile(file: SharedFileRecord) {
   if (Platform.OS === 'android') {
     try {
-      return await saveExistingFileToAndroidDocumentUri(file, file.storagePath);
+      return await saveToSystemDocumentUri(
+        file,
+        toEncodedFileUri(file.storagePath),
+      );
     } catch (error) {
       if (isUserCancellation(error)) {
         throw new Error('已取消导出。');

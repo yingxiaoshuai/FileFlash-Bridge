@@ -1,0 +1,38 @@
+// Patched for RN 0.85 + AGP 8: removed deprecated `maven` plugin, added namespace + compileSdk.
+
+def safeExtGet(prop, fallback) {
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+}
+
+apply plugin: "com.android.library"
+
+android {
+    namespace "com.futurepress.staticserver"
+    compileSdk safeExtGet("compileSdkVersion", 36)
+
+    defaultConfig {
+        minSdkVersion safeExtGet("minSdkVersion", 24)
+        targetSdkVersion safeExtGet("targetSdkVersion", 36)
+        versionCode 1
+        versionName "1.0"
+    }
+
+    lint {
+        abortOnError false
+    }
+}
+
+repositories {
+    mavenCentral()
+    google()
+    maven {
+        url "$rootDir/../node_modules/react-native/android"
+    }
+}
+
+dependencies {
+    implementation "com.facebook.react:react-android"
+    implementation "androidx.core:core:1.13.1"
+    implementation "org.nanohttpd:nanohttpd:2.3.1"
+    implementation "org.nanohttpd:nanohttpd-webserver:2.3.1"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@fileflash/react-native-static-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FileFlash-maintained native HTTP bridge for React Native.",
+  "main": "index.js",
+  "react-native": "index.js",
+  "files": [
+    "android",
+    "ios",
+    "index.js",
+    "fileflash-static-server.podspec",
+    "react-native.config.js"
+  ],
+  "author": {
+    "name": "FileFlash Bridge",
+    "email": "devnull@fileflash.local"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/fileflash-bridge/fileflash-bridge",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}
