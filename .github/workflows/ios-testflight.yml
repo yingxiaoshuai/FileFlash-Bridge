@@ -1,0 +1,197 @@
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: Optional marketing version override, for example 1.0.1
+        required: false
+        type: string
+  push:
+    tags:
+      - "ios-v*"
+
+concurrency:
+  group: ios-testflight-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  upload-testflight:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      CI: true
+      NODE_VERSION: 22.13.0
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run unit tests
+        run: npm test -- --runInBand
+
+      - name: Install CocoaPods dependencies
+        run: bundle exec pod install --project-directory=ios --deployment
+
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          build_settings="$(xcodebuild -showBuildSettings \
+            -workspace ios/FileFlashBridge.xcworkspace \
+            -scheme FileFlashBridge \
+            -configuration Release \
+            -sdk iphoneos)"
+
+          bundle_id="$(printf '%s\n' "${build_settings}" | sed -n 's/^[[:space:]]*PRODUCT_BUNDLE_IDENTIFIER = //p' | tail -n1)"
+          team_id="$(printf '%s\n' "${build_settings}" | sed -n 's/^[[:space:]]*DEVELOPMENT_TEAM = //p' | tail -n1)"
+          project_version="$(printf '%s\n' "${build_settings}" | sed -n 's/^[[:space:]]*MARKETING_VERSION = //p' | tail -n1)"
+
+          if [[ -z "${bundle_id}" || -z "${team_id}" || -z "${project_version}" ]]; then
+            echo "Failed to resolve Release build settings" >&2
+            exit 1
+          fi
+
+          version_input="${{ inputs.marketing_version }}"
+          version="${project_version}"
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            ref_name="${GITHUB_REF_NAME}"
+            if [[ "${ref_name}" =~ ^ios-v([0-9]+(\.[0-9]+){1,2})$ ]]; then
+              version="${BASH_REMATCH[1]}"
+            else
+              echo "Tag must look like ios-v1.0.1" >&2
+              exit 1
+            fi
+          elif [[ -n "${version_input}" ]]; then
+            version="${version_input}"
+          fi
+
+          if [[ ! "${version}" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]]; then
+            echo "Marketing version must look like 1.0 or 1.0.1" >&2
+            exit 1
+          fi
+
+          build_number="${GITHUB_RUN_NUMBER}"
+          auth_key_path="${RUNNER_TEMP}/AuthKey_${{ secrets.APP_STORE_CONNECT_KEY_ID }}.p8"
+
+          echo "bundle_id=${bundle_id}" >> "${GITHUB_OUTPUT}"
+          echo "team_id=${team_id}" >> "${GITHUB_OUTPUT}"
+          echo "marketing_version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "build_number=${build_number}" >> "${GITHUB_OUTPUT}"
+          echo "auth_key_path=${auth_key_path}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "### iOS Upload"
+            echo ""
+            echo "- Bundle ID: \`${bundle_id}\`"
+            echo "- Team ID: \`${team_id}\`"
+            echo "- Marketing Version: \`${version}\`"
+            echo "- Build Number: \`${build_number}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Prepare App Store Connect API key
+        shell: bash
+        env:
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${APP_STORE_CONNECT_PRIVATE_KEY}" ]]; then
+            echo "Missing APP_STORE_CONNECT_PRIVATE_KEY secret" >&2
+            exit 1
+          fi
+
+          printf '%s' "${APP_STORE_CONNECT_PRIVATE_KEY}" > "${{ steps.meta.outputs.auth_key_path }}"
+          chmod 600 "${{ steps.meta.outputs.auth_key_path }}"
+
+      - name: Create export options
+        shell: bash
+        run: |
+          cat > "${RUNNER_TEMP}/ExportOptions.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>destination</key>
+            <string>upload</string>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Archive iOS app
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -workspace ios/FileFlashBridge.xcworkspace \
+            -scheme FileFlashBridge \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath "${RUNNER_TEMP}/FileFlashBridge.xcarchive" \
+            -authenticationKeyPath "${{ steps.meta.outputs.auth_key_path }}" \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+            -allowProvisioningUpdates \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            MARKETING_VERSION="${{ steps.meta.outputs.marketing_version }}" \
+            CURRENT_PROJECT_VERSION="${{ steps.meta.outputs.build_number }}" \
+            clean archive | tee "${RUNNER_TEMP}/archive.log"
+
+      - name: Export and upload to TestFlight
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -exportArchive \
+            -archivePath "${RUNNER_TEMP}/FileFlashBridge.xcarchive" \
+            -exportPath "${RUNNER_TEMP}/export" \
+            -exportOptionsPlist "${RUNNER_TEMP}/ExportOptions.plist" \
+            -authenticationKeyPath "${{ steps.meta.outputs.auth_key_path }}" \
+            -authenticationKeyID "${{ secrets.APP_STORE_CONNECT_KEY_ID }}" \
+            -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
+            -allowProvisioningUpdates | tee "${RUNNER_TEMP}/export.log"
+
+      - name: Upload release logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-testflight-logs
+          path: |
+            ${{ runner.temp }}/archive.log
+            ${{ runner.temp }}/export.log
+            ${{ runner.temp }}/ExportOptions.plist

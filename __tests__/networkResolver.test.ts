@@ -16,7 +16,7 @@ describe('resolveNetworkSnapshot', () => {
 describe('mergeNetworkSnapshotWithRuntimeAddress', () => {
   const offline = resolveNetworkSnapshot([]);
 
-  test('keeps reachable probe unchanged except optional address fill', () => {
+  test('prefers runtime address when reachable probe already exists', () => {
     const probed = resolveNetworkSnapshot([
       {
         address: '192.168.1.10',
@@ -30,7 +30,7 @@ describe('mergeNetworkSnapshotWithRuntimeAddress', () => {
       mergeNetworkSnapshotWithRuntimeAddress(probed, '10.0.0.9'),
     ).toMatchObject({
       ...probed,
-      address: '192.168.1.10',
+      address: '10.0.0.9',
     });
   });
 
