@@ -9,7 +9,7 @@
     "android",
     "ios",
     "index.js",
-    "fileflash-static-server.podspec",
+    "FileFlashStaticServer.podspec",
     "react-native.config.js"
   ],
   "author": {

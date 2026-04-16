@@ -17,7 +17,7 @@ end
 target 'FileFlashBridge' do
   config = use_native_modules!
 
-  use_react_native!(
+  use_react_nati
     :path => config[:reactNativePath],
     # An absolute path to your application root.
     :app_path => "#{Pod::Config.instance.installation_root}/.."
@@ -30,5 +30,23 @@ target 'FileFlashBridge' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    # Xcode 26 can compile the app target before CocoaPods copies the
+    # document-picker modulemap into BUILT_PRODUCTS_DIR, which leaves the app
+    # pointing at a transient missing file under DerivedData. Use the stable
+    # public header modulemap instead.
+    support_files = File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-FileFlashBridge')
+    source_modulemap = '${PODS_ROOT}/Headers/Public/react_native_document_picker/react-native-document-picker.modulemap'
+    generated_modulemap = '${PODS_CONFIGURATION_BUILD_DIR}/react-native-document-picker/react_native_document_picker.modulemap'
+
+    %w[debug release].each do |configuration|
+      xcconfig_path = File.join(support_files, "Pods-FileFlashBridge.#{configuration}.xcconfig")
+      next unless File.exist?(xcconfig_path)
+
+      xcconfig = File.read(xcconfig_path)
+      next unless xcconfig.include?(generated_modulemap)
+
+      File.write(xcconfig_path, xcconfig.gsub(generated_modulemap, source_modulemap))
+    end
   end
 end

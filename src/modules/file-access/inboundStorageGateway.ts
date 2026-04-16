@@ -136,6 +136,7 @@ export class InboundStorageGateway {
     }
 
     await this.cleanupTemporaryArtifacts();
+    await this.pruneMissingFiles();
 
     return this.snapshot;
   }
@@ -240,12 +241,21 @@ export class InboundStorageGateway {
     await this.options.fileSystem.ensureDir(
       `${this.options.rootDir}/projects/${project.id}`,
     );
-    const storedSize = await this.writeStoredFile(
-      storagePath,
-      input,
-      compression,
-      shouldCompress,
-    );
+    let storedSize = 0;
+    try {
+      storedSize = await this.writeStoredFile(
+        storagePath,
+        input,
+        compression,
+        shouldCompress,
+      );
+      if (!(await this.options.fileSystem.exists(storagePath))) {
+        throw new Error(`Stored file is missing after write: ${storagePath}`);
+      }
+    } catch (error) {
+      await this.options.fileSystem.deletePath(storagePath).catch(() => {});
+      throw error;
+    }
 
     const fileRecord: SharedFileRecord = {
       id: fileId,
@@ -625,6 +635,45 @@ export class InboundStorageGateway {
 
   private tempDirPath() {
     return `${this.options.rootDir}/${TEMP_DIR_NAME}`;
+  }
+
+  private async pruneMissingFiles() {
+    if (!this.snapshot) {
+      return;
+    }
+
+    const missingFileIds: string[] = [];
+
+    for (const [fileId, file] of Object.entries(this.snapshot.files)) {
+      if (!(await this.options.fileSystem.exists(file.storagePath))) {
+        missingFileIds.push(fileId);
+      }
+    }
+
+    if (!missingFileIds.length) {
+      return;
+    }
+
+    const missingFileIdSet = new Set(missingFileIds);
+    for (const project of this.snapshot.projects) {
+      const nextFileIds = project.fileIds.filter(
+        fileId => !missingFileIdSet.has(fileId),
+      );
+      if (nextFileIds.length !== project.fileIds.length) {
+        project.fileIds = nextFileIds;
+        project.updatedAt = new Date().toISOString();
+      }
+    }
+
+    this.snapshot.sharedFileIds = this.snapshot.sharedFileIds.filter(
+      fileId => !missingFileIdSet.has(fileId),
+    );
+
+    for (const fileId of missingFileIds) {
+      delete this.snapshot.files[fileId];
+    }
+
+    await this.persist();
   }
 
   private cloneSnapshot() {

@@ -114,6 +114,84 @@ describe('InboundStorageGateway', () => {
     }
   });
 
+  test('does not persist a file record when the destination file is missing after save', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+
+    class MissingDestinationFileSystemAdapter extends NodeFileSystemAdapter {
+      override async copyFile(_sourcePath: string, _destinationPath: string) {
+        // Simulate a platform copy path that resolves without leaving the file.
+      }
+    }
+
+    const fileSystem = new MissingDestinationFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-missing-destination',
+    });
+
+    try {
+      await gateway.initialize();
+      const sourcePath = join(rootDir, 'source-image.png');
+      await fileSystem.writeFile(sourcePath, encoder.encode('png-bytes'));
+
+      await expect(
+        gateway.saveInboundFile({
+          byteLength: 9,
+          mimeType: 'image/png',
+          name: 'capture.png',
+          sourcePath,
+        }),
+      ).rejects.toThrow(/Stored file is missing after write/);
+
+      const snapshot = await gateway.getSnapshot();
+      expect(Object.keys(snapshot.files)).toHaveLength(0);
+      expect(snapshot.projects[0]?.fileIds).toHaveLength(0);
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('prunes broken file records from the snapshot during initialization', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const fileSystem = new NodeFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-prune-missing',
+    });
+
+    try {
+      await gateway.initialize();
+      const storedFile = await gateway.saveInboundFile({
+        bytes: encoder.encode('png-bytes'),
+        mimeType: 'image/png',
+        name: 'capture.png',
+      });
+      await gateway.addSharedFile(storedFile.id);
+      await fileSystem.deletePath(storedFile.storagePath);
+
+      const reloadedGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem,
+        rootDir,
+        sessionId: 'session-prune-missing',
+      });
+      const snapshot = await reloadedGateway.getSnapshot();
+
+      expect(Object.keys(snapshot.files)).toHaveLength(0);
+      expect(snapshot.sharedFileIds).toHaveLength(0);
+      expect(snapshot.projects[0]?.fileIds).toHaveLength(0);
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('keeps image uploads uncompressed and preserves their original bytes and extension', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const gateway = new InboundStorageGateway({

@@ -19,17 +19,25 @@ const androidDensities = {
   xxxhdpi: 192,
 };
 
-/** @type {{ filename: string; size: number }[]} */
+/** @type {{ filename: string; idiom: string; scale: string; size: string; pixels: number }[]} */
 const iosIcons = [
-  {filename: 'Icon-App-20x20@2x.png', size: 40},
-  {filename: 'Icon-App-20x20@3x.png', size: 60},
-  {filename: 'Icon-App-29x29@2x.png', size: 58},
-  {filename: 'Icon-App-29x29@3x.png', size: 87},
-  {filename: 'Icon-App-40x40@2x.png', size: 80},
-  {filename: 'Icon-App-40x40@3x.png', size: 120},
-  {filename: 'Icon-App-60x60@2x.png', size: 120},
-  {filename: 'Icon-App-60x60@3x.png', size: 180},
-  {filename: 'Icon-App-1024x1024.png', size: 1024},
+  {filename: 'Icon-App-20x20@2x.png', idiom: 'iphone', scale: '2x', size: '20x20', pixels: 40},
+  {filename: 'Icon-App-20x20@3x.png', idiom: 'iphone', scale: '3x', size: '20x20', pixels: 60},
+  {filename: 'Icon-App-29x29@2x.png', idiom: 'iphone', scale: '2x', size: '29x29', pixels: 58},
+  {filename: 'Icon-App-29x29@3x.png', idiom: 'iphone', scale: '3x', size: '29x29', pixels: 87},
+  {filename: 'Icon-App-40x40@2x.png', idiom: 'iphone', scale: '2x', size: '40x40', pixels: 80},
+  {filename: 'Icon-App-40x40@3x.png', idiom: 'iphone', scale: '3x', size: '40x40', pixels: 120},
+  {filename: 'Icon-App-60x60@2x.png', idiom: 'iphone', scale: '2x', size: '60x60', pixels: 120},
+  {filename: 'Icon-App-60x60@3x.png', idiom: 'iphone', scale: '3x', size: '60x60', pixels: 180},
+  {filename: 'Icon-App-20x20@1x.png', idiom: 'ipad', scale: '1x', size: '20x20', pixels: 20},
+  {filename: 'Icon-App-20x20@2x-ipad.png', idiom: 'ipad', scale: '2x', size: '20x20', pixels: 40},
+  {filename: 'Icon-App-29x29@1x.png', idiom: 'ipad', scale: '1x', size: '29x29', pixels: 29},
+  {filename: 'Icon-App-29x29@2x-ipad.png', idiom: 'ipad', scale: '2x', size: '29x29', pixels: 58},
+  {filename: 'Icon-App-40x40@1x.png', idiom: 'ipad', scale: '1x', size: '40x40', pixels: 40},
+  {filename: 'Icon-App-40x40@2x-ipad.png', idiom: 'ipad', scale: '2x', size: '40x40', pixels: 80},
+  {filename: 'Icon-App-76x76@2x.png', idiom: 'ipad', scale: '2x', size: '76x76', pixels: 152},
+  {filename: 'Icon-App-83.5x83.5@2x.png', idiom: 'ipad', scale: '2x', size: '83.5x83.5', pixels: 167},
+  {filename: 'Icon-App-1024x1024.png', idiom: 'ios-marketing', scale: '1x', size: '1024x1024', pixels: 1024},
 ];
 
 async function main() {
@@ -56,69 +64,19 @@ async function main() {
     'AppIcon.appiconset',
   );
   fs.mkdirSync(iosSet, {recursive: true});
-  for (const {filename, size} of iosIcons) {
-    const png = await sharp(input).resize(size, size).png().toBuffer();
+  for (const {filename, pixels} of iosIcons) {
+    const png = await sharp(input).resize(pixels, pixels).png().toBuffer();
     fs.writeFileSync(path.join(iosSet, filename), png);
     console.log('Wrote iOS', filename);
   }
 
   const contents = {
-    images: [
-      {
-        idiom: 'iphone',
-        scale: '2x',
-        size: '20x20',
-        filename: 'Icon-App-20x20@2x.png',
-      },
-      {
-        idiom: 'iphone',
-        scale: '3x',
-        size: '20x20',
-        filename: 'Icon-App-20x20@3x.png',
-      },
-      {
-        idiom: 'iphone',
-        scale: '2x',
-        size: '29x29',
-        filename: 'Icon-App-29x29@2x.png',
-      },
-      {
-        idiom: 'iphone',
-        scale: '3x',
-        size: '29x29',
-        filename: 'Icon-App-29x29@3x.png',
-      },
-      {
-        idiom: 'iphone',
-        scale: '2x',
-        size: '40x40',
-        filename: 'Icon-App-40x40@2x.png',
-      },
-      {
-        idiom: 'iphone',
-        scale: '3x',
-        size: '40x40',
-        filename: 'Icon-App-40x40@3x.png',
-      },
-      {
-        idiom: 'iphone',
-        scale: '2x',
-        size: '60x60',
-        filename: 'Icon-App-60x60@2x.png',
-      },
-      {
-        idiom: 'iphone',
-        scale: '3x',
-        size: '60x60',
-        filename: 'Icon-App-60x60@3x.png',
-      },
-      {
-        idiom: 'ios-marketing',
-        scale: '1x',
-        size: '1024x1024',
-        filename: 'Icon-App-1024x1024.png',
-      },
-    ],
+    images: iosIcons.map(({filename, idiom, scale, size}) => ({
+      filename,
+      idiom,
+      scale,
+      size,
+    })),
     info: {author: 'xcode', version: 1},
   };
   fs.writeFileSync(

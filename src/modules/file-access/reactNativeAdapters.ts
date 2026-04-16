@@ -1,4 +1,4 @@
-import {Platform} from 'react-native';
+import {NativeModules, Platform} from 'react-native';
 import {
   errorCodes as documentPickerErrorCodes,
   isErrorWithCode as isDocumentPickerErrorWithCode,
@@ -21,6 +21,18 @@ import {DEFAULT_SERVICE_CONFIG, SharedFileRecord} from '../service/models';
 
 const BASE64_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+type NativeFileReaderModule = {
+  readChunkBase64?: (
+    filepath: string,
+    offset: number,
+    length: number,
+  ) => Promise<string>;
+};
+
+const nativeFileReader = NativeModules.FPFileReader as
+  | NativeFileReaderModule
+  | undefined;
 
 function bytesToBase64(bytes: Uint8Array) {
   let output = '';
@@ -102,8 +114,32 @@ function sanitizeFileName(fileName: string) {
 
 export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
   async copyFile(sourcePath: string, destinationPath: string) {
-    await RNFS.mkdir(destinationPath.split('/').slice(0, -1).join('/'));
-    await RNFS.copyFile(sourcePath, destinationPath);
+    const destinationDir = destinationPath.split('/').slice(0, -1).join('/');
+    if (destinationDir) {
+      await RNFS.mkdir(destinationDir);
+    }
+
+    if (Platform.OS !== 'ios') {
+      await RNFS.copyFile(sourcePath, destinationPath);
+      return;
+    }
+
+    try {
+      await RNFS.copyFile(sourcePath, destinationPath);
+      if (await RNFS.exists(destinationPath)) {
+        return;
+      }
+    } catch {
+      // Fall through to the read/write fallback below.
+    }
+
+    // Some iOS RNFS copy flows can report success without leaving a readable
+    // destination file behind. Recreate the destination deterministically.
+    const contentBase64 = await RNFS.readFile(sourcePath, 'base64');
+    await RNFS.writeFile(destinationPath, contentBase64, 'base64');
+    if (!(await RNFS.exists(destinationPath))) {
+      throw new Error(`Stored file is missing after copy: ${destinationPath}`);
+    }
   }
 
   async deletePath(path: string) {
@@ -129,6 +165,24 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
   }
 
   async readFileChunkBase64(path: string, offset: number, length: number) {
+    if (Platform.OS === 'ios') {
+      const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+      const safeLength = Number.isFinite(length) ? Math.max(0, length) : 0;
+      if (safeLength === 0) {
+        return '';
+      }
+
+      if (nativeFileReader?.readChunkBase64) {
+        return nativeFileReader.readChunkBase64(path, start, safeLength);
+      }
+
+      // Fallback only when the native module is unavailable, e.g. before the
+      // app is rebuilt after adding the iOS chunk reader.
+      const bytes = await this.readFile(path);
+      const end = Math.min(bytes.byteLength, start + safeLength);
+      return bytesToBase64(bytes.slice(start, end));
+    }
+
     return RNFS.read(path, length, offset, 'base64');
   }
 
