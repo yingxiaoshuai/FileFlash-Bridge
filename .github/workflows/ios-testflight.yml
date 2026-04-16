@@ -126,7 +126,30 @@ jobs:
             exit 1
           fi
 
-          printf '%s' "${APP_STORE_CONNECT_PRIVATE_KEY}" > "${{ steps.meta.outputs.auth_key_path }}"
+          key_content="${APP_STORE_CONNECT_PRIVATE_KEY//$'\r'/}"
+
+          # Support raw multiline PEM, secrets pasted with literal \n escapes,
+          # and Base64-encoded PEM content.
+          if [[ "${key_content}" == *"BEGIN PRIVATE KEY"* ]]; then
+            if [[ "${key_content}" == *"\\n"* ]]; then
+              printf '%b' "${key_content}" > "${{ steps.meta.outputs.auth_key_path }}"
+            else
+              printf '%s\n' "${key_content}" > "${{ steps.meta.outputs.auth_key_path }}"
+            fi
+          else
+            printf '%s' "${key_content}" | base64 --decode > "${{ steps.meta.outputs.auth_key_path }}"
+          fi
+
+          if [[ ! -s "${{ steps.meta.outputs.auth_key_path }}" ]]; then
+            echo "APP_STORE_CONNECT_PRIVATE_KEY decoded to an empty file" >&2
+            exit 1
+          fi
+
+          if ! grep -q "BEGIN PRIVATE KEY" "${{ steps.meta.outputs.auth_key_path }}"; then
+            echo "APP_STORE_CONNECT_PRIVATE_KEY is not a valid .p8 PEM document" >&2
+            exit 1
+          fi
+
           chmod 600 "${{ steps.meta.outputs.auth_key_path }}"
 
       - name: Create export options

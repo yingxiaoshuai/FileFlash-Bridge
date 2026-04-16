@@ -45,7 +45,16 @@
 - `APP_STORE_CONNECT_KEY_ID`
 - `APP_STORE_CONNECT_PRIVATE_KEY`
 
-`APP_STORE_CONNECT_PRIVATE_KEY` 的值就是 `.p8` 文件全文内容。
+`APP_STORE_CONNECT_PRIVATE_KEY` 支持 3 种写法：
+
+- 原始多行 `.p8` 全文
+- 带 `\n` 的单行 PEM
+- `.p8` 文件的 Base64 内容
+
+如果你使用原始 PEM 或 `\n` 形式，内容都必须包含：
+
+- `-----BEGIN PRIVATE KEY-----`
+- `-----END PRIVATE KEY-----`
 
 ## 还需要满足的 Apple 侧条件
 
