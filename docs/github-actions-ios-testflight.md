@@ -24,12 +24,14 @@
 1. `npm ci`
 2. `npm run typecheck`
 3. `npm test -- --runInBand`
-4. `bundle exec pod install --project-directory=ios --deployment`
+4. `bundle exec pod install --project-directory=ios`
 5. 读取 Xcode `Release` 配置里的实际 `Bundle ID`、`Team ID`、`MARKETING_VERSION`
 6. 使用 App Store Connect API key 自动签名并执行 `archive`
 7. 导出并上传到 App Store Connect / TestFlight
 
 失败时会自动上传构建日志 artifact，便于排查。
+
+这里同样没有使用 CocoaPods 的 `--deployment`。React Native 0.85 的部分预编译 pod 会把 runner 本机路径写进生成的 podspec，导致不同机器上的 `SPEC CHECKSUMS` 不稳定，CI 会误判为 lockfile 变化。
 
 ## 需要配置的 GitHub Secrets
 

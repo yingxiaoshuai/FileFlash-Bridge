@@ -19,10 +19,12 @@
 1. `npm ci`
 2. `npm run typecheck`
 3. `npm test -- --runInBand`
-4. `bundle exec pod install --project-directory=ios --deployment`
+4. `bundle exec pod install --project-directory=ios`
 5. `xcodebuild` 模拟器构建
 
 如果 iOS 构建失败，会自动上传 `xcodebuild.log` 作为 GitHub Actions artifact，便于排查。
+
+这里没有使用 CocoaPods 的 `--deployment`。原因是 React Native 0.85 的部分预编译 pod 会把 runner 本机路径写进生成的 podspec，`SPEC CHECKSUMS` 会随机器路径变化，导致 CI 上误报 lockfile 漂移。
 
 ## 你需要在 GitHub 上配置什么
 

@@ -53,7 +53,7 @@ jobs:
         run: npm test -- --runInBand
 
       - name: Install CocoaPods dependencies
-        run: bundle exec pod install --project-directory=ios --deployment
+        run: bundle exec pod install --project-directory=ios
 
       - name: Resolve release metadata
         id: meta

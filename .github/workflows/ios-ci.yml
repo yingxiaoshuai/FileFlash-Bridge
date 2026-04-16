@@ -51,7 +51,7 @@ jobs:
         run: npm test -- --runInBand
 
       - name: Install CocoaPods dependencies
-        run: bundle exec pod install --project-directory=ios --deployment
+        run: bundle exec pod install --project-directory=ios
 
       - name: Build iOS app for simulator
         shell: bash
