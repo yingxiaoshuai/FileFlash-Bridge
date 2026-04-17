@@ -256,6 +256,14 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
+    expect(() => tree!.root.findByProps({testID: 'sidebar-panel'})).toThrow();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'sidebar-panel'})).toBeTruthy();
+
     act(() => {
       tree!.root.findByProps({testID: 'project-drawer-item-project-b'}).props
         .onPress();
@@ -272,6 +280,10 @@ describe('App sidebar history', () => {
     let tree: renderer.ReactTestRenderer;
     act(() => {
       tree = renderer.create(<App />);
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
     });
 
     act(() => {
@@ -332,7 +344,7 @@ describe('App sidebar history', () => {
     expect(model.selectProject).toHaveBeenCalledWith('project-b');
   });
 
-  test('opens a real left sidebar drawer on narrow screens instead of stacking history on the page', () => {
+  test('opens the project history drawer from the toolbar on narrow screens', () => {
     jest
       .spyOn(require('react-native'), 'useWindowDimensions')
       .mockReturnValue({
@@ -350,22 +362,18 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(() =>
-      tree!.root.findByProps({testID: 'mobile-sidebar-panel'}),
-    ).toThrow();
+    expect(() => tree!.root.findByProps({testID: 'sidebar-panel'})).toThrow();
 
     act(() => {
       tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
     });
 
-    expect(tree!.root.findByProps({testID: 'mobile-sidebar-panel'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'sidebar-panel'})).toBeTruthy();
 
     act(() => {
       tree!.root.findByProps({testID: 'sidebar-backdrop'}).props.onPress();
     });
 
-    expect(() =>
-      tree!.root.findByProps({testID: 'mobile-sidebar-panel'}),
-    ).toThrow();
+    expect(() => tree!.root.findByProps({testID: 'sidebar-panel'})).toThrow();
   });
 });

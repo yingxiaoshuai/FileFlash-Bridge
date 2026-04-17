@@ -47,7 +47,6 @@ function AppScreen(): React.JSX.Element {
   const {width} = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isServiceRunning = model.serviceState.phase === 'running';
-  const isStackedLayout = width < 880;
   const isCompactScreen = width < 560;
   const stackOverviewCards = width < 1180;
   const stackProjectPanels = width < 1020;
@@ -57,9 +56,10 @@ function AppScreen(): React.JSX.Element {
     ? width - pagePadding * 2 - 36
     : Math.max(160, Math.floor((width - pagePadding * 2 - 14) / 2) - 36);
   const serviceQrSize = Math.min(qrSize, Math.max(112, serviceCardContentMax));
-
-  const sidebarWidth = width < 1040 ? 272 : 312;
-  const mobileSidebarWidth = Math.min(Math.max(280, Math.floor(width * 0.82)), 340);
+  const historyDrawerWidth =
+    width < 560
+      ? Math.min(Math.max(280, Math.floor(width * 0.82)), 340)
+      : Math.min(Math.max(304, Math.floor(width * 0.32)), 380);
 
   const projectTitleById = React.useMemo(
     () => new Map(model.projects.map(project => [project.id, project.title])),
@@ -69,12 +69,6 @@ function AppScreen(): React.JSX.Element {
   const previousActiveProjectIdRef = React.useRef<string | undefined>(
     model.activeProject?.id,
   );
-
-  React.useEffect(() => {
-    if (!isStackedLayout && isProjectHistoryOpen) {
-      setProjectHistoryOpen(false);
-    }
-  }, [isProjectHistoryOpen, isStackedLayout]);
 
   React.useEffect(() => {
     if (
@@ -88,7 +82,6 @@ function AppScreen(): React.JSX.Element {
   React.useEffect(() => {
     const previousActiveProjectId = previousActiveProjectIdRef.current;
     if (
-      isStackedLayout &&
       isProjectHistoryOpen &&
       previousActiveProjectId &&
       previousActiveProjectId !== model.activeProject?.id
@@ -97,7 +90,7 @@ function AppScreen(): React.JSX.Element {
     }
 
     previousActiveProjectIdRef.current = model.activeProject?.id;
-  }, [isProjectHistoryOpen, isStackedLayout, model.activeProject?.id]);
+  }, [isProjectHistoryOpen, model.activeProject?.id]);
 
   const handleCopyLink = () => {
     if (!model.serviceState.accessUrl) {
@@ -454,92 +447,72 @@ function AppScreen(): React.JSX.Element {
         barStyle="dark-content"
         backgroundColor={theme.colors.background}
       />
-          <View pointerEvents="none" style={styles.backdropLayer}>
-            <View style={[styles.backdropGlow, styles.backdropGlowPrimary]} />
-            <View style={[styles.backdropGlow, styles.backdropGlowSecondary]} />
+      <View pointerEvents="none" style={styles.backdropLayer}>
+        <View style={[styles.backdropGlow, styles.backdropGlowPrimary]} />
+        <View style={[styles.backdropGlow, styles.backdropGlowSecondary]} />
+      </View>
+      {!model.isReady ? (
+        <View style={styles.loadingShell}>
+          <ActivityIndicator color={theme.colors.primary} size="large" />
+          <Text style={styles.loadingTitle}>正在加载</Text>
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.page, {padding: pagePadding}]}
+          showsVerticalScrollIndicator={false}>
+          <View style={[styles.globalTopBar, styles.globalTopBarStacked]}>
+            <IconButton
+              accessibilityLabel="打开项目历史"
+              disabled={isBusy}
+              icon="☰"
+              onPress={() => {
+                setProjectHistoryOpen(true);
+              }}
+              testID="sidebar-open"
+            />
+            <StatusChip
+              accent={
+                isServiceRunning ? theme.colors.success : theme.colors.inkSoft
+              }
+              label={isServiceRunning ? '服务在线' : '服务离线'}
+            />
           </View>
-          {!model.isReady ? (
-            <View style={styles.loadingShell}>
-              <ActivityIndicator color={theme.colors.primary} size="large" />
-              <Text style={styles.loadingTitle}>正在加载</Text>
-            </View>
-          ) : (
+          <View style={styles.main}>
+            {summaryContent}
+            {detailContent}
+          </View>
+        </ScrollView>
+      )}
+      {isProjectHistoryOpen ? (
+        <View style={styles.sidebarOverlay} testID="sidebar-overlay">
+          <Pressable
+            onPress={() => {
+              setProjectActionMenuId(undefined);
+              setProjectHistoryOpen(false);
+            }}
+            style={styles.sidebarBackdrop}
+            testID="sidebar-backdrop"
+          />
+          <View
+            style={[
+              styles.sidebarDrawerPanel,
+              {
+                paddingBottom: pagePadding + insets.bottom,
+                paddingHorizontal: pagePadding,
+                paddingTop: pagePadding,
+                top: insets.top,
+                width: historyDrawerWidth,
+              },
+            ]}
+            testID="sidebar-panel">
             <ScrollView
-              contentContainerStyle={[styles.page, {padding: pagePadding}]}
+              contentContainerStyle={styles.sidebarDrawerScrollContent}
               showsVerticalScrollIndicator={false}>
-              <View
-                style={[
-                  styles.globalTopBar,
-                  isStackedLayout ? styles.globalTopBarStacked : null,
-                ]}>
-                {isStackedLayout ? (
-                  <IconButton
-                    accessibilityLabel="打开项目历史"
-                    disabled={isBusy}
-                    icon="☰"
-                    onPress={() => {
-                      setProjectHistoryOpen(true);
-                    }}
-                    testID="sidebar-open"
-                  />
-                ) : null}
-                <StatusChip
-                  accent={
-                    isServiceRunning ? theme.colors.success : theme.colors.inkSoft
-                  }
-                  label={isServiceRunning ? '服务在线' : '服务离线'}
-                />
-              </View>
-              {isStackedLayout ? (
-                <View style={styles.stackedWorkspace}>
-                  <View style={styles.main}>
-                    {summaryContent}
-                    {detailContent}
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.workspace}>
-                  <View style={[styles.sidebar, {width: sidebarWidth}]}>
-                    {sidebarContent()}
-                  </View>
-                  <View style={styles.main}>
-                    {summaryContent}
-                    {detailContent}
-                  </View>
-                </View>
-              )}
+              {sidebarContent()}
             </ScrollView>
-          )}
-          {isStackedLayout && isProjectHistoryOpen ? (
-            <View style={styles.mobileSidebarOverlay} testID="mobile-sidebar-overlay">
-              <Pressable
-                onPress={() => {
-                  setProjectActionMenuId(undefined);
-                  setProjectHistoryOpen(false);
-                }}
-                style={styles.mobileSidebarBackdrop}
-                testID="sidebar-backdrop"
-              />
-              <View
-                style={[
-                  styles.mobileSidebarPanel,
-                  {
-                    paddingBottom: pagePadding + insets.bottom,
-                    paddingHorizontal: pagePadding,
-                    paddingTop: pagePadding,
-                    top: insets.top,
-                    width: mobileSidebarWidth,
-                  },
-                ]}
-                testID="mobile-sidebar-panel">
-                <ScrollView
-                  contentContainerStyle={styles.mobileSidebarScrollContent}
-                  showsVerticalScrollIndicator={false}>
-                  {sidebarContent()}
-                </ScrollView>
-              </View>
-            </View>
-          ) : null}
+          </View>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -1120,11 +1093,6 @@ const styles = StyleSheet.create({
   globalTopBarStacked: {
     justifyContent: 'space-between',
   },
-  workspace: {
-    flexDirection: 'row',
-    gap: 14,
-    alignItems: 'flex-start',
-  },
   stackedWorkspace: {
     alignItems: 'stretch',
     flexDirection: 'column',
@@ -1150,9 +1118,6 @@ const styles = StyleSheet.create({
   },
   phoneMain: {
     gap: 14,
-  },
-  sidebar: {
-    gap: 12,
   },
   sidebarPanel: {
     paddingHorizontal: 16,
@@ -1261,7 +1226,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 16,
   },
-  mobileSidebarOverlay: {
+  sidebarOverlay: {
     bottom: 0,
     left: 0,
     position: 'absolute',
@@ -1269,7 +1234,7 @@ const styles = StyleSheet.create({
     top: 0,
     zIndex: 20,
   },
-  mobileSidebarBackdrop: {
+  sidebarBackdrop: {
     backgroundColor: theme.colors.backdrop,
     bottom: 0,
     left: 0,
@@ -1277,7 +1242,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  mobileSidebarPanel: {
+  sidebarDrawerPanel: {
     backgroundColor: theme.colors.background,
     borderColor: theme.colors.border,
     borderRightWidth: 1,
@@ -1287,7 +1252,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
   },
-  mobileSidebarScrollContent: {
+  sidebarDrawerScrollContent: {
     gap: 0,
     paddingBottom: 24,
   },
