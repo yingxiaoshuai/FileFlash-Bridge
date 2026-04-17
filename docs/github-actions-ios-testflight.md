@@ -6,6 +6,12 @@
 
 `/.github/workflows/ios-testflight.yml`
 
+## CI 环境
+
+当前工作流使用 GitHub-hosted `macos-15` runner，并在运行时显式选择 runner 上已安装的最新 `Xcode 26.x`。
+
+这样可以在不切换到 beta `macos-26` 镜像的前提下，满足 Apple 自 2026-04-28 起对 `Xcode 26` 和 `iOS 26 SDK` 的上传要求。
+
 ## 触发方式
 
 - 手动触发：`workflow_dispatch`

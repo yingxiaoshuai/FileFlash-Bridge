@@ -25,6 +25,7 @@ jobs:
     env:
       CI: true
       NODE_VERSION: 22.13.0
+      XCODE_MAJOR_VERSION: "26"
 
     steps:
       - name: Checkout repository
@@ -42,6 +43,29 @@ jobs:
         with:
           ruby-version: 2.6.10
           bundler-cache: true
+
+      - name: Select Xcode ${{ env.XCODE_MAJOR_VERSION }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          candidates=(/Applications/Xcode_${XCODE_MAJOR_VERSION}*.app)
+          if (( ${#candidates[@]} == 0 )); then
+            echo "No Xcode ${XCODE_MAJOR_VERSION}.x installation found on this runner." >&2
+            ls -1 /Applications | grep '^Xcode' >&2 || true
+            exit 1
+          fi
+
+          selected_app="$(
+            printf '%s\n' "${candidates[@]}" \
+              | ruby -e 'apps = STDIN.read.lines.map(&:strip).reject(&:empty?); abort("No Xcode candidates found") if apps.empty?; puts apps.max_by { |path| Gem::Version.new(File.basename(path).sub(/^Xcode_/, "").sub(/\.app$/, "")) }'
+          )"
+          developer_dir="${selected_app}/Contents/Developer"
+
+          echo "DEVELOPER_DIR=${developer_dir}" >> "${GITHUB_ENV}"
+          "${developer_dir}/usr/bin/xcodebuild" -version
+          "${developer_dir}/usr/bin/xcodebuild" -showsdks
 
       - name: Install npm dependencies
         run: npm ci
