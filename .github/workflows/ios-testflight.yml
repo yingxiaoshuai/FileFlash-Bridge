@@ -194,6 +194,9 @@ jobs:
             -authenticationKeyIssuerID "${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}" \
             -allowProvisioningUpdates \
             COMPILER_INDEX_STORE_ENABLE=NO \
+            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            DEVELOPMENT_TEAM="${{ steps.meta.outputs.team_id }}" \
             MARKETING_VERSION="${{ steps.meta.outputs.marketing_version }}" \
             CURRENT_PROJECT_VERSION="${{ steps.meta.outputs.build_number }}" \
             clean archive | tee "${RUNNER_TEMP}/archive.log"
