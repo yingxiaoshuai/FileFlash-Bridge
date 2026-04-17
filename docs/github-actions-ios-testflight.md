@@ -65,6 +65,7 @@
 - Xcode 工程使用自动签名
 - 你的开发者账号已经接受最新协议
 - App Store Connect API key 拥有足够权限
+- 如果不是 `Account Holder` 或 `Admin`，对应用户还需要被授予 cloud-managed app distribution 权限，并且该用户必须有 `Certificates, Identifiers & Profiles` 访问权限
 
 工作流执行时会把实际读取到的 `Bundle ID` 和 `Team ID` 打到运行摘要里，方便你核对。
 
