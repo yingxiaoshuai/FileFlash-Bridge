@@ -1,50 +1,112 @@
-# FileFlash-Bridge Mobile
+# FileFlash-Bridge Mobile / 文件闪送桥
 
 English version: [README.en.md](./README.en.md)
 
-基于 **React Native 0.85** + **TypeScript** 的局域网「浏览器 ↔ 手机」文件与文本交换应用。
+[![Latest Release](https://img.shields.io/github/v/release/yingxiaoshuai/FileFlash-Bridge?display_name=tag&sort=semver)](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases/latest)
+[![Platform](https://img.shields.io/badge/Platform-iOS%20%7C%20Android-0A84FF)](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases/latest)
+[![Transfer](https://img.shields.io/badge/Transfer-LAN%20Direct-0A84FF)](https://github.com/yingxiaoshuai/FileFlash-Bridge)
 
-手机端启动本地 HTTP 服务后，同一 Wi-Fi 或热点下的设备可以直接在浏览器访问门户页，完成：
+把电脑浏览器里的文件、文本，直接送到手机里。
 
-- 浏览器向手机发送文本
-- 浏览器向手机上传文件
-- 手机把会话文件加入共享列表，供浏览器下载取回
+**文件闪送桥** 是一款面向 iPhone 和 Android 的局域网传输工具：同一 Wi-Fi 或热点下，打开 App、扫一下二维码，就能在浏览器里把文件传到手机，或者把手机共享的文件下载回电脑。
 
-当前仓库已经包含 Android 本地调试、Android Release 自动发布，以及自维护的 React Native 本地 HTTP 桥接模块。
+**不需要数据线，不需要登录账号，浏览器端也不用额外安装客户端。**
 
-## 能力概览
+## 立即下载
 
-| 能力 | 说明 |
+- iOS：打开 App Store，搜索 **文件闪送桥**
+- [下载最新版 Android APK](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases/latest/download/app-release.apk)
+- [查看所有版本与更新记录](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases)
+- [查看隐私政策](./docs/privacy-policy-zh.md)
+
+> iOS 可通过 App Store 安装；Android 公开下载版本会在 GitHub Release 提供已签名 `APK`、`AAB` 与 `SHA256SUMS.txt`，方便安装与校验。
+>
+> Android 手机安装时，优先下载 `app-release.apk` 即可。
+
+## 为什么值得下载
+
+- **浏览器直连手机**：电脑端只要能打开浏览器，就能发送文本、上传文件，不用再装桌面客户端。
+- **扫码就能开始**：App 会显示访问链接和二维码，连接路径足够直接。
+- **大文件也能传**：上传和下载都支持分块处理，降低大文件失败率。
+- **双向取回更方便**：手机里的会话文件可加入共享列表，浏览器直接下载取回。
+- **适合多人协作分析**：把同一批文件共享出来后，团队成员可以分别下载、查看、分析，不用来回转发。
+- **更适合局域网场景**：核心传输流程基于同一 Wi-Fi / 热点下的本地访问，适合办公室、实验室、现场演示等环境。
+- **下载速度更痛快**：局域网直传少一层云端中转，拿文件通常更直接。
+- **尽量不走公网流量**：同一局域网内传输时，不依赖外部网盘中转，更省公网流量成本。
+- **离线也能继续用**：没有外网时，只要设备还在同一 Wi-Fi 或热点下，依然可以继续传。
+- **安全模式可控**：开启后链接和二维码会携带访问 `key`，刷新地址后旧链接立即失效。
+
+## 这些场景会很好用
+
+- 把 `APK`、图片、PDF、压缩包、日志、测试包快速发到手机
+- 在调试真机时，把文本片段、JSON、链接、配置内容直接投递到手机端
+- 没带数据线、懒得登网盘、又不想折腾聊天工具时，临时传文件
+- 把日志、样本、截图或资料共享给多位同事，让大家各自在电脑上下载分析
+- 把手机端已经导入或生成的文件加入共享列表，再回到电脑浏览器下载
+
+## 3 步开始使用
+
+1. 在 iPhone 或 Android 手机上安装并打开 **文件闪送桥**。
+2. 让手机和电脑处于同一 Wi-Fi 或热点，启动 App 内传输服务，复制链接或扫描二维码。
+3. 在浏览器里上传文件、发送文本，或下载手机端已共享的文件。
+
+浏览器端支持拖拽上传；在支持目录上传的环境下，也可以保留文件夹相对路径。
+
+## 核心功能
+
+| 功能 | 你能得到什么 |
 |------|------|
-| 本地传输服务 | 探测可用局域网地址，展示访问 URL 与二维码，支持简单 / 安全模式、访问 `key` 与连接数控制。 |
-| 浏览器门户 | 内嵌响应式门户页，支持文本提交、小文件直传、大文件自动分块上传、共享文件列表与分块下载。 |
-| 会话存储 | 入站内容写入 App 内会话目录，小型文本类内容可压缩，大文件和二进制文件保留原始字节。 |
-| 导出与分享 | 手机端可将文件导出到系统文档目录，或通过系统分享流程发送给其他 App。 |
-| 安全控制 | 安全模式下 URL 自动携带 `key`；点击“刷新地址”会同时刷新 IP / 链接与访问密钥。 |
+| 浏览器传文本到手机 | 临时口令、代码片段、地址、说明文字都能快速送到手机 |
+| 浏览器上传文件到手机 | 支持普通文件、小文件直传，以及大文件自动分块上传 |
+| 手机共享文件给浏览器下载 | 手机端把文件加入共享列表，浏览器直接下载 |
+| 导出与系统分享 | 收到的内容可以继续导出到系统目录或分享给其他 App |
+| 安全模式 | 链接携带 `key`，更适合不希望被同网段其他人随手访问的场景 |
 
-## 文档索引
+## 用户常关心的问题
 
-- 中文发布说明：[docs/github-actions-android-release.md](./docs/github-actions-android-release.md)
-- English release guide: [docs/github-actions-android-release.en.md](./docs/github-actions-android-release.en.md)
-- Android 无线调试说明：[docs/android-wireless-debugging.md](./docs/android-wireless-debugging.md)
-- OpenSpec 设计与约定：`openspec/changes/launch-fileflash-bridge-v1/`
+### 传输的数据会经过云端吗？
 
-## 环境要求
+核心传输流程依赖手机端启动的本地服务，主要面向同一 Wi-Fi / 热点下的浏览器直连访问。更完整说明请查看 [隐私政策](./docs/privacy-policy-zh.md)。
 
-- **Node.js**：建议使用 **22.13.0**，与当前 GitHub Actions 保持一致。
-- **Android**：JDK 17、Android SDK、Build Tools 36、NDK 27，建议使用 Android Studio。
-- **iOS**：如需本地构建，需 Xcode、CocoaPods、Ruby Bundler。
-- **Windows**：仓库已兼容 `gradlew.bat`，适合在 PowerShell 下直接调试和打包。
+### 浏览器端需要安装客户端吗？
 
-## 快速开始
+不需要。浏览器打开 App 提供的访问地址即可使用。
+
+### 目前支持什么平台？
+
+支持 **iOS** 和 **Android**。iOS 可在 App Store 搜索 **文件闪送桥**；Android 可从本仓库的 GitHub Release 下载 `APK` 安装。
+
+### 离线状态也能用吗？
+
+可以。只要设备仍在同一 Wi-Fi 或热点下，局域网传输就可以继续，不要求外网始终在线。
+
+### 适合多人一起处理同一批文件吗？
+
+适合。你可以把文件加入共享列表，让多位同事分别在各自浏览器里下载，用于查看、分析或留档。
+
+### 如何确认安装包是否完整？
+
+GitHub Release 会同时上传 `SHA256SUMS.txt`，可以配合下载产物进行校验。
+
+## 开发与构建
+
+<details>
+<summary>展开开发者说明</summary>
+
+### 环境要求
+
+- **Node.js**：建议使用 **22.13.0**
+- **Android**：JDK 17、Android SDK、Build Tools 36、NDK 27
+- **iOS**：如需本地构建，需 Xcode、CocoaPods、Ruby Bundler
+- **Windows**：已兼容 `gradlew.bat`，适合在 PowerShell 下直接调试和打包
+
+### 本地调试
 
 先安装依赖：
 
 ```bash
 npm install
 ```
-
-### 启动 Metro 与 Android Debug
 
 建议使用两个终端：
 
@@ -58,172 +120,29 @@ npm run start
 npm run android
 ```
 
-更稳妥的调试方式是先手动启动模拟器或先连接真机，再执行 `npm run android`。
-
-如果你在模拟器里运行服务，又想用电脑浏览器直接打开门户页，可参考：
-
-- [docs/android-wireless-debugging.md](./docs/android-wireless-debugging.md)
-
-## 常用脚本
+### 常用脚本
 
 | 命令 | 说明 |
 |------|------|
-| `npm run start` | 启动 Metro bundler。 |
-| `npm run android` | 构建并安装 Android Debug 包。 |
-| `npm run ios` | 在 macOS + Xcode 环境下运行 iOS。 |
-| `npm run test:unit` | 运行 Jest 单元测试。 |
-| `npm run typecheck` | 执行 `tsc --noEmit`。 |
-| `npm run lint` | 执行 ESLint。 |
-| `npm run android:apk` | 在 Windows 下构建 Android release APK。 |
-| `npm run icons:generate` | 从根目录 `app.png` 重新生成 Android / iOS 图标资源。 |
+| `npm run start` | 启动 Metro bundler |
+| `npm run android` | 构建并安装 Android Debug 包 |
+| `npm run ios` | 在 macOS + Xcode 环境下运行 iOS |
+| `npm run test:unit` | 运行 Jest 单元测试 |
+| `npm run typecheck` | 执行 `tsc --noEmit` |
+| `npm run lint` | 执行 ESLint |
+| `npm run android:apk` | 在 Windows 下构建 Android release APK |
+| `npm run icons:generate` | 从根目录 `app.png` 重新生成 Android / iOS 图标资源 |
 
-### Release 构建
+### 发布与补充文档
 
-如果你只是本地出包：
+- [Android GitHub Release 自动发布](./docs/github-actions-android-release.md)
+- [English Android release guide](./docs/github-actions-android-release.en.md)
+- [Android 无线调试说明](./docs/android-wireless-debugging.md)
+- OpenSpec 设计与约定：`openspec/changes/launch-fileflash-bridge-v1/`
 
-```powershell
-npm run android:apk
-```
+</details>
 
-如果你要生成上架用 `AAB`：
-
-```powershell
-cd android
-.\gradlew.bat bundleRelease
-```
-
-如果你要走 GitHub 自动发版，请看：
-
-- [docs/github-actions-android-release.md](./docs/github-actions-android-release.md)
-- [docs/github-actions-android-release.en.md](./docs/github-actions-android-release.en.md)
-
-## 仓库结构
-
-```text
-FileFlash-Bridge/
-  App.tsx
-  android/
-  ios/
-  docs/
-  openspec/
-  packages/
-    fileflash-static-server/
-  src/
-    app/
-    modules/
-      file-access/
-      portal/
-      security/
-      service/
-    test-support/
-```
-
-主要目录说明：
-
-- `App.tsx`：应用主界面与交互入口。
-- `src/modules/service/`：局域网服务、HTTP 运行时、连接与安全控制。
-- `src/modules/file-access/`：会话存储、压缩、导入导出、React Native 文件系统适配。
-- `src/modules/portal/`：浏览器门户页 HTML / JS。
-- `packages/fileflash-static-server/`：仓库内维护的 React Native 本地 HTTP 桥接模块。
-- `docs/`：调试、发布等补充文档。
-
-## 关键依赖
-
-- `@fileflash/react-native-static-server`
-  仓库内自维护的本地 HTTP 桥接模块，用来把浏览器请求桥接到 React Native JS 层。
-- `@react-native-documents/picker`
-  系统文件选择与导出保存。
-- `react-native-share`
-  系统分享导出能力。
-- `react-native-fs`
-  会话文件读写、分块上传落盘、导出复制。
-- `@react-native-community/netinfo`
-  获取 Wi-Fi / 热点与可用地址信息。
-- `react-native-qrcode-svg` + `react-native-svg`
-  展示访问链接二维码。
-- `pako`
-  移动端压缩 / 解压，和测试环境中的 `zlib` 对应。
-
-## Android 说明
-
-- 当前 Android 工程使用 **compileSdk 36**。
-- 浏览器上传大文件时会自动走分块上传接口，避免单次请求体过大。
-- App 内点击“刷新地址”时，会重新获取当前地址并轮换访问密钥。
-- 如果你通过 AVD 调试，又想从主机浏览器访问服务，通常需要使用 `adb forward`。
-- 图标源文件为根目录的 `app.png`，更新后执行 `npm run icons:generate`。
-
-### 主机浏览器访问模拟器内服务
-
-假设 App 内当前服务端口是 `8668`：
-
-```bash
-adb forward tcp:8668 tcp:8668
-```
-
-然后在电脑浏览器访问：
-
-```text
-http://127.0.0.1:8668
-```
-
-如果是安全模式，请从 App 内复制完整访问链接，再把主机改成 `127.0.0.1` 使用。
-
-## iOS 说明
-
-- 首次进入 iOS 开发环境建议执行：
-
-```bash
-bundle install
-bundle exec pod install
-```
-
-- iOS 工程已保留本地网络相关方向的接入位，但实际发布流程目前以 Android 为主。
-- 若后续接入完整 iOS 发布链路，建议补充独立的 iOS 发布文档。
-
-## 测试与质量检查
-
-建议在提交前至少执行：
-
-```bash
-npm run test:unit
-npm run typecheck
-```
-
-必要时再执行：
-
-```bash
-npm run lint
-```
-
-## 常见问题
-
-### 1. `npm install` 时出现 Node engine warning
-
-React Native 0.85 对 Node 版本要求更严格，建议直接使用 **Node 22.13.0** 或更高兼容版本。
-
-### 2. Android 安装失败或设备未识别
-
-先执行 `adb devices`，确保目标设备状态为 `device`。
-
-### 3. Metro 连不上手机
-
-可确认设备与开发机网络连通，必要时使用：
-
-```bash
-adb reverse tcp:8081 tcp:8081
-```
-
-### 4. 浏览器访问不到门户页
-
-确认：
-
-- App 内服务已经启动
-- 当前 IP / 端口与浏览器访问地址一致
-- 若刚切换 Wi-Fi 或热点，已在 App 内点击过“刷新地址”
-
-### 5. GitHub Release 没有自动触发
-
-确认你推送的是形如 `v0.0.1` 的 tag，并且仓库 Secrets 已配置完整。
+如果这款工具正好解决了你的文件传输问题，欢迎下载试用，也欢迎通过 Issue 或 Star 告诉我它对你是否有帮助。
 
 ## License
 
