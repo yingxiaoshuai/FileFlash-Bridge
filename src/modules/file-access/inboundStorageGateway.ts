@@ -6,6 +6,11 @@ import {
   TextMessage,
   createId,
 } from '../service/models';
+import {
+  AppUiMetadata,
+  WorkspaceOnboardingSnapshot,
+  deriveWorkspaceOnboardingSnapshot,
+} from '../onboarding/models';
 
 export const SESSION_DELETION_WARNING =
   '删除将清除该会话的数据及关联文件。如需保留文件，请先进入该会话执行“保存到…”或导出。';
@@ -72,6 +77,7 @@ export interface InboundStorageGatewayOptions {
 
 const SNAPSHOT_FILE_NAME = 'session-state.json';
 const TEMP_DIR_NAME = 'temp';
+const UI_METADATA_FILE_NAME = 'ui-state.json';
 
 /** 单次 HTTP 分块体上限，避免原生 NanoHTTPD 将整段读入内存时 OOM。 */
 const MAX_INBOUND_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
@@ -108,6 +114,8 @@ export type PreparedFileChunk = StoredFileChunk;
 export class InboundStorageGateway {
   private snapshot?: StorageSnapshot;
 
+  private uiMetadata: AppUiMetadata = {};
+
   private readonly pendingInboundUploads = new Map<string, PendingInboundUpload>();
 
   constructor(private readonly options: InboundStorageGatewayOptions) {}
@@ -136,6 +144,8 @@ export class InboundStorageGateway {
       await this.persist();
     }
 
+    await this.loadUiMetadata();
+
     await this.cleanupTemporaryArtifacts();
     await this.pruneMissingFiles();
 
@@ -145,6 +155,82 @@ export class InboundStorageGateway {
   async getSnapshot() {
     await this.initialize();
     return this.cloneSnapshot();
+  }
+
+  async getWorkspaceOnboardingState(
+    version: string,
+  ): Promise<WorkspaceOnboardingSnapshot> {
+    await this.initialize();
+    return deriveWorkspaceOnboardingSnapshot(
+      version,
+      this.uiMetadata.workspaceOnboarding,
+    );
+  }
+
+  async recordManualWorkspaceOnboardingOpen(
+    version: string,
+    openedAt = new Date().toISOString(),
+  ): Promise<WorkspaceOnboardingSnapshot> {
+    await this.initialize();
+
+    const currentRecord = this.uiMetadata.workspaceOnboarding;
+    this.uiMetadata.workspaceOnboarding = {
+      lastManualOpenAt: openedAt,
+      status:
+        currentRecord?.version === version ? currentRecord.status : undefined,
+      updatedAt:
+        currentRecord?.version === version ? currentRecord.updatedAt : undefined,
+      version,
+    };
+
+    await this.persistUiMetadata();
+    return this.getWorkspaceOnboardingState(version);
+  }
+
+  async markWorkspaceOnboardingSkipped(
+    version: string,
+    updatedAt = new Date().toISOString(),
+  ): Promise<WorkspaceOnboardingSnapshot> {
+    await this.initialize();
+    const currentRecord = this.uiMetadata.workspaceOnboarding;
+    const status =
+      currentRecord?.version === version && currentRecord.status === 'completed'
+        ? 'completed'
+        : 'skipped';
+
+    this.uiMetadata.workspaceOnboarding = {
+      lastManualOpenAt:
+        currentRecord?.version === version
+          ? currentRecord.lastManualOpenAt
+          : undefined,
+      status,
+      updatedAt,
+      version,
+    };
+
+    await this.persistUiMetadata();
+    return this.getWorkspaceOnboardingState(version);
+  }
+
+  async markWorkspaceOnboardingCompleted(
+    version: string,
+    updatedAt = new Date().toISOString(),
+  ): Promise<WorkspaceOnboardingSnapshot> {
+    await this.initialize();
+    const currentRecord = this.uiMetadata.workspaceOnboarding;
+
+    this.uiMetadata.workspaceOnboarding = {
+      lastManualOpenAt:
+        currentRecord?.version === version
+          ? currentRecord.lastManualOpenAt
+          : undefined,
+      status: 'completed',
+      updatedAt,
+      version,
+    };
+
+    await this.persistUiMetadata();
+    return this.getWorkspaceOnboardingState(version);
   }
 
   async createProject(title?: string) {
@@ -640,6 +726,10 @@ export class InboundStorageGateway {
     return `${this.options.rootDir}/${SNAPSHOT_FILE_NAME}`;
   }
 
+  private uiMetadataFilePath() {
+    return `${this.options.rootDir}/${UI_METADATA_FILE_NAME}`;
+  }
+
   private tempDirPath() {
     return `${this.options.rootDir}/${TEMP_DIR_NAME}`;
   }
@@ -689,6 +779,24 @@ export class InboundStorageGateway {
     }
 
     return JSON.parse(JSON.stringify(this.snapshot)) as StorageSnapshot;
+  }
+
+  private async loadUiMetadata() {
+    const metadataPath = this.uiMetadataFilePath();
+    if (!(await this.options.fileSystem.exists(metadataPath))) {
+      this.uiMetadata = {};
+      return;
+    }
+
+    const rawMetadata = await this.options.fileSystem.readText(metadataPath);
+    this.uiMetadata = JSON.parse(rawMetadata) as AppUiMetadata;
+  }
+
+  private async persistUiMetadata() {
+    await this.options.fileSystem.writeText(
+      this.uiMetadataFilePath(),
+      JSON.stringify(this.uiMetadata, null, 2),
+    );
   }
 
   private async writeStoredFile(

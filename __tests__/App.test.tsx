@@ -207,6 +207,14 @@ function createModel(overrides: Record<string, unknown> = {}) {
     isFileShared: jest.fn().mockReturnValue(false),
     isReady: true,
     notice: undefined,
+    onboarding: {
+      canReopen: true,
+      isVisible: false,
+      shouldAutoOpen: false,
+      status: 'completed',
+      version: 'workspace-tour-v1',
+    },
+    openWorkspaceOnboarding: jest.fn().mockResolvedValue(undefined),
     projects: [projectA, projectB],
     refreshAddress: jest.fn().mockResolvedValue(undefined),
     securityCopy: '',
@@ -229,6 +237,8 @@ function createModel(overrides: Record<string, unknown> = {}) {
     },
     setSecurityMode: jest.fn().mockResolvedValue(undefined),
     sharedFiles: [sharedFile],
+    completeWorkspaceOnboarding: jest.fn().mockResolvedValue(undefined),
+    skipWorkspaceOnboarding: jest.fn().mockResolvedValue(undefined),
     toggleService: jest.fn().mockResolvedValue(undefined),
     toggleSharedFile: jest.fn().mockResolvedValue(undefined),
     ...overrides,
@@ -444,5 +454,104 @@ describe('App sidebar history', () => {
     });
 
     expect(() => tree!.root.findByProps({testID: 'sidebar-panel'})).toThrow();
+  });
+
+  test('shows the onboarding overlay for first-run users and lets them reopen it later', () => {
+    const model = createModel({
+      onboarding: {
+        canReopen: true,
+        isVisible: true,
+        shouldAutoOpen: true,
+        status: 'unseen',
+        version: 'workspace-tour-v1',
+      },
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-overlay'})).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+    });
+
+    expect(
+      tree!.root.findByProps({testID: 'workspace-onboarding-previous'}),
+    ).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'workspace-onboarding-skip'}).props.onPress();
+    });
+
+    expect(model.skipWorkspaceOnboarding).toHaveBeenCalled();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'workspace-open-onboarding'}).props.onPress();
+    });
+
+    expect(model.openWorkspaceOnboarding).toHaveBeenCalled();
+  });
+
+  test('keeps the onboarding overlay available when the address target is missing and completes on the last step', () => {
+    const model = createModel({
+      onboarding: {
+        canReopen: true,
+        isVisible: true,
+        shouldAutoOpen: true,
+        status: 'unseen',
+        version: 'workspace-tour-v1',
+      },
+      serviceState: {
+        ...createModel().serviceState,
+        accessUrl: undefined,
+        error: {
+          code: 'NETWORK_UNAVAILABLE',
+          message: '没有可用局域网地址',
+          recoverable: true,
+          suggestedAction: '检查 Wi-Fi 或热点连接',
+        },
+        network: {
+          label: '无可用局域网',
+          mode: 'offline',
+          reachable: false,
+        },
+        phase: 'idle',
+        qrValue: undefined,
+      },
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(tree!.root.findByProps({testID: 'service-address-collapsed'})).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-overlay'})).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+    });
+
+    expect(
+      tree!.root.findByProps({testID: 'workspace-onboarding-complete'}),
+    ).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'workspace-onboarding-complete'}).props.onPress();
+    });
+
+    expect(model.completeWorkspaceOnboarding).toHaveBeenCalled();
   });
 });

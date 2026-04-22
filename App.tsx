@@ -3,6 +3,8 @@ import React from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
+  Platform,
   Pressable,
   ScrollView,
   StatusBar,
@@ -31,10 +33,25 @@ import {
 } from './src/app/ui';
 import {useAppModel} from './src/app/useAppModel';
 import {
+  GuidedTourTarget,
+  WorkspaceOnboardingOverlay,
+  WorkspaceTourAnchorRect,
+  WorkspaceTourStep,
+} from './src/app/workspaceOnboarding';
+import {
   ProjectRecord,
   SharedFileRecord,
   TextMessage,
 } from './src/modules/service/models';
+
+type WorkspaceTourTargetId =
+  | 'help-button'
+  | 'project-panel'
+  | 'service-address'
+  | 'service-panel'
+  | 'shared-files-panel';
+
+type TourTargetNode = React.ElementRef<typeof View>;
 
 function AppScreen(): React.JSX.Element {
   const model = useAppModel();
@@ -45,6 +62,13 @@ function AppScreen(): React.JSX.Element {
   >();
   const {width} = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [tourStepIndex, setTourStepIndex] = React.useState(0);
+  const [tourTargetRects, setTourTargetRects] = React.useState<
+    Partial<Record<WorkspaceTourTargetId, WorkspaceTourAnchorRect>>
+  >({});
+  const tourTargetRefs = React.useRef<
+    Partial<Record<WorkspaceTourTargetId, TourTargetNode | null>>
+  >({});
   const isServiceRunning = model.serviceState.phase === 'running';
   const isCompactScreen = width < 560;
   const stackOverviewCards = width < 1180;
@@ -76,6 +100,88 @@ function AppScreen(): React.JSX.Element {
     model.activeProject?.id,
   );
 
+  const setTourTargetRef = React.useCallback((
+    targetId: WorkspaceTourTargetId,
+    node: TourTargetNode | null,
+  ) => {
+    tourTargetRefs.current[targetId] = node;
+  }, []);
+
+  const measureTourTarget = React.useCallback((targetId: WorkspaceTourTargetId) => {
+    const node = tourTargetRefs.current[targetId];
+    if (!node || typeof node.measureInWindow !== 'function') {
+      setTourTargetRects(currentRects => {
+        if (!currentRects[targetId]) {
+          return currentRects;
+        }
+
+        const nextRects = {...currentRects};
+        delete nextRects[targetId];
+        return nextRects;
+      });
+      return;
+    }
+
+    node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+      if (!measuredWidth || !measuredHeight) {
+        setTourTargetRects(currentRects => {
+          if (!currentRects[targetId]) {
+            return currentRects;
+          }
+
+          const nextRects = {...currentRects};
+          delete nextRects[targetId];
+          return nextRects;
+        });
+        return;
+      }
+
+      setTourTargetRects(currentRects => {
+        const previousRect = currentRects[targetId];
+        if (
+          previousRect &&
+          previousRect.x === x &&
+          previousRect.y === y &&
+          previousRect.width === measuredWidth &&
+          previousRect.height === measuredHeight
+        ) {
+          return currentRects;
+        }
+
+        return {
+          ...currentRects,
+          [targetId]: {
+            height: measuredHeight,
+            width: measuredWidth,
+            x,
+            y,
+          },
+        };
+      });
+    });
+  }, []);
+
+  const tourTargetCallbacks = React.useMemo(
+    () => ({
+      'help-button': (node: TourTargetNode | null) => {
+        setTourTargetRef('help-button', node);
+      },
+      'project-panel': (node: TourTargetNode | null) => {
+        setTourTargetRef('project-panel', node);
+      },
+      'service-address': (node: TourTargetNode | null) => {
+        setTourTargetRef('service-address', node);
+      },
+      'service-panel': (node: TourTargetNode | null) => {
+        setTourTargetRef('service-panel', node);
+      },
+      'shared-files-panel': (node: TourTargetNode | null) => {
+        setTourTargetRef('shared-files-panel', node);
+      },
+    }),
+    [setTourTargetRef],
+  );
+
   React.useEffect(() => {
     if (
       projectActionMenuId &&
@@ -97,6 +203,57 @@ function AppScreen(): React.JSX.Element {
 
     previousActiveProjectIdRef.current = model.activeProject?.id;
   }, [isProjectHistoryOpen, model.activeProject?.id]);
+
+  React.useEffect(() => {
+    if (!model.onboarding.isVisible) {
+      return;
+    }
+
+    setTourStepIndex(0);
+  }, [model.onboarding.isVisible]);
+
+  React.useEffect(() => {
+    if (!model.onboarding.isVisible) {
+      return;
+    }
+    measureTourTarget('help-button');
+    measureTourTarget('service-panel');
+    measureTourTarget('service-address');
+    measureTourTarget('shared-files-panel');
+    measureTourTarget('project-panel');
+  }, [
+    hasReachableAddress,
+    model.activeProject?.id,
+    model.activeProject?.messages.length,
+    model.activeProjectFiles.length,
+    model.onboarding.isVisible,
+    model.sharedFiles.length,
+    tourStepIndex,
+    width,
+  ]);
+
+  React.useEffect(() => {
+    if (Platform.OS !== 'android' || !model.onboarding.isVisible) {
+      return;
+    }
+
+    const subscription = BackHandler.addEventListener(
+      'hardwareBackPress',
+      () => {
+        if (tourStepIndex > 0) {
+          setTourStepIndex(currentIndex => Math.max(0, currentIndex - 1));
+        } else {
+          void model.skipWorkspaceOnboarding();
+        }
+
+        return true;
+      },
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [model.onboarding.isVisible, model.skipWorkspaceOnboarding, tourStepIndex]);
 
   const handleCopyLink = () => {
     if (!model.serviceState.accessUrl) {
@@ -131,6 +288,68 @@ function AppScreen(): React.JSX.Element {
           .join('；');
 
     Alert.alert('网络状态', message);
+  };
+
+  const tourSteps: WorkspaceTourStep<WorkspaceTourTargetId>[] = [
+    {
+      body: isServiceRunning
+        ? '服务已经在运行，这里可以继续停止服务、查看网络状态，并确认当前访问模式。'
+        : '先从这里启动服务。服务起来以后，浏览器入口、二维码和共享内容才会对外可用。',
+      id: 'service',
+      target: 'service-panel',
+      title: isServiceRunning ? '这里控制当前服务' : '先从这里启动服务',
+    },
+    {
+      body: hasReachableAddress
+        ? '当地址和二维码出现后，就可以复制链接或让另一台设备扫码打开浏览器入口。'
+        : '当前没有可用地址时，我们会退回到整个服务区域提示你；连上可用局域网后，这里会显示真实入口。',
+      fallbackTarget: 'service-panel',
+      id: 'access',
+      target: 'service-address',
+      title: hasReachableAddress ? '把这个入口发给另一台设备' : '地址会在这里出现',
+    },
+    {
+      body: '从本机导入的文件会先出现在共享列表里，浏览器端可以直接下载，也可以随时移出共享。',
+      id: 'shared-files',
+      target: 'shared-files-panel',
+      title: '共享文件集中放在这里',
+    },
+    {
+      body: '浏览器发来的文本、接收到的文件，以及后续导出操作，都会继续归到当前项目里整理。',
+      id: 'project',
+      target: 'project-panel',
+      title: '当前项目里查看本轮内容',
+    },
+    {
+      body: '忘记流程时，点右上角这个入口就能从第一步重新打开引导，不会改动当前服务或项目数据。',
+      id: 'help',
+      target: 'help-button',
+      title: '以后也能随时重看这套说明',
+    },
+  ];
+
+  const currentTourStep = model.onboarding.isVisible
+    ? tourSteps[Math.min(tourStepIndex, tourSteps.length - 1)]
+    : undefined;
+  const activeTourTargetId = currentTourStep
+    ? currentTourStep.target === 'service-address' && !hasReachableAddress
+      ? currentTourStep.fallbackTarget ?? currentTourStep.target
+      : currentTourStep.target
+    : undefined;
+  const activeTourTargetRect = activeTourTargetId
+    ? tourTargetRects[activeTourTargetId]
+    : undefined;
+
+  const handleOpenTour = () => {
+    void model.openWorkspaceOnboarding();
+  };
+
+  const handleSkipTour = () => {
+    void model.skipWorkspaceOnboarding();
+  };
+
+  const handleCompleteTour = () => {
+    void model.completeWorkspaceOnboarding();
   };
 
   const confirmDeleteProject = (project: ProjectRecord) => {
@@ -253,182 +472,201 @@ function AppScreen(): React.JSX.Element {
           styles.topGrid,
           stackOverviewCards ? styles.topGridCompact : null,
         ]}>
-        <PanelSurface
-          style={[styles.card, styles.topGridPanel, styles.serviceCard]}>
-          <View style={styles.serviceHeaderRow}>
-            <View style={styles.serviceHeaderTitleWrap}>
-              <SectionTitle title="服务" />
-            </View>
-            <NetworkTag
-              reachable={model.serviceState.network.reachable}
-              text={model.serviceState.network.label}
-            />
-          </View>
-
-          {hasReachableAddress ? (
-            <View style={styles.serviceAddressSection} testID="service-address-row">
-              <KeyValueTile
-                fill
-                label="地址"
-                value={model.serviceState.accessUrl!}
-              />
-              <View style={styles.serviceAddressActions}>
-                <IconButton
-                  accessibilityLabel="复制链接"
-                  disabled={isBusy}
-                  icon="⎘"
-                  onPress={handleCopyLink}
-                  testID="service-copy-link"
-                />
-                <IconButton
-                  accessibilityLabel="刷新地址"
-                  disabled={isBusy}
-                  icon="↻"
-                  onPress={handleRefreshAddress}
-                  testID="service-refresh-address"
-                />
+        <GuidedTourTarget
+          active={activeTourTargetId === 'service-panel'}
+          captureRef={tourTargetCallbacks['service-panel']}
+          style={styles.topGridTourTarget}>
+          <PanelSurface style={[styles.card, styles.serviceCard]}>
+            <View style={styles.serviceHeaderRow}>
+              <View style={styles.serviceHeaderTitleWrap}>
+                <SectionTitle title="服务" />
               </View>
+              <NetworkTag
+                reachable={model.serviceState.network.reachable}
+                text={model.serviceState.network.label}
+              />
             </View>
-          ) : (
-            <View
-              style={styles.serviceAddressCollapsed}
-              testID="service-address-collapsed">
-              <Text style={styles.serviceAddressCollapsedLabel}>地址</Text>
-              <Text style={styles.serviceAddressCollapsedValue}>
-                {stoppedAddressCopy}
-              </Text>
-            </View>
-          )}
 
-          <PrimaryButton
-            disabled={isBusy}
-            fullWidth
-            label={isServiceRunning ? '停止服务' : '启动服务'}
-            onPress={() => {
-              void model.toggleService();
-            }}
-            testID="home-toggle-service"
-          />
-
-          <View style={styles.serviceSecondaryPanel}>
-            <View style={styles.serviceSecondaryRow} testID="service-mode-panel">
-              <View style={styles.securityModeSwitchText}>
-                <View style={styles.securityModeTitleRow}>
-                  <Text style={styles.quickToolsTitle}>访问模式</Text>
-                  <GlyphIconButton
-                    accessibilityLabel="查看安全模式说明"
-                    disabled={isBusy}
-                    glyph="!"
-                    onPress={handleShowSecurityModeHelp}
-                    testID="security-mode-help"
+            {hasReachableAddress ? (
+              <GuidedTourTarget
+                active={activeTourTargetId === 'service-address'}
+                captureRef={tourTargetCallbacks['service-address']}
+                style={styles.serviceAddressTarget}
+                testID="service-address-row">
+                <View style={styles.serviceAddressSection}>
+                  <KeyValueTile
+                    fill
+                    label="地址"
+                    value={model.serviceState.accessUrl!}
                   />
+                  <View style={styles.serviceAddressActions}>
+                    <IconButton
+                      accessibilityLabel="复制链接"
+                      disabled={isBusy}
+                      icon="⎘"
+                      onPress={handleCopyLink}
+                      testID="service-copy-link"
+                    />
+                    <IconButton
+                      accessibilityLabel="刷新地址"
+                      disabled={isBusy}
+                      icon="↻"
+                      onPress={handleRefreshAddress}
+                      testID="service-refresh-address"
+                    />
+                  </View>
                 </View>
-                <Text style={styles.securityModeSwitchTitle}>
-                  {securityModeLabel}
+              </GuidedTourTarget>
+            ) : (
+              <View
+                style={styles.serviceAddressCollapsed}
+                testID="service-address-collapsed">
+                <Text style={styles.serviceAddressCollapsedLabel}>地址</Text>
+                <Text style={styles.serviceAddressCollapsedValue}>
+                  {stoppedAddressCopy}
                 </Text>
               </View>
-              <Switch
-                accessibilityLabel="安全模式"
-                disabled={isBusy}
-                ios_backgroundColor={theme.colors.border}
-                onValueChange={nextSecure => {
-                  void model.setSecurityMode(nextSecure ? 'secure' : 'simple');
-                }}
-                thumbColor={theme.colors.surfaceElevated}
-                trackColor={{
-                  false: theme.colors.border,
-                  true: theme.colors.primary,
-                }}
-                value={model.serviceState.config.securityMode === 'secure'}
-              />
-            </View>
-            {!model.serviceState.network.reachable ? (
-              <View
-                style={styles.networkDiagnosisRow}
-                testID="service-network-warning">
-                <View style={styles.networkDiagnosisText}>
-                  <Text style={styles.networkDiagnosisLabel}>网络状态</Text>
-                  <Text style={styles.networkDiagnosisValue}>
-                    {model.serviceState.network.label}
+            )}
+
+            <PrimaryButton
+              disabled={isBusy}
+              fullWidth
+              label={isServiceRunning ? '停止服务' : '启动服务'}
+              onPress={() => {
+                void model.toggleService();
+              }}
+              testID="home-toggle-service"
+            />
+
+            <View style={styles.serviceSecondaryPanel}>
+              <View style={styles.serviceSecondaryRow} testID="service-mode-panel">
+                <View style={styles.securityModeSwitchText}>
+                  <View style={styles.securityModeTitleRow}>
+                    <Text style={styles.quickToolsTitle}>访问模式</Text>
+                    <GlyphIconButton
+                      accessibilityLabel="查看安全模式说明"
+                      disabled={isBusy}
+                      glyph="!"
+                      onPress={handleShowSecurityModeHelp}
+                      testID="security-mode-help"
+                    />
+                  </View>
+                  <Text style={styles.securityModeSwitchTitle}>
+                    {securityModeLabel}
                   </Text>
                 </View>
-                <IconButton
-                  accessibilityLabel="查看网络说明"
+                <Switch
+                  accessibilityLabel="安全模式"
                   disabled={isBusy}
-                  icon="!"
-                  onPress={handleShowNetworkHelp}
-                  testID="service-network-help"
+                  ios_backgroundColor={theme.colors.border}
+                  onValueChange={nextSecure => {
+                    void model.setSecurityMode(nextSecure ? 'secure' : 'simple');
+                  }}
+                  thumbColor={theme.colors.surfaceElevated}
+                  trackColor={{
+                    false: theme.colors.border,
+                    true: theme.colors.primary,
+                  }}
+                  value={model.serviceState.config.securityMode === 'secure'}
+                />
+              </View>
+              {!model.serviceState.network.reachable ? (
+                <View
+                  style={styles.networkDiagnosisRow}
+                  testID="service-network-warning">
+                  <View style={styles.networkDiagnosisText}>
+                    <Text style={styles.networkDiagnosisLabel}>网络状态</Text>
+                    <Text style={styles.networkDiagnosisValue}>
+                      {model.serviceState.network.label}
+                    </Text>
+                  </View>
+                  <IconButton
+                    accessibilityLabel="查看网络说明"
+                    disabled={isBusy}
+                    icon="!"
+                    onPress={handleShowNetworkHelp}
+                    testID="service-network-help"
+                  />
+                </View>
+              ) : null}
+            </View>
+
+            {model.serviceState.qrValue && hasReachableAddress ? (
+              <View style={styles.qrPanel}>
+                <QRCode
+                  backgroundColor={theme.colors.surface}
+                  color={theme.colors.ink}
+                  size={serviceQrSize}
+                  value={model.serviceState.qrValue}
                 />
               </View>
             ) : null}
-          </View>
+          </PanelSurface>
+        </GuidedTourTarget>
 
-          {model.serviceState.qrValue && hasReachableAddress ? (
-            <View style={styles.qrPanel}>
-              <QRCode
-                backgroundColor={theme.colors.surface}
-                color={theme.colors.ink}
-                size={serviceQrSize}
-                value={model.serviceState.qrValue}
-              />
+        <GuidedTourTarget
+          active={activeTourTargetId === 'shared-files-panel'}
+          captureRef={tourTargetCallbacks['shared-files-panel']}
+          style={styles.topGridTourTarget}>
+          <PanelSurface style={[styles.card, styles.sharedFilesCard]}>
+            <View style={styles.cardHeaderRow}>
+              <SectionTitle title="Shared Files" />
+              <View style={styles.sharedFilesHeaderActions}>
+                <GhostButton
+                  disabled={isBusy}
+                  compact
+                  label="Files"
+                  onPress={() => {
+                    void model.importFilesForShare();
+                  }}
+                  testID="home-import-files"
+                />
+                <GhostButton
+                  disabled={isBusy}
+                  compact
+                  label="Gallery"
+                  onPress={() => {
+                    void model.importMediaForShare();
+                  }}
+                  testID="home-import-media"
+                />
+              </View>
             </View>
-          ) : null}
-        </PanelSurface>
 
-        <PanelSurface style={[styles.card, styles.topGridPanel, styles.sharedFilesCard]}>
-          <View style={styles.cardHeaderRow}>
-            <SectionTitle title="Shared Files" />
-            <View style={styles.sharedFilesHeaderActions}>
-              <GhostButton
-                disabled={isBusy}
-                compact
-                label="Files"
-                onPress={() => {
-                  void model.importFilesForShare();
-                }}
-                testID="home-import-files"
-              />
-              <GhostButton
-                disabled={isBusy}
-                compact
-                label="Gallery"
-                onPress={() => {
-                  void model.importMediaForShare();
-                }}
-                testID="home-import-media"
-              />
-            </View>
-          </View>
-
-          {model.sharedFiles.length === 0 ? (
-            <EmptyState title="暂无共享文件" />
-          ) : (
-            model.sharedFiles.map(file => (
-              <SharedListCard
-                busy={
-                  isBusy &&
-                  (model.busyAction === 'share' ||
-                    model.busyAction === `export:${file.id}`)
-                }
-                compact={isCompactScreen}
-                file={file}
-                key={`shared-${file.id}`}
-                onExport={() => {
-                  void model.exportFile(file);
-                }}
-                onRemoveShare={() => {
-                  void model.toggleSharedFile(file.id);
-                }}
-                projectTitle={
-                  projectTitleById.get(file.projectId) ?? '未命名项目'
-                }
-              />
-            ))
-          )}
-        </PanelSurface>
+            {model.sharedFiles.length === 0 ? (
+              <EmptyState title="暂无共享文件" />
+            ) : (
+              model.sharedFiles.map(file => (
+                <SharedListCard
+                  busy={
+                    isBusy &&
+                    (model.busyAction === 'share' ||
+                      model.busyAction === `export:${file.id}`)
+                  }
+                  compact={isCompactScreen}
+                  file={file}
+                  key={`shared-${file.id}`}
+                  onExport={() => {
+                    void model.exportFile(file);
+                  }}
+                  onRemoveShare={() => {
+                    void model.toggleSharedFile(file.id);
+                  }}
+                  projectTitle={
+                    projectTitleById.get(file.projectId) ?? '未命名项目'
+                  }
+                />
+              ))
+            )}
+          </PanelSurface>
+        </GuidedTourTarget>
       </View>
 
-      <PanelSurface style={styles.card}>
+      <GuidedTourTarget
+        active={activeTourTargetId === 'project-panel'}
+        captureRef={tourTargetCallbacks['project-panel']}
+        style={styles.projectTourTarget}>
+        <PanelSurface style={styles.card}>
         {model.activeProject ? (
           <>
             <View style={styles.activeProjectHeaderMain}>
@@ -504,7 +742,8 @@ function AppScreen(): React.JSX.Element {
         ) : (
           <EmptyState title="先创建一个项目" />
         )}
-      </PanelSurface>
+        </PanelSurface>
+      </GuidedTourTarget>
     </>
   );
 
@@ -537,12 +776,26 @@ function AppScreen(): React.JSX.Element {
               }}
               testID="sidebar-open"
             />
-            <StatusChip
-              accent={
-                isServiceRunning ? theme.colors.success : theme.colors.inkSoft
-              }
-              label={isServiceRunning ? '服务在线' : '服务离线'}
-            />
+            <View style={styles.globalTopBarActions}>
+              <GuidedTourTarget
+                active={activeTourTargetId === 'help-button'}
+                captureRef={tourTargetCallbacks['help-button']}
+                style={styles.helpTargetWrap}>
+                <IconButton
+                  accessibilityLabel="重新查看引导"
+                  disabled={isBusy}
+                  icon="?"
+                  onPress={handleOpenTour}
+                  testID="workspace-open-onboarding"
+                />
+              </GuidedTourTarget>
+              <StatusChip
+                accent={
+                  isServiceRunning ? theme.colors.success : theme.colors.inkSoft
+                }
+                label={isServiceRunning ? '服务在线' : '服务离线'}
+              />
+            </View>
           </View>
           <View style={styles.main}>
             {summaryContent}
@@ -579,6 +832,27 @@ function AppScreen(): React.JSX.Element {
             </ScrollView>
           </View>
         </View>
+      ) : null}
+      {model.onboarding.isVisible && currentTourStep ? (
+        <WorkspaceOnboardingOverlay
+          activeRect={activeTourTargetRect}
+          insets={insets}
+          onClose={handleSkipTour}
+          onComplete={handleCompleteTour}
+          onNext={() => {
+            setTourStepIndex(currentIndex =>
+              Math.min(tourSteps.length - 1, currentIndex + 1),
+            );
+          }}
+          onPrevious={() => {
+            setTourStepIndex(currentIndex => Math.max(0, currentIndex - 1));
+          }}
+          onSkip={handleSkipTour}
+          showPrevious={tourStepIndex > 0}
+          step={currentTourStep}
+          stepIndex={tourStepIndex}
+          totalSteps={tourSteps.length}
+        />
       ) : null}
     </SafeAreaView>
   );
@@ -1163,6 +1437,14 @@ const styles = StyleSheet.create({
   globalTopBarStacked: {
     justifyContent: 'space-between',
   },
+  globalTopBarActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  helpTargetWrap: {
+    borderRadius: theme.radius.pill,
+  },
   stackedWorkspace: {
     alignItems: 'stretch',
     flexDirection: 'column',
@@ -1496,6 +1778,14 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
     minWidth: 0,
   },
+  topGridTourTarget: {
+    alignSelf: 'stretch',
+    flex: 1,
+    minWidth: 0,
+  },
+  projectTourTarget: {
+    alignSelf: 'stretch',
+  },
   serviceHeaderRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -1551,6 +1841,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
+  },
+  serviceAddressTarget: {
+    borderRadius: 20,
   },
   serviceAddressCollapsed: {
     alignItems: 'flex-start',

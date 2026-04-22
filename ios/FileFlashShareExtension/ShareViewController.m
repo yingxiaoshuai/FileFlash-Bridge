@@ -201,10 +201,11 @@ static NSString *FFBShareSanitizeFileName(NSString *candidate)
     }
 
     NSString *content = nil;
-    if ([item isKindOfClass:[NSURL class]]) {
-      content = ((NSURL *)item).absoluteString;
-    } else if ([item isKindOfClass:[NSString class]]) {
-      content = (NSString *)item;
+    id rawItem = item;
+    if ([rawItem isKindOfClass:[NSURL class]]) {
+      content = ((NSURL *)rawItem).absoluteString;
+    } else if ([rawItem isKindOfClass:[NSString class]]) {
+      content = (NSString *)rawItem;
     }
 
     content = [content stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -293,8 +294,10 @@ static NSString *FFBShareSanitizeFileName(NSString *candidate)
   baseName = FFBShareSanitizeFileName(baseName.length > 0 ? baseName : @"shared-item");
 
   NSString *extension = sourceURL.pathExtension;
-  if (extension.length == 0 && @available(iOS 14.0, *)) {
-    extension = [UTType typeWithIdentifier:typeIdentifier].preferredFilenameExtension;
+  if (extension.length == 0) {
+    if (@available(iOS 14.0, *)) {
+      extension = [UTType typeWithIdentifier:typeIdentifier].preferredFilenameExtension;
+    }
   }
 
   return extension.length > 0 ? [NSString stringWithFormat:@"%@.%@", baseName, extension] : baseName;

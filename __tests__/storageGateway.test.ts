@@ -101,6 +101,99 @@ describe('InboundStorageGateway', () => {
     }
   });
 
+  test('stores versioned workspace onboarding metadata outside the session snapshot', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-onboarding-metadata',
+    });
+
+    try {
+      await gateway.initialize();
+
+      expect(await gateway.getWorkspaceOnboardingState('tour-v1')).toEqual({
+        status: 'unseen',
+        version: 'tour-v1',
+      });
+
+      await gateway.recordManualWorkspaceOnboardingOpen(
+        'tour-v1',
+        '2026-04-22T08:00:00.000Z',
+      );
+      await gateway.markWorkspaceOnboardingSkipped(
+        'tour-v1',
+        '2026-04-22T08:05:00.000Z',
+      );
+
+      const snapshot = await gateway.getSnapshot();
+      expect(
+        (snapshot as unknown as {workspaceOnboarding?: unknown}).workspaceOnboarding,
+      ).toBeUndefined();
+
+      const reloadedGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem: new NodeFileSystemAdapter(),
+        rootDir,
+        sessionId: 'session-onboarding-metadata',
+      });
+
+      await expect(
+        reloadedGateway.getWorkspaceOnboardingState('tour-v1'),
+      ).resolves.toEqual({
+        lastManualOpenAt: '2026-04-22T08:00:00.000Z',
+        status: 'skipped',
+        updatedAt: '2026-04-22T08:05:00.000Z',
+        version: 'tour-v1',
+      });
+
+      await expect(
+        reloadedGateway.getWorkspaceOnboardingState('tour-v2'),
+      ).resolves.toEqual({
+        status: 'unseen',
+        version: 'tour-v2',
+      });
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('preserves a completed onboarding state when the tour is later closed again', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-onboarding-complete',
+    });
+
+    try {
+      await gateway.initialize();
+      await gateway.markWorkspaceOnboardingCompleted(
+        'tour-v1',
+        '2026-04-22T09:00:00.000Z',
+      );
+      await gateway.markWorkspaceOnboardingSkipped(
+        'tour-v1',
+        '2026-04-22T09:05:00.000Z',
+      );
+
+      await expect(
+        gateway.getWorkspaceOnboardingState('tour-v1'),
+      ).resolves.toEqual({
+        status: 'completed',
+        updatedAt: '2026-04-22T09:05:00.000Z',
+        version: 'tour-v1',
+      });
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('copies large local files into storage and serves download chunks without loading the full file', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const fileSystem = new NodeFileSystemAdapter();

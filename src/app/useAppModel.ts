@@ -3,6 +3,10 @@ import {AppState} from 'react-native';
 import {useEffect, useMemo, useRef, useState} from 'react';
 
 import {
+  WORKSPACE_ONBOARDING_VERSION,
+  WorkspaceOnboardingSnapshot,
+} from '../modules/onboarding/models';
+import {
   InboundStorageGateway,
   SESSION_DELETION_WARNING,
 } from '../modules/file-access/inboundStorageGateway';
@@ -46,8 +50,15 @@ type AppModelState = {
   busyAction?: string;
   isReady: boolean;
   notice?: AppNotice;
+  onboarding: WorkspaceOnboardingViewState;
   serviceState: ServiceState;
   snapshot?: StorageSnapshot;
+};
+
+type WorkspaceOnboardingViewState = WorkspaceOnboardingSnapshot & {
+  canReopen: boolean;
+  isVisible: boolean;
+  shouldAutoOpen: boolean;
 };
 
 function createInitialConfig(): ServiceConfig {
@@ -91,6 +102,23 @@ function buildImportedContentNotice(summary: {
   }
 
   return '';
+}
+
+function createWorkspaceOnboardingViewState(
+  snapshot?: WorkspaceOnboardingSnapshot,
+  options?: {isVisible?: boolean},
+): WorkspaceOnboardingViewState {
+  const resolvedSnapshot: WorkspaceOnboardingSnapshot = snapshot ?? {
+    status: 'unseen',
+    version: WORKSPACE_ONBOARDING_VERSION,
+  };
+
+  return {
+    ...resolvedSnapshot,
+    canReopen: true,
+    isVisible: options?.isVisible ?? false,
+    shouldAutoOpen: resolvedSnapshot.status === 'unseen',
+  };
 }
 
 export function useAppModel() {
@@ -139,6 +167,7 @@ export function useAppModel() {
 
   const [state, setState] = useState<AppModelState>(() => ({
     isReady: false,
+    onboarding: createWorkspaceOnboardingViewState(),
     serviceState: createInitialServiceState(configRef.current!),
   }));
 
@@ -167,6 +196,9 @@ export function useAppModel() {
         await controllerRef.current!.initialize();
         const importedSummary = await importPendingSystemSharedItems();
         const snapshot = await gatewayRef.current!.getSnapshot();
+        const onboarding = await gatewayRef.current!.getWorkspaceOnboardingState(
+          WORKSPACE_ONBOARDING_VERSION,
+        );
 
         if (!active) {
           return;
@@ -181,6 +213,9 @@ export function useAppModel() {
                   tone: 'success',
                 }
               : undefined,
+          onboarding: createWorkspaceOnboardingViewState(onboarding, {
+            isVisible: onboarding.status === 'unseen',
+          }),
           serviceState: controllerRef.current!.getState(),
           snapshot,
         });
@@ -678,6 +713,74 @@ export function useAppModel() {
     }));
   };
 
+  const openWorkspaceOnboarding = async () => {
+    try {
+      const onboarding =
+        await gatewayRef.current!.recordManualWorkspaceOnboardingOpen(
+          WORKSPACE_ONBOARDING_VERSION,
+        );
+
+      setState(currentState => ({
+        ...currentState,
+        onboarding: createWorkspaceOnboardingViewState(onboarding, {
+          isVisible: true,
+        }),
+      }));
+    } catch (error) {
+      setState(currentState => ({
+        ...currentState,
+        notice: {
+          message: asErrorMessage(error),
+          tone: 'error',
+        },
+      }));
+    }
+  };
+
+  const skipWorkspaceOnboarding = async () => {
+    try {
+      const onboarding =
+        await gatewayRef.current!.markWorkspaceOnboardingSkipped(
+          WORKSPACE_ONBOARDING_VERSION,
+        );
+
+      setState(currentState => ({
+        ...currentState,
+        onboarding: createWorkspaceOnboardingViewState(onboarding),
+      }));
+    } catch (error) {
+      setState(currentState => ({
+        ...currentState,
+        notice: {
+          message: asErrorMessage(error),
+          tone: 'error',
+        },
+      }));
+    }
+  };
+
+  const completeWorkspaceOnboarding = async () => {
+    try {
+      const onboarding =
+        await gatewayRef.current!.markWorkspaceOnboardingCompleted(
+          WORKSPACE_ONBOARDING_VERSION,
+        );
+
+      setState(currentState => ({
+        ...currentState,
+        onboarding: createWorkspaceOnboardingViewState(onboarding),
+      }));
+    } catch (error) {
+      setState(currentState => ({
+        ...currentState,
+        notice: {
+          message: asErrorMessage(error),
+          tone: 'error',
+        },
+      }));
+    }
+  };
+
   return {
     activeProject,
     activeProjectFiles,
@@ -695,6 +798,8 @@ export function useAppModel() {
     isFileShared: (fileId: string) => sharedFileIds.has(fileId),
     isReady: state.isReady,
     notice: state.notice,
+    onboarding: state.onboarding,
+    openWorkspaceOnboarding,
     projects,
     refreshAddress,
     securityCopy,
@@ -702,6 +807,8 @@ export function useAppModel() {
     serviceState: state.serviceState,
     setSecurityMode,
     sharedFiles,
+    completeWorkspaceOnboarding,
+    skipWorkspaceOnboarding,
     toggleService,
     toggleSharedFile,
   };

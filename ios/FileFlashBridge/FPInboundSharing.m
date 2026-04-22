@@ -355,8 +355,10 @@ RCT_REMAP_METHOD(
   baseName = FFBSanitizeFileName(baseName.length > 0 ? baseName : @"shared-item");
 
   NSString *extension = sourceURL.pathExtension;
-  if (extension.length == 0 && @available(iOS 14.0, *)) {
-    extension = [UTType typeWithIdentifier:typeIdentifier].preferredFilenameExtension;
+  if (extension.length == 0) {
+    if (@available(iOS 14.0, *)) {
+      extension = [UTType typeWithIdentifier:typeIdentifier].preferredFilenameExtension;
+    }
   }
 
   return extension.length > 0 ? [NSString stringWithFormat:@"%@.%@", baseName, extension] : baseName;
