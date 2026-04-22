@@ -328,7 +328,7 @@ describe('App sidebar history', () => {
     expect(() => tree!.root.findByProps({testID: 'sidebar-import-files'})).toThrow();
   });
 
-  test('jumps to the related project from a shared file card', () => {
+  test('renders compact workspace summary and contextual address actions when service is reachable', () => {
     const model = createModel();
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
 
@@ -337,11 +337,78 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
+    expect(tree!.root.findByProps({testID: 'workspace-summary-connections'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'workspace-summary-shared'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'workspace-summary-mode'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'service-address-row'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'service-copy-link'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'service-refresh-address'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'service-mode-panel'})).toBeTruthy();
+    expect(() => tree!.root.findByProps({testID: 'service-address-collapsed'})).toThrow();
+  });
+
+  test('collapses the address area and hides address actions when no reachable address is available', () => {
+    const model = createModel({
+      serviceState: {
+        ...createModel().serviceState,
+        accessUrl: undefined,
+        error: {
+          code: 'NETWORK_UNAVAILABLE',
+          message: '没有可用局域网地址',
+          recoverable: true,
+          suggestedAction: '检查 Wi-Fi 或热点连接',
+        },
+        network: {
+          label: '无可用局域网',
+          mode: 'offline',
+          reachable: false,
+        },
+        phase: 'idle',
+        qrValue: undefined,
+      },
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
     act(() => {
-      tree!.root.findByProps({testID: 'shared-file-project-file-b'}).props.onPress();
+      tree = renderer.create(<App />);
     });
 
-    expect(model.selectProject).toHaveBeenCalledWith('project-b');
+    expect(tree!.root.findByProps({testID: 'service-address-collapsed'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'service-network-warning'})).toBeTruthy();
+    expect(() => tree!.root.findByProps({testID: 'service-copy-link'})).toThrow();
+    expect(() => tree!.root.findByProps({testID: 'service-refresh-address'})).toThrow();
+    expect(() => tree!.root.findByProps({testID: 'service-address-row'})).toThrow();
+  });
+
+  test('shows received file timestamps and removes the shared file project shortcut', () => {
+    const receivedFile = createSharedFile('file-a', 'project-a', 'received.txt');
+    const noticeMessage = '服务状态已更新，当前会话内容可继续管理。';
+    const model = createModel({
+      activeProjectFiles: [receivedFile],
+      notice: {
+        message: noticeMessage,
+        tone: 'info',
+      },
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(tree!.root.findByProps({testID: 'file-received-at-file-a'})).toBeTruthy();
+    expect(() => tree!.root.findByProps({testID: 'shared-file-project-file-b'})).toThrow();
+    expect(
+      tree!.root.findAll(node => {
+        const {children} = node.props ?? {};
+        return (
+          children === noticeMessage ||
+          (Array.isArray(children) && children.includes(noticeMessage))
+        );
+      }),
+    ).toHaveLength(0);
   });
 
   test('opens the project history drawer from the toolbar on narrow screens', () => {

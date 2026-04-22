@@ -25,7 +25,6 @@ import {theme} from './src/app/theme';
 import {
   ActionButton,
   EmptyStateCard,
-  FeedbackBanner,
   GlyphIconButton,
   InlineMeta,
   PanelSurface,
@@ -60,6 +59,13 @@ function AppScreen(): React.JSX.Element {
     width < 560
       ? Math.min(Math.max(280, Math.floor(width * 0.82)), 340)
       : Math.min(Math.max(304, Math.floor(width * 0.32)), 380);
+  const securityModeLabel =
+    model.serviceState.config.securityMode === 'secure' ? '安全模式' : '简单模式';
+  const hasReachableAddress =
+    Boolean(model.serviceState.accessUrl) && model.serviceState.network.reachable;
+  const stoppedAddressCopy = model.serviceState.network.reachable
+    ? '启动后显示浏览器入口'
+    : model.serviceState.error?.message ?? model.serviceState.network.label;
 
   const projectTitleById = React.useMemo(
     () => new Map(model.projects.map(project => [project.id, project.title])),
@@ -100,6 +106,31 @@ function AppScreen(): React.JSX.Element {
 
     Clipboard.setString(model.serviceState.accessUrl);
     Alert.alert('已复制', '链接已复制到剪贴板。');
+  };
+
+  const handleRefreshAddress = () => {
+    void model.refreshAddress();
+  };
+
+  const handleShowSecurityModeHelp = () => {
+    Alert.alert(
+      '安全模式',
+      '开启后链接与二维码携带访问密钥；关闭为简单模式。',
+    );
+  };
+
+  const handleShowNetworkHelp = () => {
+    const message = model.serviceState.network.reachable
+      ? `当前网络：${model.serviceState.network.label}`
+      : [
+          model.serviceState.error?.message ??
+            '没有探测到可被其他设备访问的地址，请检查当前 Wi-Fi 或热点连接。',
+          model.serviceState.error?.suggestedAction,
+        ]
+          .filter(Boolean)
+          .join('；');
+
+    Alert.alert('网络状态', message);
   };
 
   const confirmDeleteProject = (project: ProjectRecord) => {
@@ -173,8 +204,7 @@ function AppScreen(): React.JSX.Element {
 
   const summaryContent = (
     <PanelSurface style={styles.summaryShell}>
-      <View
-        style={[styles.header, isCompactScreen ? styles.headerCompact : null]}>
+      <View style={styles.header}>
         <View style={styles.headerMain}>
           <Text
             style={[
@@ -187,84 +217,31 @@ function AppScreen(): React.JSX.Element {
             {model.activeProject?.title ?? '未选择项目'}
           </Text>
         </View>
-        <View style={styles.headerActions}>
-          <GhostButton
-            disabled={isBusy}
-            label="复制链接"
-            onPress={handleCopyLink}
-          />
-          <GhostButton
-            disabled={isBusy}
-            label="刷新地址"
-            onPress={() => {
-              void model.refreshAddress();
-            }}
-          />
-        </View>
       </View>
-
-      {model.notice ? (
-        <NoticeBanner
-          message={model.notice.message}
-          onDismiss={model.clearNotice}
-          tone={model.notice.tone}
-        />
-      ) : null}
 
       <View style={styles.metricRow}>
         <InfoBadge
+          icon="◌"
           label="连接"
+          testID="workspace-summary-connections"
           value={String(model.serviceState.activeConnections.length)}
         />
         <InfoBadge
+          icon="↗"
           label="共享"
+          testID="workspace-summary-shared"
           value={String(model.sharedFiles.length)}
         />
         <InfoBadge
+          icon={model.serviceState.config.securityMode === 'secure' ? '◉' : '◎'}
           label="模式"
+          testID="workspace-summary-mode"
           value={
             model.serviceState.config.securityMode === 'secure'
               ? '安全'
               : '简单'
           }
         />
-      </View>
-
-      <View style={styles.quickToolsCard}>
-        <Text style={styles.quickToolsTitle}>访问模式</Text>
-        <View style={styles.securityModeSwitchRow}>
-          <View style={styles.securityModeSwitchText}>
-            <View style={styles.securityModeTitleRow}>
-              <Text style={styles.securityModeSwitchTitle}>安全模式</Text>
-              <GlyphIconButton
-                accessibilityLabel="查看安全模式说明"
-                disabled={isBusy}
-                glyph="!"
-                onPress={() => {
-                  Alert.alert(
-                    '安全模式',
-                    '开启后链接与二维码携带访问密钥；关闭为简单模式。',
-                  );
-                }}
-                testID="security-mode-help"
-              />
-            </View>
-          </View>
-          <Switch
-            accessibilityLabel="安全模式"
-            disabled={isBusy}
-            ios_backgroundColor={theme.colors.border}
-            onValueChange={nextSecure => {
-              void model.setSecurityMode(nextSecure ? 'secure' : 'simple');
-            }}
-            thumbColor={theme.colors.surfaceElevated}
-            trackColor={{
-              false: theme.colors.border,
-              true: theme.colors.primary,
-            }}
-            value={model.serviceState.config.securityMode === 'secure'}
-          />
-        </View>
       </View>
     </PanelSurface>
   );
@@ -282,28 +259,111 @@ function AppScreen(): React.JSX.Element {
             <View style={styles.serviceHeaderTitleWrap}>
               <SectionTitle title="服务" />
             </View>
-            <NetworkTag text={model.serviceState.network.label} />
+            <NetworkTag
+              reachable={model.serviceState.network.reachable}
+              text={model.serviceState.network.label}
+            />
           </View>
 
-        <View style={styles.serviceAddressSection}>
-          <KeyValueTile
-            fill
-            label="地址"
-            value={model.serviceState.accessUrl ?? '未启动'}
+          {hasReachableAddress ? (
+            <View style={styles.serviceAddressSection} testID="service-address-row">
+              <KeyValueTile
+                fill
+                label="地址"
+                value={model.serviceState.accessUrl!}
+              />
+              <View style={styles.serviceAddressActions}>
+                <IconButton
+                  accessibilityLabel="复制链接"
+                  disabled={isBusy}
+                  icon="⎘"
+                  onPress={handleCopyLink}
+                  testID="service-copy-link"
+                />
+                <IconButton
+                  accessibilityLabel="刷新地址"
+                  disabled={isBusy}
+                  icon="↻"
+                  onPress={handleRefreshAddress}
+                  testID="service-refresh-address"
+                />
+              </View>
+            </View>
+          ) : (
+            <View
+              style={styles.serviceAddressCollapsed}
+              testID="service-address-collapsed">
+              <Text style={styles.serviceAddressCollapsedLabel}>地址</Text>
+              <Text style={styles.serviceAddressCollapsedValue}>
+                {stoppedAddressCopy}
+              </Text>
+            </View>
+          )}
+
+          <PrimaryButton
+            disabled={isBusy}
+            fullWidth
+            label={isServiceRunning ? '停止服务' : '启动服务'}
+            onPress={() => {
+              void model.toggleService();
+            }}
+            testID="home-toggle-service"
           />
-        </View>
 
-        <PrimaryButton
-          disabled={isBusy}
-          fullWidth
-          label={isServiceRunning ? '停止服务' : '启动服务'}
-          onPress={() => {
-            void model.toggleService();
-          }}
-          testID="home-toggle-service"
-        />
+          <View style={styles.serviceSecondaryPanel}>
+            <View style={styles.serviceSecondaryRow} testID="service-mode-panel">
+              <View style={styles.securityModeSwitchText}>
+                <View style={styles.securityModeTitleRow}>
+                  <Text style={styles.quickToolsTitle}>访问模式</Text>
+                  <GlyphIconButton
+                    accessibilityLabel="查看安全模式说明"
+                    disabled={isBusy}
+                    glyph="!"
+                    onPress={handleShowSecurityModeHelp}
+                    testID="security-mode-help"
+                  />
+                </View>
+                <Text style={styles.securityModeSwitchTitle}>
+                  {securityModeLabel}
+                </Text>
+              </View>
+              <Switch
+                accessibilityLabel="安全模式"
+                disabled={isBusy}
+                ios_backgroundColor={theme.colors.border}
+                onValueChange={nextSecure => {
+                  void model.setSecurityMode(nextSecure ? 'secure' : 'simple');
+                }}
+                thumbColor={theme.colors.surfaceElevated}
+                trackColor={{
+                  false: theme.colors.border,
+                  true: theme.colors.primary,
+                }}
+                value={model.serviceState.config.securityMode === 'secure'}
+              />
+            </View>
+            {!model.serviceState.network.reachable ? (
+              <View
+                style={styles.networkDiagnosisRow}
+                testID="service-network-warning">
+                <View style={styles.networkDiagnosisText}>
+                  <Text style={styles.networkDiagnosisLabel}>网络状态</Text>
+                  <Text style={styles.networkDiagnosisValue}>
+                    {model.serviceState.network.label}
+                  </Text>
+                </View>
+                <IconButton
+                  accessibilityLabel="查看网络说明"
+                  disabled={isBusy}
+                  icon="!"
+                  onPress={handleShowNetworkHelp}
+                  testID="service-network-help"
+                />
+              </View>
+            ) : null}
+          </View>
 
-          {model.serviceState.qrValue ? (
+          {model.serviceState.qrValue && hasReachableAddress ? (
             <View style={styles.qrPanel}>
               <QRCode
                 backgroundColor={theme.colors.surface}
@@ -312,16 +372,15 @@ function AppScreen(): React.JSX.Element {
                 value={model.serviceState.qrValue}
               />
             </View>
-          ) : (
-            <EmptyState title="服务未启动" />
-          )}
+          ) : null}
         </PanelSurface>
 
-        <PanelSurface style={[styles.card, styles.topGridPanel]}>
+        <PanelSurface style={[styles.card, styles.topGridPanel, styles.sharedFilesCard]}>
           <View style={styles.cardHeaderRow}>
             <SectionTitle title="共享文件" />
             <GhostButton
               disabled={isBusy}
+              compact
               label="选文件"
               onPress={() => {
                 void model.importFilesForShare();
@@ -345,9 +404,6 @@ function AppScreen(): React.JSX.Element {
                 key={`shared-${file.id}`}
                 onExport={() => {
                   void model.exportFile(file);
-                }}
-                onOpenProject={() => {
-                  void model.selectProject(file.projectId);
                 }}
                 onRemoveShare={() => {
                   void model.toggleSharedFile(file.id);
@@ -536,12 +592,17 @@ function SectionTitle({title}: SectionTitleProps) {
 }
 
 type NetworkTagProps = {
+  reachable?: boolean;
   text: string;
 };
 
-function NetworkTag({text}: NetworkTagProps) {
+function NetworkTag({reachable = true, text}: NetworkTagProps) {
   return (
-    <View style={styles.networkTag}>
+    <View
+      style={[
+        styles.networkTag,
+        !reachable ? styles.networkTagWarning : null,
+      ]}>
       <Text style={styles.networkTagLabel}>网络</Text>
       <Text numberOfLines={1} style={styles.networkTagValue}>
         {text}
@@ -565,20 +626,32 @@ function StatusChip({accent, label}: StatusChipProps) {
 }
 
 type InfoBadgeProps = {
+  icon: string;
   label: string;
   tone?: 'neutral' | 'success';
+  testID?: string;
   value: string;
 };
 
-function InfoBadge({label, tone = 'neutral', value}: InfoBadgeProps) {
+function InfoBadge({
+  icon,
+  label,
+  tone = 'neutral',
+  testID,
+  value,
+}: InfoBadgeProps) {
   return (
     <View
+      testID={testID}
       style={[
         styles.infoBadge,
         tone === 'success' ? styles.infoBadgeSuccess : null,
       ]}>
-      <Text style={styles.infoBadgeLabel}>{label}</Text>
-      <Text style={styles.infoBadgeValue}>{value}</Text>
+      <Text style={styles.infoBadgeIcon}>{icon}</Text>
+      <View style={styles.infoBadgeText}>
+        <Text style={styles.infoBadgeLabel}>{label}</Text>
+        <Text style={styles.infoBadgeValue}>{value}</Text>
+      </View>
     </View>
   );
 }
@@ -858,6 +931,9 @@ function FileCard({
             {file.displayName}
           </Text>
           <Text style={styles.fileMeta}>{formatBytes(file.size)}</Text>
+          <Text style={styles.fileReceivedAt} testID={`file-received-at-${file.id}`}>
+            鎺ユ敹浜?{formatDateTime(file.createdAt)}
+          </Text>
           <Text numberOfLines={2} style={styles.filePath}>
             {file.relativePath}
           </Text>
@@ -908,7 +984,6 @@ type SharedListCardProps = {
   compact?: boolean;
   file: SharedFileRecord;
   onExport: () => void;
-  onOpenProject: () => void;
   onRemoveShare: () => void;
   projectTitle: string;
 };
@@ -918,7 +993,6 @@ function SharedListCard({
   compact,
   file,
   onExport,
-  onOpenProject,
   onRemoveShare,
   projectTitle,
 }: SharedListCardProps) {
@@ -948,16 +1022,6 @@ function SharedListCard({
             compact
             disabled={busy}
             fullWidth
-            label="项目"
-            onPress={onOpenProject}
-            testID={`shared-file-project-${file.id}`}
-          />
-        </View>
-        <View style={styles.fileCardActionCell}>
-          <GhostButton
-            compact
-            disabled={busy}
-            fullWidth
             label="导出"
             onPress={onExport}
           />
@@ -982,16 +1046,6 @@ type EmptyStateProps = {
 
 function EmptyState({title}: EmptyStateProps) {
   return <EmptyStateCard title={title} />;
-}
-
-type NoticeBannerProps = {
-  message: string;
-  onDismiss: () => void;
-  tone: 'info' | 'success' | 'error';
-};
-
-function NoticeBanner({message, onDismiss, tone}: NoticeBannerProps) {
-  return <FeedbackBanner message={message} onDismiss={onDismiss} tone={tone} />;
 }
 
 function formatBytes(size: number) {
@@ -1257,21 +1311,20 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
   summaryShell: {
-    gap: 18,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
   },
   header: {
+    alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  headerCompact: {
-    flexDirection: 'column',
   },
   headerMain: {
+    alignItems: 'center',
     flex: 1,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
     minWidth: 0,
   },
   headerTitle: {
@@ -1283,50 +1336,58 @@ const styles = StyleSheet.create({
     fontSize: 28,
   },
   headerMeta: {
-    color: theme.colors.inkSoft,
-    marginTop: 6,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.pill,
+    borderWidth: 1,
+    color: theme.colors.ink,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '700',
+    maxWidth: '58%',
+    overflow: 'hidden',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    textAlign: 'right',
   },
   metricRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
   },
   infoBadge: {
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: theme.colors.surfaceElevated,
-    gap: 4,
-    minWidth: 92,
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    minWidth: 0,
   },
   infoBadgeSuccess: {
     backgroundColor: theme.colors.successSoft,
-    borderColor: theme.colors.success,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  infoBadgeIcon: {
+    color: theme.colors.primaryStrong,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 16,
+  },
+  infoBadgeText: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    minWidth: 0,
   },
   infoBadgeLabel: {
     color: theme.colors.inkSoft,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
   },
   infoBadgeValue: {
     color: theme.colors.ink,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
-  },
-  quickToolsCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-    backgroundColor: theme.colors.surfaceMuted,
-    padding: 16,
-    gap: 12,
   },
   quickToolsTitle: {
     color: theme.colors.inkSoft,
@@ -1337,7 +1398,7 @@ const styles = StyleSheet.create({
   },
   topGrid: {
     flexDirection: 'row',
-    gap: 16,
+    gap: 14,
     alignItems: 'flex-start',
   },
   topGridCompact: {
@@ -1347,8 +1408,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: theme.colors.surfaceElevated,
     borderRadius: theme.radius.card,
-    gap: 16,
-    padding: 20,
+    gap: 14,
+    padding: 18,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -1445,6 +1506,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
+  networkTagWarning: {
+    backgroundColor: theme.colors.warningSoft,
+    borderColor: theme.colors.warning,
+  },
   networkTagLabel: {
     color: theme.colors.inkSoft,
     fontSize: 11,
@@ -1460,8 +1525,39 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   serviceAddressSection: {
+    alignItems: 'center',
     alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 10,
     width: '100%',
+  },
+  serviceAddressActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  serviceAddressCollapsed: {
+    alignItems: 'flex-start',
+    backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  serviceAddressCollapsedLabel: {
+    color: theme.colors.inkSoft,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  serviceAddressCollapsedValue: {
+    color: theme.colors.ink,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   keyValueTile: {
     flex: 1,
@@ -1489,8 +1585,8 @@ const styles = StyleSheet.create({
   },
   keyValueTileFill: {
     alignSelf: 'stretch',
-    flex: 0,
-    width: '100%',
+    flex: 1,
+    width: 'auto',
   },
   securityModeSwitchRow: {
     alignItems: 'center',
@@ -1511,12 +1607,56 @@ const styles = StyleSheet.create({
   },
   securityModeSwitchTitle: {
     color: theme.colors.ink,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
   serviceCard: {
     overflow: 'hidden',
     zIndex: 2,
+  },
+  serviceSecondaryPanel: {
+    backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  serviceSecondaryRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+    justifyContent: 'space-between',
+  },
+  networkDiagnosisRow: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.warningSoft,
+    borderColor: theme.colors.warning,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  networkDiagnosisText: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  networkDiagnosisLabel: {
+    color: theme.colors.warningStrong,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  networkDiagnosisValue: {
+    color: theme.colors.ink,
+    fontSize: 13,
+    fontWeight: '600',
+    lineHeight: 18,
   },
   qrPanel: {
     alignItems: 'center',
@@ -1531,6 +1671,9 @@ const styles = StyleSheet.create({
     padding: 16,
     width: '100%',
     zIndex: 3,
+  },
+  sharedFilesCard: {
+    gap: 12,
   },
   projectPill: {
     borderRadius: 18,
@@ -1637,6 +1780,11 @@ const styles = StyleSheet.create({
   fileMeta: {
     color: theme.colors.inkSoft,
     lineHeight: 20,
+  },
+  fileReceivedAt: {
+    color: theme.colors.inkSoft,
+    fontSize: 12,
+    lineHeight: 18,
   },
   filePath: {
     color: theme.colors.inkSoft,
