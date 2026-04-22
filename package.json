@@ -10,7 +10,9 @@
     "test": "jest",
     "test:unit": "jest --runInBand",
     "typecheck": "tsc --noEmit",
-    "android:apk": "cd android && gradlew.bat assembleRelease",
+    "android:apk": "node scripts/build-android-release-artifacts.mjs",
+    "android:aab": "node scripts/build-android-release-artifacts.mjs --aab-only",
+    "android:release": "node scripts/build-android-release-artifacts.mjs --with-aab",
     "icons:generate": "node scripts/generate-app-icons.mjs"
   },
   "dependencies": {

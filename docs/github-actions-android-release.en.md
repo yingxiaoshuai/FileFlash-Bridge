@@ -6,7 +6,7 @@ This repository already includes an Android release workflow:
 
 - Workflow file: [`/.github/workflows/android-release.yml`](../.github/workflows/android-release.yml)
 - Trigger: push a tag such as `v0.0.1`
-- Release artifacts: signed `APK`, `AAB`, and `SHA256SUMS.txt`
+- Release artifacts: signed 32-bit `APK`, signed 64-bit `APK`, `AAB`, and `SHA256SUMS.txt`
 - Publish target: GitHub Release
 
 ## Release Flow
@@ -25,7 +25,7 @@ GitHub Actions will automatically:
 3. Run `npm ci`.
 4. Derive the Android version from the tag.
 5. Rebuild the signing keystore from GitHub Secrets.
-6. Build signed `assembleRelease` and `bundleRelease` outputs.
+6. Build signed 32-bit and 64-bit release `APK` outputs, plus the release `AAB`.
 7. Generate `SHA256SUMS.txt`.
 8. Create or update the matching GitHub Release and upload the artifacts.
 
@@ -114,7 +114,8 @@ The workflow currently uses:
 
 The workflow uploads these files to GitHub Release:
 
-- `android/app/build/outputs/apk/release/app-release.apk`
+- `android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk`
+- `android/app/build/outputs/apk/release/app-arm64-v8a-release.apk`
 - `android/app/build/outputs/bundle/release/app-release.aab`
 - `android/app/build/outputs/SHA256SUMS.txt`
 

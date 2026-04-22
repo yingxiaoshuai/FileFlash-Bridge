@@ -6,7 +6,7 @@ English version: [github-actions-android-release.en.md](./github-actions-android
 
 - 工作流文件：[`/.github/workflows/android-release.yml`](../.github/workflows/android-release.yml)
 - 触发方式：推送形如 `v0.0.1` 的 tag
-- 发布产物：已签名 `APK`、`AAB`、`SHA256SUMS.txt`
+- 发布产物：已签名 32 位 `APK`、64 位 `APK`、`AAB`、`SHA256SUMS.txt`
 - 发布位置：GitHub Release
 
 ## 发布流程
@@ -25,7 +25,7 @@ GitHub Actions 会自动执行：
 3. 执行 `npm ci`。
 4. 从 tag 推导 Android 版本号。
 5. 从 GitHub Secrets 动态重建签名 keystore。
-6. 构建签名后的 `assembleRelease` 和 `bundleRelease`。
+6. 构建签名后的 32 位、64 位 `APK`，以及 `AAB`。
 7. 生成 `SHA256SUMS.txt`。
 8. 创建或更新对应的 GitHub Release，并上传产物。
 
@@ -114,7 +114,8 @@ printf '%s' "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/fil
 
 工作流会上传下面这些文件到 GitHub Release：
 
-- `android/app/build/outputs/apk/release/app-release.apk`
+- `android/app/build/outputs/apk/release/app-armeabi-v7a-release.apk`
+- `android/app/build/outputs/apk/release/app-arm64-v8a-release.apk`
 - `android/app/build/outputs/bundle/release/app-release.aab`
 - `android/app/build/outputs/SHA256SUMS.txt`
 

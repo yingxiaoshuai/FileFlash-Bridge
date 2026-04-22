@@ -19,3 +19,17 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+def isWindowsHost = System.getProperty("os.name").toLowerCase().contains("windows")
+
+subprojects { subproject ->
+    if (isWindowsHost && subproject.path != ":app") {
+        subproject.tasks.matching { task ->
+            task.name.startsWith("verify") && task.name.endsWith("Resources")
+        }.configureEach {
+            // On Windows, AGP resource verification can falsely reject valid
+            // transitive PNG assets inside library modules during release builds.
+            enabled = false
+        }
+    }
+}

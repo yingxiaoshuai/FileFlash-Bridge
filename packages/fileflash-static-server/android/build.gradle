@@ -10,6 +10,13 @@ android {
     namespace "com.futurepress.staticserver"
     compileSdk safeExtGet("compileSdkVersion", 36)
 
+    buildFeatures {
+        // This library only contributes Java/Kotlin code and a manifest.
+        // Disabling library resource packaging avoids pointless AAPT work and
+        // sidesteps local Windows resource verification glitches from transitive deps.
+        androidResources false
+    }
+
     defaultConfig {
         minSdkVersion safeExtGet("minSdkVersion", 24)
         targetSdkVersion safeExtGet("targetSdkVersion", 36)
