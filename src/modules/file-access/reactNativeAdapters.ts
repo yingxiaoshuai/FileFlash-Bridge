@@ -30,8 +30,35 @@ type NativeFileReaderModule = {
   ) => Promise<string>;
 };
 
+type NativeImportedDeviceFile = {
+  byteLength?: number;
+  createdAt?: string;
+  mimeType?: string;
+  name?: string;
+  relativePath?: string;
+  sourcePath?: string;
+};
+
+type NativeImportedDeviceText = {
+  content?: string;
+  createdAt?: string;
+};
+
+type NativePendingSharedItems = {
+  files?: NativeImportedDeviceFile[];
+  texts?: NativeImportedDeviceText[];
+};
+
+type NativeInboundSharingModule = {
+  consumePendingSharedItems?: () => Promise<NativePendingSharedItems>;
+  pickMediaFiles?: () => Promise<NativeImportedDeviceFile[]>;
+};
+
 const nativeFileReader = NativeModules.FPFileReader as
   | NativeFileReaderModule
+  | undefined;
+const nativeInboundSharing = NativeModules.FPInboundSharing as
+  | NativeInboundSharingModule
   | undefined;
 
 function bytesToBase64(bytes: Uint8Array) {
@@ -260,10 +287,21 @@ export interface ExportResult {
 export interface ImportedDeviceFile {
   byteLength: number;
   cleanupPath?: string;
+  createdAt?: string;
   mimeType?: string;
   name: string;
   relativePath: string;
   sourcePath: string;
+}
+
+export interface ImportedDeviceText {
+  content: string;
+  createdAt?: string;
+}
+
+export interface PendingSharedItems {
+  files: ImportedDeviceFile[];
+  texts: ImportedDeviceText[];
 }
 
 function isUserCancellation(error: unknown) {
@@ -299,6 +337,47 @@ async function safeDeletePath(path: string) {
   } catch {
     // Best effort cleanup for temporary picker copies.
   }
+}
+
+function normalizeImportedDeviceFile(
+  file: NativeImportedDeviceFile,
+  context: string,
+): ImportedDeviceFile {
+  const sourcePath = file.sourcePath?.trim();
+  const name = file.name?.trim();
+  const relativePath = file.relativePath?.trim() || name;
+  const byteLength =
+    typeof file.byteLength === 'number' && Number.isFinite(file.byteLength)
+      ? file.byteLength
+      : -1;
+
+  if (!sourcePath || !name || !relativePath || byteLength < 0) {
+    throw new Error(`Native ${context} returned an invalid file payload.`);
+  }
+
+  return {
+    byteLength,
+    cleanupPath: sourcePath,
+    createdAt: file.createdAt,
+    mimeType: file.mimeType ?? undefined,
+    name,
+    relativePath,
+    sourcePath,
+  };
+}
+
+function normalizeImportedDeviceText(
+  text: NativeImportedDeviceText,
+): ImportedDeviceText | null {
+  const content = text.content?.trim();
+  if (!content) {
+    return null;
+  }
+
+  return {
+    content,
+    createdAt: text.createdAt,
+  };
 }
 
 export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
@@ -369,6 +448,37 @@ export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
 
     throw error;
   }
+}
+
+export async function pickDeviceMediaForShare(): Promise<ImportedDeviceFile[]> {
+  if (!nativeInboundSharing?.pickMediaFiles) {
+    throw new Error('当前设备暂不支持直接从图库导入。');
+  }
+
+  const files = await nativeInboundSharing.pickMediaFiles();
+  return (files ?? []).map(file =>
+    normalizeImportedDeviceFile(file, 'media picker'),
+  );
+}
+
+export async function consumePendingSharedItems(): Promise<PendingSharedItems> {
+  if (!nativeInboundSharing?.consumePendingSharedItems) {
+    return {
+      files: [],
+      texts: [],
+    };
+  }
+
+  const payload = await nativeInboundSharing.consumePendingSharedItems();
+
+  return {
+    files: (payload?.files ?? []).map(file =>
+      normalizeImportedDeviceFile(file, 'share receiver'),
+    ),
+    texts: (payload?.texts ?? [])
+      .map(normalizeImportedDeviceText)
+      .filter((item): item is ImportedDeviceText => item != null),
+  };
 }
 
 export async function cleanupImportedDeviceFiles(files: ImportedDeviceFile[]) {

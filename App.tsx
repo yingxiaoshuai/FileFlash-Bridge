@@ -377,16 +377,27 @@ function AppScreen(): React.JSX.Element {
 
         <PanelSurface style={[styles.card, styles.topGridPanel, styles.sharedFilesCard]}>
           <View style={styles.cardHeaderRow}>
-            <SectionTitle title="共享文件" />
-            <GhostButton
-              disabled={isBusy}
-              compact
-              label="选文件"
-              onPress={() => {
-                void model.importFilesForShare();
-              }}
-              testID="home-import-files"
-            />
+            <SectionTitle title="Shared Files" />
+            <View style={styles.sharedFilesHeaderActions}>
+              <GhostButton
+                disabled={isBusy}
+                compact
+                label="Files"
+                onPress={() => {
+                  void model.importFilesForShare();
+                }}
+                testID="home-import-files"
+              />
+              <GhostButton
+                disabled={isBusy}
+                compact
+                label="Gallery"
+                onPress={() => {
+                  void model.importMediaForShare();
+                }}
+                testID="home-import-media"
+              />
+            </View>
           </View>
 
           {model.sharedFiles.length === 0 ? (
@@ -932,7 +943,7 @@ function FileCard({
           </Text>
           <Text style={styles.fileMeta}>{formatBytes(file.size)}</Text>
           <Text style={styles.fileReceivedAt} testID={`file-received-at-${file.id}`}>
-            鎺ユ敹浜?{formatDateTime(file.createdAt)}
+            Received {formatDateTime(file.createdAt)}
           </Text>
           <Text numberOfLines={2} style={styles.filePath}>
             {file.relativePath}
@@ -1008,7 +1019,12 @@ function SharedListCard({
             {file.displayName}
           </Text>
           <Text numberOfLines={2} style={styles.fileMeta}>
-            {formatBytes(file.size)} · {projectTitle}
+            {formatBytes(file.size)} - {projectTitle}
+          </Text>
+          <Text
+            style={styles.fileReceivedAt}
+            testID={`shared-file-received-at-${file.id}`}>
+            {formatDateTime(file.createdAt)}
           </Text>
         </View>
       </View>
@@ -1674,6 +1690,13 @@ const styles = StyleSheet.create({
   },
   sharedFilesCard: {
     gap: 12,
+  },
+  sharedFilesHeaderActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'flex-end',
   },
   projectPill: {
     borderRadius: 18,

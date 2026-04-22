@@ -36,6 +36,7 @@ export interface CompressionAdapter {
 }
 
 interface SaveInboundFileInputBase {
+  createdAt?: string;
   mimeType?: string;
   name: string;
   projectId?: string;
@@ -166,19 +167,24 @@ export class InboundStorageGateway {
     await this.persist();
   }
 
-  async appendTextMessage(content: string, projectId?: string) {
+  async appendTextMessage(
+    content: string,
+    projectId?: string,
+    options?: {createdAt?: string; source?: 'browser' | 'app'},
+  ) {
     const snapshot = await this.requireSnapshot();
     const project = this.resolveProject(snapshot, projectId);
+    const createdAt = options?.createdAt ?? new Date().toISOString();
     const message: TextMessage = {
       id: createId('msg'),
       projectId: project.id,
       content,
-      createdAt: new Date().toISOString(),
-      source: 'browser',
+      createdAt,
+      source: options?.source ?? 'browser',
     };
 
     project.messages.push(message);
-    project.updatedAt = message.createdAt;
+    project.updatedAt = createdAt;
     await this.persist();
     return message;
   }
@@ -233,6 +239,7 @@ export class InboundStorageGateway {
       shouldCompressInboundPayload(input.mimeType, normalizedRelativePath);
     const compression: CompressionMode = shouldCompress ? 'gzip' : 'none';
     const fileId = createId('file');
+    const createdAt = input.createdAt ?? new Date().toISOString();
     const storagePath = `${this.options.rootDir}/projects/${project.id}/${fileId}${resolveStorageExtension(
       normalizedRelativePath,
       compression,
@@ -264,7 +271,7 @@ export class InboundStorageGateway {
       relativePath: normalizedRelativePath,
       storagePath,
       compression,
-      createdAt: new Date().toISOString(),
+      createdAt,
       mimeType: input.mimeType,
       originalSize,
       size: originalSize,
@@ -274,7 +281,7 @@ export class InboundStorageGateway {
 
     snapshot.files[fileId] = fileRecord;
     project.fileIds.push(fileId);
-    project.updatedAt = fileRecord.createdAt;
+    project.updatedAt = createdAt;
     await this.persist();
 
     return fileRecord;

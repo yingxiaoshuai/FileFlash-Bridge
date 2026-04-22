@@ -13,7 +13,34 @@
 		761780F12CA45674006654EE /* FPFileReader.m in Sources */ = {isa = PBXBuildFile; fileRef = 761780F02CA45674006654EE /* FPFileReader.m */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		9FEE64E66507F4B1D51A950B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		A1B2C3010000000000000001 /* FPInboundSharing.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3010000000000000011 /* FPInboundSharing.m */; };
+		A1B2C3010000000000000002 /* FileFlashShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3010000000000000018 /* FileFlashShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A1B2C3010000000000000003 /* ShareViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3010000000000000015 /* ShareViewController.m */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1B2C3010000000000000027 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3010000000000000026;
+			remoteInfo = FileFlashShareExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1B2C3010000000000000022 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3010000000000000002 /* FileFlashShareExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* FileFlashBridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FileFlashBridge.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -26,6 +53,13 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = FileFlashBridge/AppDelegate.swift; sourceTree = "<group>"; };
 		761780F02CA45674006654EE /* FPFileReader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FPFileReader.m; path = FileFlashBridge/FPFileReader.m; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = FileFlashBridge/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		A1B2C3010000000000000011 /* FPInboundSharing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FPInboundSharing.m; path = FileFlashBridge/FPInboundSharing.m; sourceTree = "<group>"; };
+		A1B2C3010000000000000012 /* FileFlashBridge.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = FileFlashBridge.entitlements; path = FileFlashBridge/FileFlashBridge.entitlements; sourceTree = "<group>"; };
+		A1B2C3010000000000000014 /* ShareViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = ShareViewController.h; path = FileFlashShareExtension/ShareViewController.h; sourceTree = "<group>"; };
+		A1B2C3010000000000000015 /* ShareViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ShareViewController.m; path = FileFlashShareExtension/ShareViewController.m; sourceTree = "<group>"; };
+		A1B2C3010000000000000016 /* FileFlashShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; name = FileFlashShareExtension.entitlements; path = FileFlashShareExtension/FileFlashShareExtension.entitlements; sourceTree = "<group>"; };
+		A1B2C3010000000000000017 /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = FileFlashShareExtension/Info.plist; sourceTree = "<group>"; };
+		A1B2C3010000000000000018 /* FileFlashShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FileFlashShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -38,6 +72,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3010000000000000023 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -46,12 +87,25 @@
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				A1B2C3010000000000000012 /* FileFlashBridge.entitlements */,
 				761780F02CA45674006654EE /* FPFileReader.m */,
+				A1B2C3010000000000000011 /* FPInboundSharing.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
 			);
 			name = FileFlashBridge;
+			sourceTree = "<group>";
+		};
+		A1B2C3010000000000000013 /* FileFlashShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3010000000000000016 /* FileFlashShareExtension.entitlements */,
+				A1B2C3010000000000000017 /* Info.plist */,
+				A1B2C3010000000000000014 /* ShareViewController.h */,
+				A1B2C3010000000000000015 /* ShareViewController.m */,
+			);
+			name = FileFlashShareExtension;
 			sourceTree = "<group>";
 		};
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
@@ -74,6 +128,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07FAE1A68108700A75B9A /* FileFlashBridge */,
+				A1B2C3010000000000000013 /* FileFlashShareExtension */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
@@ -88,6 +143,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* FileFlashBridge.app */,
+				A1B2C3010000000000000018 /* FileFlashShareExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -113,17 +169,36 @@
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
+				A1B2C3010000000000000022 /* Embed App Extensions */,
 				00EEFC60759A1932668264C0 /* [CP] Embed Pods Frameworks */,
 				E235C05ADACE081382539298 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1B2C3010000000000000028 /* PBXTargetDependency */,
 			);
 			name = FileFlashBridge;
 			productName = FileFlashBridge;
 			productReference = 13B07F961A680F5B00A75B9A /* FileFlashBridge.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A1B2C3010000000000000026 /* FileFlashShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3010000000000000031 /* Build configuration list for PBXNativeTarget "FileFlashShareExtension" */;
+			buildPhases = (
+				A1B2C3010000000000000025 /* Sources */,
+				A1B2C3010000000000000023 /* Frameworks */,
+				A1B2C3010000000000000024 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FileFlashShareExtension;
+			productName = FileFlashShareExtension;
+			productReference = A1B2C3010000000000000018 /* FileFlashShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -136,6 +211,10 @@
 					13B07F861A680F5B00A75B9A = {
 						DevelopmentTeam = 2NV56FR525;
 						LastSwiftMigration = 1120;
+						ProvisioningStyle = Automatic;
+					};
+					A1B2C3010000000000000026 = {
+						DevelopmentTeam = 2NV56FR525;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -154,6 +233,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* FileFlashBridge */,
+				A1B2C3010000000000000026 /* FileFlashShareExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -166,6 +246,13 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				9FEE64E66507F4B1D51A950B /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3010000000000000024 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -252,11 +339,28 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				A1B2C3010000000000000001 /* FPInboundSharing.m in Sources */,
 				761780F12CA45674006654EE /* FPFileReader.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3010000000000000025 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3010000000000000003 /* ShareViewController.m in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1B2C3010000000000000028 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3010000000000000026 /* FileFlashShareExtension */;
+			targetProxy = A1B2C3010000000000000027 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -264,6 +368,7 @@
 			baseConfigurationReference = 3B4392A12AC88292D35C810B /* Pods-FileFlashBridge.debug.xcconfig */;
 				buildSettings = {
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CODE_SIGN_ENTITLEMENTS = FileFlashBridge/FileFlashBridge.entitlements;
 					CODE_SIGN_STYLE = Automatic;
 					CLANG_ENABLE_MODULES = YES;
 					CURRENT_PROJECT_VERSION = 1;
@@ -297,6 +402,7 @@
 			baseConfigurationReference = 5709B34CF0A7D63546082F79 /* Pods-FileFlashBridge.release.xcconfig */;
 				buildSettings = {
 					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CODE_SIGN_ENTITLEMENTS = FileFlashBridge/FileFlashBridge.entitlements;
 					CODE_SIGN_STYLE = Automatic;
 					CLANG_ENABLE_MODULES = YES;
 					CURRENT_PROJECT_VERSION = 1;
@@ -477,6 +583,56 @@
 			};
 			name = Release;
 		};
+		A1B2C3010000000000000029 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = FileFlashShareExtension/FileFlashShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CLANG_ENABLE_MODULES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2NV56FR525;
+				INFOPLIST_FILE = FileFlashShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.first.fileflashbridge.ShareExtension;
+				PRODUCT_NAME = FileFlashShareExtension;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B2C3010000000000000030 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = FileFlashShareExtension/FileFlashShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CLANG_ENABLE_MODULES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2NV56FR525;
+				INFOPLIST_FILE = FileFlashShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.first.fileflashbridge.ShareExtension;
+				PRODUCT_NAME = FileFlashShareExtension;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -494,6 +650,15 @@
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3010000000000000031 /* Build configuration list for PBXNativeTarget "FileFlashShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3010000000000000029 /* Debug */,
+				A1B2C3010000000000000030 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

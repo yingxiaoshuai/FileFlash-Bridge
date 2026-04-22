@@ -74,6 +74,33 @@ describe('InboundStorageGateway', () => {
     }
   });
 
+  test('preserves an inbound file timestamp when one is provided', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-created-at',
+    });
+
+    try {
+      await gateway.initialize();
+      const createdAt = '2026-04-22T09:30:00.000Z';
+      const storedFile = await gateway.saveInboundFile({
+        bytes: encoder.encode('shared from extension'),
+        createdAt,
+        name: 'inbound.txt',
+      });
+
+      expect(storedFile.createdAt).toBe(createdAt);
+      const snapshot = await gateway.getSnapshot();
+      expect(snapshot.files[storedFile.id]?.createdAt).toBe(createdAt);
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('copies large local files into storage and serves download chunks without loading the full file', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const fileSystem = new NodeFileSystemAdapter();

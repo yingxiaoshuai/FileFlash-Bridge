@@ -98,7 +98,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       .shell {
         max-width: 1120px;
         margin: 0 auto;
-        padding: 28px 16px 56px;
+        padding: 22px 16px 40px;
         position: relative;
         z-index: 1;
       }
@@ -124,29 +124,29 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       .hero {
-        padding: 30px;
-        margin-bottom: 18px;
+        margin-bottom: 14px;
+        padding: 24px;
       }
 
       .hero-top {
-        display: flex;
-        justify-content: space-between;
-        gap: 18px;
         align-items: center;
+        display: flex;
+        gap: 14px;
+        justify-content: space-between;
       }
 
       .badge {
-        display: inline-flex;
         align-items: center;
-        gap: 8px;
         background: rgba(255, 255, 255, 0.66);
         border: 1px solid var(--line-soft);
-        color: var(--accent-strong);
-        padding: 8px 13px;
         border-radius: 999px;
+        color: var(--accent-strong);
+        display: inline-flex;
         font-size: 12px;
         font-weight: 700;
+        gap: 8px;
         letter-spacing: 0.08em;
+        padding: 8px 13px;
         text-transform: uppercase;
       }
 
@@ -161,31 +161,23 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       h1 {
-        margin: 18px 0 10px;
-        font-size: clamp(2.4rem, 4vw, 3.9rem);
         letter-spacing: -0.05em;
         line-height: 0.95;
-      }
-
-      .hero-copy {
-        color: var(--muted);
-        font-size: 15px;
-        line-height: 1.65;
-        margin: 0;
-        max-width: 620px;
+        margin: 14px 0 0;
+        font-size: clamp(2.4rem, 4vw, 3.9rem);
       }
 
       .hero-actions {
-        margin-top: 18px;
+        margin-top: 14px;
       }
 
       .banner {
-        margin-top: 18px;
-        padding: 14px 16px;
-        border-radius: 18px;
         background: rgba(231, 240, 253, 0.9);
         border: 1px solid rgba(20, 115, 230, 0.14);
+        border-radius: 18px;
         color: var(--accent-strong);
+        margin-top: 18px;
+        padding: 14px 16px;
       }
 
       .banner[hidden] {
@@ -199,23 +191,23 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       .service-pill {
-        display: inline-flex;
         align-items: center;
-        gap: 8px;
-        padding: 10px 14px;
-        border-radius: 999px;
         background: var(--panel-strong);
         border: 1px solid var(--line-soft);
+        border-radius: 999px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+        display: inline-flex;
         font-size: 14px;
         font-weight: 800;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+        gap: 8px;
+        padding: 10px 14px;
       }
 
       .service-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 999px;
         background: var(--warn);
+        border-radius: 999px;
+        height: 10px;
+        width: 10px;
       }
 
       .service-pill.online .service-dot {
@@ -224,16 +216,16 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       .grid {
         display: grid;
+        gap: 14px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 18px;
       }
 
       .panel {
-        padding: 22px;
+        padding: 18px;
       }
 
       .panel-head {
-        margin-bottom: 16px;
+        margin-bottom: 12px;
       }
 
       .eyebrow {
@@ -246,23 +238,23 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       .panel h2 {
-        margin: 0 0 8px;
         font-size: 1.35rem;
         letter-spacing: -0.03em;
+        margin: 0;
       }
 
       .dropzone {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(243, 246, 250, 0.94));
         border: 1px dashed rgba(20, 115, 230, 0.26);
         border-radius: 22px;
-        padding: 24px;
-        text-align: center;
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(243, 246, 250, 0.94));
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+        padding: 20px;
+        text-align: center;
       }
 
       .dropzone.active {
-        border-color: rgba(20, 115, 230, 0.45);
         background: rgba(231, 240, 253, 0.86);
+        border-color: rgba(20, 115, 230, 0.45);
       }
 
       .button-row,
@@ -272,23 +264,28 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         gap: 10px;
       }
 
+      .button-row {
+        justify-content: center;
+        margin-top: 16px;
+      }
+
       button,
       .file-button {
         appearance: none;
         border: 1px solid transparent;
         border-radius: 999px;
-        padding: 12px 16px;
+        cursor: pointer;
         font: inherit;
         font-weight: 800;
-        cursor: pointer;
+        padding: 12px 16px;
         text-decoration: none;
         transition: transform 120ms ease, opacity 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
       }
 
       button:hover,
       .file-button:hover {
-        transform: translateY(-1px);
         box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
+        transform: translateY(-1px);
       }
 
       button.primary,
@@ -305,16 +302,16 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       textarea {
-        width: 100%;
-        min-height: 160px;
-        resize: vertical;
-        border-radius: 20px;
+        background: var(--panel-strong);
         border: 1px solid var(--line);
-        padding: 16px;
+        border-radius: 20px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
         font: inherit;
         line-height: 1.55;
-        background: var(--panel-strong);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+        min-height: 128px;
+        padding: 16px;
+        resize: vertical;
+        width: 100%;
       }
 
       .muted {
@@ -327,22 +324,22 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       .download-list {
         display: grid;
         gap: 12px;
-        margin-top: 16px;
+        margin-top: 12px;
       }
 
       .item {
-        padding: 14px 16px;
-        border-radius: 18px;
         background: var(--panel-strong);
         border: 1px solid var(--line);
+        border-radius: 18px;
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+        padding: 14px 16px;
       }
 
       .item-head {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
         align-items: center;
+        display: flex;
+        gap: 12px;
+        justify-content: space-between;
       }
 
       .item-title {
@@ -352,20 +349,20 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       .item-meta,
       .item-status {
-        margin-top: 6px;
         color: var(--muted);
         font-size: 13px;
+        margin-top: 6px;
       }
 
       .chip {
-        display: inline-flex;
         align-items: center;
         border-radius: 999px;
-        padding: 6px 10px;
+        display: inline-flex;
         font-size: 12px;
         font-weight: 800;
-        text-transform: uppercase;
         letter-spacing: 0.04em;
+        padding: 6px 10px;
+        text-transform: uppercase;
       }
 
       .chip.ok {
@@ -376,6 +373,36 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       .chip.warn {
         background: var(--warn-soft);
         color: #8a5717;
+      }
+
+      .chip.danger {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .progress-track {
+        background: rgba(187, 200, 216, 0.4);
+        border: 1px solid rgba(187, 200, 216, 0.56);
+        border-radius: 999px;
+        height: 8px;
+        margin-top: 10px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+        border-radius: inherit;
+        height: 100%;
+        transition: width 140ms ease;
+        width: 0%;
+      }
+
+      .progress-fill.ok {
+        background: linear-gradient(90deg, #52b788, var(--green));
+      }
+
+      .progress-fill.danger {
+        background: linear-gradient(90deg, #ef4444, var(--danger));
       }
 
       .hidden-input {
@@ -397,13 +424,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           border-radius: 22px;
         }
 
+        .hero {
+          padding: 20px;
+        }
+
         .hero-top {
           align-items: flex-start;
           flex-direction: column;
-        }
-
-        .hero {
-          padding: 24px;
         }
 
         .button-row,
@@ -420,7 +447,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           <div>
             <div class="badge">FileFlash Bridge</div>
             <h1>浏览器投递</h1>
-            <p class="hero-copy">把文件、文本和共享内容轻快地送到这台手机。无需额外安装，只保留清晰、安静、可读的传输工作台。</p>
           </div>
           <div class="device-pill">设备：${deviceName}</div>
         </div>
@@ -438,11 +464,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           <div class="panel-head">
             <div class="eyebrow">Drop & Deliver</div>
             <h2>上传到手机</h2>
-            <div class="muted">支持拖拽、文件选择和文件夹选择；浏览器支持目录上传时会保留相对路径结构。</div>
           </div>
           <div id="dropzone" class="dropzone">
-            <div class="item-title">把文件拖到这里，或者选择文件 / 文件夹</div>
-            <p class="muted">文件会先进入手机端 App 内会话，外部保存仍由手机用户主动导出。</p>
+            <div class="item-title">拖拽文件到这里，或选择文件 / 文件夹</div>
             <div class="button-row">
               <label class="file-button primary" for="file-input">选择文件</label>
               <label class="file-button ghost" for="folder-input">选择文件夹</label>
@@ -458,9 +482,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           <div class="panel-head">
             <div class="eyebrow">Paste & Send</div>
             <h2>发送文本</h2>
-            <div class="muted">提交后的内容会进入手机端当前活跃项目，浏览器侧无需自行选择项目。</div>
           </div>
-          <textarea id="text-input" placeholder="在这里粘贴内容，提交后会进入手机端接收区。"></textarea>
+          <textarea id="text-input" placeholder="粘贴文本后直接提交"></textarea>
           <div class="status-actions" style="margin-top: 14px">
             <button id="text-submit" class="primary" type="button">提交文本</button>
             <button id="refresh-button" class="ghost" type="button">刷新状态</button>
@@ -473,9 +496,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         <div class="panel-head">
           <div class="eyebrow">Shared From Phone</div>
           <h2>共享文件</h2>
-          <div class="muted">大文件按 ${Math.floor(
-            model.chunkSize / (1024 * 1024),
-          )} MB 分块下载，单分块失败时会自动重试。</div>
         </div>
         <div id="download-list" class="download-list"></div>
       </section>
@@ -494,6 +514,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const servicePill = document.getElementById('service-pill');
       const serviceState = document.getElementById('service-state');
       const textFeedback = document.getElementById('text-feedback');
+      const textInput = document.getElementById('text-input');
 
       function withKey(path) {
         const url = new URL(path, location.origin);
@@ -501,6 +522,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           url.searchParams.set('key', authKey);
         }
         return url.toString();
+      }
+
+      function escapeHtmlText(value) {
+        return String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
       }
 
       function formatBytes(size) {
@@ -556,27 +586,29 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       function renderUploadQueue() {
         if (fileQueue.length === 0) {
-          uploadList.innerHTML = '<div class="muted">还没有待上传内容。</div>';
+          uploadList.innerHTML = '<div class="muted">还没有待上传内容</div>';
           return;
         }
 
         uploadList.innerHTML = fileQueue
-          .map(
-            file => '<div class="item"><div class="item-head"><div class="item-title">' +
-              file.name +
+          .map(file => {
+            return '<div class="item"><div class="item-head"><div class="item-title">' +
+              escapeHtmlText(file.name) +
               '</div><div class="chip warn">待上传</div></div><div class="item-meta">' +
               formatBytes(file.size) +
-              (file.webkitRelativePath ? ' · ' + file.webkitRelativePath : '') +
-              '</div></div>',
-          )
+              (file.webkitRelativePath
+                ? ' · ' + escapeHtmlText(file.webkitRelativePath)
+                : '') +
+              '</div></div>';
+          })
           .join('');
       }
 
       async function loadStatus() {
         try {
-        const response = await fetch(withKey('/api/status'), {
-          headers: getClientHeaders(),
-        });
+          const response = await fetch(withKey('/api/status'), {
+            headers: getClientHeaders(),
+          });
 
           if (!response.ok) {
             throw new Error('服务暂不可用');
@@ -588,7 +620,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           await loadSharedFiles();
         } catch (error) {
           setServiceOnline(false);
-          updateBanner('手机端服务不可用或已停止，请等待恢复后重试。', 'warn');
+          updateBanner('手机端服务不可用，请确认 App 仍在运行。', 'warn');
         }
       }
 
@@ -598,29 +630,29 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         });
 
         if (!response.ok) {
-          downloadList.innerHTML = '<div class="muted">当前无法读取共享列表。</div>';
+          downloadList.innerHTML = '<div class="muted">当前无法读取共享列表</div>';
           return;
         }
 
         const payload = await response.json();
         if (!payload.files.length) {
-          downloadList.innerHTML = '<div class="muted">手机端还没有加入共享列表的文件。</div>';
+          downloadList.innerHTML = '<div class="muted">还没有共享文件</div>';
           return;
         }
 
         downloadList.innerHTML = payload.files
-          .map(
-            file => '<div class="item"><div class="item-head"><div><div class="item-title">' +
-              file.displayName +
+          .map(file => {
+            return '<div class="item"><div class="item-head"><div><div class="item-title">' +
+              escapeHtmlText(file.displayName) +
               '</div><div class="item-meta">' +
               formatBytes(file.size) +
-              (file.isLargeFile ? ' · 分块下载' : ' · 整文件下载') +
+              (file.isLargeFile ? ' · 分块下载' : '') +
               '</div></div><button class="primary" data-download="' +
-              file.id +
+              escapeHtmlText(file.id) +
               '">下载</button></div><div id="download-status-' +
-              file.id +
-              '" class="item-status">准备就绪</div></div>',
-          )
+              escapeHtmlText(file.id) +
+              '" class="item-status">待下载</div></div>';
+          })
           .join('');
 
         for (const button of downloadList.querySelectorAll('[data-download]')) {
@@ -649,6 +681,43 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
 
         return payload;
+      }
+
+      function getUploadEntryNodes(entryId) {
+        return {
+          chip: document.querySelector('#' + entryId + ' .chip'),
+          fill: document.querySelector('#' + entryId + ' .progress-fill'),
+          status: document.querySelector('#' + entryId + ' .item-status'),
+          track: document.querySelector('#' + entryId + ' .progress-track'),
+        };
+      }
+
+      function setUploadProgress(entryId, progress) {
+        const nodes = getUploadEntryNodes(entryId);
+        const percentage = Math.max(0, Math.min(100, Math.round(progress * 100)));
+        if (nodes.fill) {
+          nodes.fill.style.width = percentage + '%';
+        }
+        if (nodes.track) {
+          nodes.track.setAttribute('aria-valuenow', String(percentage));
+        }
+        if (nodes.status) {
+          nodes.status.textContent = percentage + '%';
+        }
+      }
+
+      function setUploadState(entryId, chipClass, chipLabel, statusText, progressClass) {
+        const nodes = getUploadEntryNodes(entryId);
+        if (nodes.chip) {
+          nodes.chip.className = 'chip ' + chipClass;
+          nodes.chip.textContent = chipLabel;
+        }
+        if (nodes.fill) {
+          nodes.fill.className = 'progress-fill' + (progressClass ? ' ' + progressClass : '');
+        }
+        if (nodes.status) {
+          nodes.status.textContent = statusText;
+        }
       }
 
       function uploadBinarySingle(file, onProgress) {
@@ -693,7 +762,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           };
 
           request.onerror = () => {
-            reject(new Error('网络中断，上传未完成。'));
+            reject(new Error('网络中断，上传未完成'));
           };
 
           request.send(file);
@@ -718,9 +787,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           });
           uploadId = beginPayload.uploadId;
           if (!uploadId || typeof uploadId !== 'string') {
-            throw new Error('服务器未返回有效的 uploadId。');
+            throw new Error('服务端未返回有效的 uploadId');
           }
 
+          onProgress(0);
           const totalChunks = Math.ceil(file.size / chunkSize);
           for (let index = 0; index < totalChunks; index += 1) {
             const start = index * chunkSize;
@@ -728,9 +798,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             const slice = file.slice(start, end);
             const buffer = await slice.arrayBuffer();
             const response = await fetch(
-              withKey(
-                '/api/upload/part?uploadId=' + encodeURIComponent(uploadId),
-              ),
+              withKey('/api/upload/part?uploadId=' + encodeURIComponent(uploadId)),
               {
                 body: buffer,
                 headers: getClientHeaders({
@@ -751,9 +819,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           if (uploadId) {
             try {
               await fetch(
-                withKey(
-                  '/api/upload/abort?uploadId=' + encodeURIComponent(uploadId),
-                ),
+                withKey('/api/upload/abort?uploadId=' + encodeURIComponent(uploadId)),
                 {
                   body: JSON.stringify({uploadId: uploadId}),
                   headers: getClientHeaders({
@@ -784,25 +850,29 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           uploadList.insertAdjacentHTML(
             'beforeend',
             '<div class="item" id="' + entryId + '"><div class="item-head"><div class="item-title">' +
-              file.name +
+              escapeHtmlText(file.name) +
               '</div><div class="chip warn">上传中</div></div><div class="item-meta">' +
               formatBytes(file.size) +
-              (file.webkitRelativePath ? ' · ' + file.webkitRelativePath : '') +
-              '</div><div class="item-status">正在发送到手机端 App 会话…</div></div>',
+              (file.webkitRelativePath
+                ? ' · ' + escapeHtmlText(file.webkitRelativePath)
+                : '') +
+              '</div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill"></div></div><div class="item-status">0%</div></div>',
           );
 
           try {
             await uploadBinaryWithProgress(file, progress => {
-              document.querySelector('#' + entryId + ' .item-status').textContent =
-                '上传中 ' + Math.round(progress * 100) + '% · 正在写入手机端 App 会话…';
+              setUploadProgress(entryId, progress);
             });
-            document.querySelector('#' + entryId + ' .chip').textContent = '成功';
-            document.querySelector('#' + entryId + ' .chip').className = 'chip ok';
-            document.querySelector('#' + entryId + ' .item-status').textContent =
-              '上传成功，手机端已写入 App 内会话存储。';
+            setUploadProgress(entryId, 1);
+            setUploadState(entryId, 'ok', '完成', '已送达手机', 'ok');
           } catch (error) {
-            document.querySelector('#' + entryId + ' .item-status').textContent =
-              error.message + '。请检查网络或空间后重试上传。';
+            setUploadState(
+              entryId,
+              'danger',
+              '失败',
+              '上传失败：' + error.message,
+              'danger',
+            );
             updateBanner(error.message, 'warn');
           }
         }
@@ -812,9 +882,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       async function submitText() {
-        const text = document.getElementById('text-input').value.trim();
+        const text = textInput.value.trim();
         if (!text) {
-          textFeedback.textContent = '请先输入或粘贴要发送的文本内容。';
+          textFeedback.textContent = '请先输入或粘贴要发送的文本。';
           return;
         }
 
@@ -830,9 +900,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           if (!response.ok) {
             throw new Error(payload.message || '文本提交失败');
           }
-          textFeedback.textContent =
-            '提交成功，文本已进入手机端活跃项目：' + payload.activeProjectTitle;
-          document.getElementById('text-input').value = '';
+          textFeedback.textContent = '已发送到：' + payload.activeProjectTitle;
+          textInput.value = '';
           await loadStatus();
         } catch (error) {
           textFeedback.textContent = error.message;
@@ -878,8 +947,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           for (let index = 0; index < totalChunks; index += 1) {
             const start = index * chunkSize;
             const end = Math.min(file.size, start + chunkSize);
-            statusNode.textContent =
-              '正在下载第 ' + (index + 1) + ' / ' + totalChunks + ' 个分块…';
+            statusNode.textContent = '下载中 ' + Math.round((end / file.size) * 100) + '%';
             chunks.push(await fetchChunk(file.id, start, end));
           }
 
@@ -891,11 +959,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           link.download = file.displayName;
           link.click();
           URL.revokeObjectURL(link.href);
-          statusNode.textContent = '下载完成，可保存完整文件。';
+          statusNode.textContent = '已完成';
         } catch (error) {
-          statusNode.textContent =
-            '传输失败：' + error.message + '。单分块已按上限尝试 4 次。';
-          updateBanner('下载失败，请检查网络或让手机端重新共享后再试。', 'warn');
+          statusNode.textContent = '下载失败：' + error.message;
+          updateBanner('下载失败，请检查网络后重试。', 'warn');
         }
       }
 
@@ -904,9 +971,11 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       document.getElementById('text-submit').addEventListener('click', submitText);
       document.getElementById('file-input').addEventListener('change', event => {
         pushFiles(event.target.files || []);
+        event.target.value = '';
       });
       document.getElementById('folder-input').addEventListener('change', event => {
         pushFiles(event.target.files || []);
+        event.target.value = '';
       });
 
       dropzone.addEventListener('dragover', event => {

@@ -203,6 +203,7 @@ function createModel(overrides: Record<string, unknown> = {}) {
     deletionWarning: '删除将清除该会话的数据及关联文件。',
     exportFile: jest.fn().mockResolvedValue(undefined),
     importFilesForShare: jest.fn().mockResolvedValue(undefined),
+    importMediaForShare: jest.fn().mockResolvedValue(undefined),
     isFileShared: jest.fn().mockReturnValue(false),
     isReady: true,
     notice: undefined,
@@ -324,6 +325,7 @@ describe('App sidebar history', () => {
 
     expect(tree!.root.findByProps({testID: 'home-toggle-service'})).toBeTruthy();
     expect(tree!.root.findByProps({testID: 'home-import-files'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'home-import-media'})).toBeTruthy();
     expect(() => tree!.root.findByProps({testID: 'sidebar-toggle-service'})).toThrow();
     expect(() => tree!.root.findByProps({testID: 'sidebar-import-files'})).toThrow();
   });

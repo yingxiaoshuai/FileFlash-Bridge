@@ -8,11 +8,14 @@ import {
 } from '../modules/file-access/inboundStorageGateway';
 import {
   cleanupImportedDeviceFiles,
+  consumePendingSharedItems,
   createReactNativeInboundStorageGateway,
   exportStoredFile,
   exportPreparedFile,
   ImportedDeviceFile,
+  ImportedDeviceText,
   pickDeviceFilesForShare,
+  pickDeviceMediaForShare,
 } from '../modules/file-access/reactNativeAdapters';
 import {
   describeSecurityMode,
@@ -69,6 +72,25 @@ function asErrorMessage(error: unknown) {
 
 function isDefined<T>(value: T | null | undefined): value is T {
   return value != null;
+}
+
+function buildImportedContentNotice(summary: {
+  fileCount: number;
+  textCount: number;
+}) {
+  if (summary.fileCount > 0 && summary.textCount > 0) {
+    return `Received ${summary.fileCount} shared files and ${summary.textCount} shared notes.`;
+  }
+
+  if (summary.fileCount > 0) {
+    return `Received ${summary.fileCount} shared files and added them to sharing.`;
+  }
+
+  if (summary.textCount > 0) {
+    return `Received ${summary.textCount} shared notes and added them to the current project.`;
+  }
+
+  return '';
 }
 
 export function useAppModel() {
@@ -143,6 +165,7 @@ export function useAppModel() {
       try {
         await gatewayRef.current!.initialize();
         await controllerRef.current!.initialize();
+        const importedSummary = await importPendingSystemSharedItems();
         const snapshot = await gatewayRef.current!.getSnapshot();
 
         if (!active) {
@@ -151,7 +174,13 @@ export function useAppModel() {
 
         setState({
           isReady: true,
-          notice: undefined,
+          notice:
+            importedSummary.fileCount > 0 || importedSummary.textCount > 0
+              ? {
+                  message: buildImportedContentNotice(importedSummary),
+                  tone: 'success',
+                }
+              : undefined,
           serviceState: controllerRef.current!.getState(),
           snapshot,
         });
@@ -188,17 +217,25 @@ export function useAppModel() {
       void (async () => {
         try {
           const restoreResult = await controllerRef.current!.restoreIfNeeded();
-          if (!restoreResult.restored) {
+          const importedSummary = await importPendingSystemSharedItems();
+          const hasImportedContent =
+            importedSummary.fileCount > 0 || importedSummary.textCount > 0;
+          if (!restoreResult.restored && !hasImportedContent) {
             return;
           }
 
           const snapshot = await gatewayRef.current!.getSnapshot();
           setState(currentState => ({
             ...currentState,
-            notice: {
-              message: '检测到后台期间服务中断，已自动恢复当前连接入口。',
-              tone: 'info',
-            },
+            notice: hasImportedContent
+              ? {
+                  message: buildImportedContentNotice(importedSummary),
+                  tone: 'success',
+                }
+              : {
+                  message: 'Resumed service after app returned to the foreground.',
+                  tone: 'info',
+                },
             serviceState: restoreResult.state,
             snapshot,
           }));
@@ -264,6 +301,57 @@ export function useAppModel() {
           tone: 'error',
         },
       }));
+    }
+  };
+
+  const persistImportedContent = async (content: {
+    files: ImportedDeviceFile[];
+    texts: ImportedDeviceText[];
+  }) => {
+    const gateway = gatewayRef.current!;
+    let fileCount = 0;
+    let textCount = 0;
+
+    for (const text of content.texts) {
+      await gateway.appendTextMessage(text.content, undefined, {
+        createdAt: text.createdAt,
+        source: 'app',
+      });
+      textCount += 1;
+    }
+
+    for (const file of content.files) {
+      const savedFile = await gateway.saveInboundFile({
+        byteLength: file.byteLength,
+        createdAt: file.createdAt,
+        mimeType: file.mimeType,
+        name: file.name,
+        relativePath: file.relativePath,
+        sourcePath: file.sourcePath,
+      });
+      await gateway.addSharedFile(savedFile.id);
+      fileCount += 1;
+    }
+
+    return {
+      fileCount,
+      textCount,
+    };
+  };
+
+  const importPendingSystemSharedItems = async () => {
+    const content = await consumePendingSharedItems();
+    if (content.files.length === 0 && content.texts.length === 0) {
+      return {
+        fileCount: 0,
+        textCount: 0,
+      };
+    }
+
+    try {
+      return await persistImportedContent(content);
+    } finally {
+      await cleanupImportedDeviceFiles(content.files);
     }
   };
 
@@ -434,7 +522,10 @@ export function useAppModel() {
     );
   };
 
-  const importFilesForShare = async () => {
+  const importExternalFiles = async (
+    picker: () => Promise<ImportedDeviceFile[]>,
+    buildNotice: (count: number) => string,
+  ) => {
     setState(currentState => ({
       ...currentState,
       busyAction: 'share',
@@ -443,7 +534,7 @@ export function useAppModel() {
     let importedFiles: ImportedDeviceFile[] = [];
 
     try {
-      importedFiles = await pickDeviceFilesForShare();
+      importedFiles = await picker();
       if (importedFiles.length === 0) {
         setState(currentState => ({
           ...currentState,
@@ -452,19 +543,13 @@ export function useAppModel() {
         return;
       }
 
-      for (const file of importedFiles) {
-        const savedFile = await gatewayRef.current!.saveInboundFile({
-          byteLength: file.byteLength,
-          mimeType: file.mimeType,
-          name: file.name,
-          relativePath: file.relativePath,
-          sourcePath: file.sourcePath,
-        });
-        await gatewayRef.current!.addSharedFile(savedFile.id);
-      }
+      const summary = await persistImportedContent({
+        files: importedFiles,
+        texts: [],
+      });
 
       await syncSnapshot({
-        message: `已从本机选入 ${importedFiles.length} 个文件并加入共享列表。`,
+        message: buildNotice(summary.fileCount),
         tone: 'success',
       });
     } catch (error) {
@@ -479,6 +564,20 @@ export function useAppModel() {
     } finally {
       await cleanupImportedDeviceFiles(importedFiles);
     }
+  };
+
+  const importFilesForShare = async () => {
+    await importExternalFiles(
+      pickDeviceFilesForShare,
+      count => `Imported ${count} files from this device and added them to sharing.`,
+    );
+  };
+
+  const importMediaForShare = async () => {
+    await importExternalFiles(
+      pickDeviceMediaForShare,
+      count => `Imported ${count} media items from the gallery and added them to sharing.`,
+    );
   };
 
   const deleteMessage = async (projectId: string, messageId: string) => {
@@ -592,6 +691,7 @@ export function useAppModel() {
     deletionWarning: SESSION_DELETION_WARNING,
     exportFile,
     importFilesForShare,
+    importMediaForShare,
     isFileShared: (fileId: string) => sharedFileIds.has(fileId),
     isReady: state.isReady,
     notice: state.notice,
