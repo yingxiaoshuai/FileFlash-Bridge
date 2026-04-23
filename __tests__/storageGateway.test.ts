@@ -1,4 +1,4 @@
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, readFile as fsReadFile, rm, writeFile as fsWriteFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 
@@ -69,6 +69,39 @@ describe('InboundStorageGateway', () => {
       expect(snapshot.activeProjectId).toBe(project.id);
       expect(snapshot.sharedFileIds).toContain(largeFile.id);
       expect(activeProject?.messages).toHaveLength(1);
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('clears the shared download list when a new project is created without deleting prior project files', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-new-project-reset',
+    });
+
+    try {
+      await gateway.initialize();
+      const initialProjectId = (await gateway.getSnapshot()).activeProjectId;
+      const sharedFile = await gateway.saveInboundFile({
+        bytes: encoder.encode('first round asset'),
+        name: 'first-round.txt',
+      });
+      await gateway.addSharedFile(sharedFile.id);
+
+      const nextProject = await gateway.createProject('第二轮分享');
+      const snapshot = await gateway.getSnapshot();
+
+      expect(snapshot.activeProjectId).toBe(nextProject.id);
+      expect(snapshot.sharedFileIds).toHaveLength(0);
+      await expect(gateway.listSharedFiles()).resolves.toHaveLength(0);
+      await expect(gateway.listProjectFiles(initialProjectId)).resolves.toEqual([
+        expect.objectContaining({id: sharedFile.id}),
+      ]);
     } finally {
       await rm(rootDir, {force: true, recursive: true});
     }
@@ -229,6 +262,70 @@ describe('InboundStorageGateway', () => {
       }
 
       expect(Buffer.from(base64Chunk, 'base64').toString('utf8')).toBe('456789');
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('repairs stale uncompressed file sizes from disk metadata during initialization', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const fileSystem = new NodeFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-reconcile-size',
+    });
+
+    try {
+      await gateway.initialize();
+      const sourcePath = join(rootDir, 'source-image.bin');
+      await fileSystem.writeFile(sourcePath, encoder.encode('0123456789'));
+
+      const storedFile = await gateway.saveInboundFile({
+        byteLength: 32,
+        name: 'capture.bin',
+        sourcePath,
+      });
+      const snapshotPath = join(rootDir, 'session-state.json');
+      const persistedSnapshot = JSON.parse(
+        await fsReadFile(snapshotPath, 'utf8'),
+      ) as {
+        files: Record<
+          string,
+          {originalSize: number; size: number; storedSize: number}
+        >;
+      };
+
+      persistedSnapshot.files[storedFile.id].originalSize = 32;
+      persistedSnapshot.files[storedFile.id].size = 32;
+      persistedSnapshot.files[storedFile.id].storedSize = 32;
+      await fsWriteFile(snapshotPath, JSON.stringify(persistedSnapshot, null, 2), 'utf8');
+
+      const reloadedGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem,
+        rootDir,
+        sessionId: 'session-reconcile-size',
+      });
+      const reloadedSnapshot = await reloadedGateway.getSnapshot();
+      const repairedFile = reloadedSnapshot.files[storedFile.id];
+      const chunk = await reloadedGateway.prepareFileChunk(storedFile.id, 0, 32);
+
+      expect(repairedFile.originalSize).toBe(10);
+      expect(repairedFile.size).toBe(10);
+      expect(repairedFile.storedSize).toBe(10);
+      expect(chunk.contentLength).toBe(10);
+      if (!('base64' in chunk)) {
+        throw new Error('Expected a base64-backed chunk for the repaired file.');
+      }
+      const base64Chunk = chunk.base64;
+      if (!base64Chunk) {
+        throw new Error('Expected the repaired chunk to include base64 content.');
+      }
+      expect(Buffer.from(base64Chunk, 'base64').toString('utf8')).toBe('0123456789');
     } finally {
       await rm(rootDir, {force: true, recursive: true});
     }

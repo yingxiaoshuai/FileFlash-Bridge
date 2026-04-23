@@ -3,6 +3,32 @@
 #include <ifaddrs.h>
 #include <net/if.h>
 
+static BOOL FFBShouldForwardAdditionalHeader(NSString *key)
+{
+    if (key.length == 0) {
+        return NO;
+    }
+
+    NSString *normalizedKey = key.lowercaseString;
+    static NSSet<NSString *> *managedHeaders = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        managedHeaders = [NSSet setWithArray:@[
+            @"cache-control",
+            @"connection",
+            @"content-length",
+            @"content-type",
+            @"date",
+            @"etag",
+            @"last-modified",
+            @"server",
+            @"transfer-encoding"
+        ]];
+    });
+
+    return ![managedHeaders containsObject:normalizedKey];
+}
+
 @interface FPStaticServer()
 
 @property(nonatomic, assign) BOOL hasListeners;
@@ -388,6 +414,10 @@ RCT_EXPORT_METHOD(respond:(NSString *)requestId
     }
 
     for (NSString *key in headers) {
+        if (!FFBShouldForwardAdditionalHeader(key)) {
+            continue;
+        }
+
         [response setValue:[NSString stringWithFormat:@"%@", headers[key]]
          forAdditionalHeader:key];
     }

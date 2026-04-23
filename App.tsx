@@ -60,15 +60,20 @@ function AppScreen(): React.JSX.Element {
   const [projectActionMenuId, setProjectActionMenuId] = React.useState<
     string | undefined
   >();
-  const {width} = useWindowDimensions();
+  const {height, width} = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [tourStepIndex, setTourStepIndex] = React.useState(0);
   const [tourTargetRects, setTourTargetRects] = React.useState<
     Partial<Record<WorkspaceTourTargetId, WorkspaceTourAnchorRect>>
   >({});
+  const [tourHostFrame, setTourHostFrame] = React.useState({
+    height,
+    width,
+  });
   const tourTargetRefs = React.useRef<
     Partial<Record<WorkspaceTourTargetId, TourTargetNode | null>>
   >({});
+  const tourHostRef = React.useRef<TourTargetNode | null>(null);
   const isServiceRunning = model.serviceState.phase === 'running';
   const isCompactScreen = width < 560;
   const stackOverviewCards = width < 1180;
@@ -109,7 +114,8 @@ function AppScreen(): React.JSX.Element {
 
   const measureTourTarget = React.useCallback((targetId: WorkspaceTourTargetId) => {
     const node = tourTargetRefs.current[targetId];
-    if (!node || typeof node.measureInWindow !== 'function') {
+    const tourHostNode = tourHostRef.current;
+    if (!node) {
       setTourTargetRects(currentRects => {
         if (!currentRects[targetId]) {
           return currentRects;
@@ -122,7 +128,12 @@ function AppScreen(): React.JSX.Element {
       return;
     }
 
-    node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+    const updateRect = (
+      x: number,
+      y: number,
+      measuredWidth: number,
+      measuredHeight: number,
+    ) => {
       if (!measuredWidth || !measuredHeight) {
         setTourTargetRects(currentRects => {
           if (!currentRects[targetId]) {
@@ -158,6 +169,43 @@ function AppScreen(): React.JSX.Element {
           },
         };
       });
+    };
+
+    if (
+      tourHostNode &&
+      typeof node.measureLayout === 'function'
+    ) {
+      node.measureLayout(
+        tourHostNode,
+        (x, y, measuredWidth, measuredHeight) => {
+          updateRect(x, y, measuredWidth, measuredHeight);
+        },
+        () => {
+          if (typeof node.measureInWindow === 'function') {
+            node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+              updateRect(x, y, measuredWidth, measuredHeight);
+            });
+          }
+        },
+      );
+      return;
+    }
+
+    if (typeof node.measureInWindow === 'function') {
+      node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+        updateRect(x, y, measuredWidth, measuredHeight);
+      });
+      return;
+    }
+
+    setTourTargetRects(currentRects => {
+      if (!currentRects[targetId]) {
+        return currentRects;
+      }
+
+      const nextRects = {...currentRects};
+      delete nextRects[targetId];
+      return nextRects;
     });
   }, []);
 
@@ -231,6 +279,13 @@ function AppScreen(): React.JSX.Element {
     tourStepIndex,
     width,
   ]);
+
+  React.useEffect(() => {
+    setTourHostFrame({
+      height,
+      width,
+    });
+  }, [height, width]);
 
   React.useEffect(() => {
     if (Platform.OS !== 'android' || !model.onboarding.isVisible) {
@@ -309,7 +364,8 @@ function AppScreen(): React.JSX.Element {
       title: hasReachableAddress ? '把这个入口发给另一台设备' : '地址会在这里出现',
     },
     {
-      body: '从本机导入的文件会先出现在共享列表里，浏览器端可以直接下载，也可以随时移出共享。',
+      body:
+        '从本机导入的文件会先出现在共享列表里；也支持你在系统相册、文件或其他 App 里通过系统分享把文件直接发送到 FileFlash Bridge，进来后就能继续查看和处理。',
       id: 'shared-files',
       target: 'shared-files-panel',
       title: '共享文件集中放在这里',
@@ -749,111 +805,129 @@ function AppScreen(): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor={theme.colors.background}
-      />
-      <View pointerEvents="none" style={styles.backdropLayer}>
-        <View style={[styles.backdropGlow, styles.backdropGlowPrimary]} />
-        <View style={[styles.backdropGlow, styles.backdropGlowSecondary]} />
-      </View>
-      {!model.isReady ? (
-        <View style={styles.loadingShell}>
-          <ActivityIndicator color={theme.colors.primary} size="large" />
-          <Text style={styles.loadingTitle}>正在加载</Text>
+      <View
+        onLayout={event => {
+          const nextFrame = event.nativeEvent.layout;
+          if (
+            nextFrame.width > 0 &&
+            nextFrame.height > 0 &&
+            (nextFrame.width !== tourHostFrame.width ||
+              nextFrame.height !== tourHostFrame.height)
+          ) {
+            setTourHostFrame({
+              height: nextFrame.height,
+              width: nextFrame.width,
+            });
+          }
+        }}
+        ref={tourHostRef}
+        style={styles.screenRoot}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor={theme.colors.background}
+        />
+        <View pointerEvents="none" style={styles.backdropLayer}>
+          <View style={[styles.backdropGlow, styles.backdropGlowPrimary]} />
+          <View style={[styles.backdropGlow, styles.backdropGlowSecondary]} />
         </View>
-      ) : (
-        <ScrollView
-          contentContainerStyle={[styles.page, {padding: pagePadding}]}
-          showsVerticalScrollIndicator={false}>
-          <View style={[styles.globalTopBar, styles.globalTopBarStacked]}>
-            <IconButton
-              accessibilityLabel="打开项目历史"
-              disabled={isBusy}
-              icon="☰"
-              onPress={() => {
-                setProjectHistoryOpen(true);
-              }}
-              testID="sidebar-open"
-            />
-            <View style={styles.globalTopBarActions}>
-              <GuidedTourTarget
-                active={activeTourTargetId === 'help-button'}
-                captureRef={tourTargetCallbacks['help-button']}
-                style={styles.helpTargetWrap}>
-                <IconButton
-                  accessibilityLabel="重新查看引导"
-                  disabled={isBusy}
-                  icon="?"
-                  onPress={handleOpenTour}
-                  testID="workspace-open-onboarding"
-                />
-              </GuidedTourTarget>
-              <StatusChip
-                accent={
-                  isServiceRunning ? theme.colors.success : theme.colors.inkSoft
-                }
-                label={isServiceRunning ? '服务在线' : '服务离线'}
+        {!model.isReady ? (
+          <View style={styles.loadingShell}>
+            <ActivityIndicator color={theme.colors.primary} size="large" />
+            <Text style={styles.loadingTitle}>正在加载</Text>
+          </View>
+        ) : (
+          <ScrollView
+            contentContainerStyle={[styles.page, {padding: pagePadding}]}
+            showsVerticalScrollIndicator={false}>
+            <View style={[styles.globalTopBar, styles.globalTopBarStacked]}>
+              <IconButton
+                accessibilityLabel="打开项目历史"
+                disabled={isBusy}
+                icon="☰"
+                onPress={() => {
+                  setProjectHistoryOpen(true);
+                }}
+                testID="sidebar-open"
               />
+              <View style={styles.globalTopBarActions}>
+                <GuidedTourTarget
+                  active={activeTourTargetId === 'help-button'}
+                  captureRef={tourTargetCallbacks['help-button']}
+                  style={styles.helpTargetWrap}>
+                  <IconButton
+                    accessibilityLabel="重新查看引导"
+                    disabled={isBusy}
+                    icon="?"
+                    onPress={handleOpenTour}
+                    testID="workspace-open-onboarding"
+                  />
+                </GuidedTourTarget>
+                <StatusChip
+                  accent={
+                    isServiceRunning ? theme.colors.success : theme.colors.inkSoft
+                  }
+                  label={isServiceRunning ? '服务在线' : '服务离线'}
+                />
+              </View>
+            </View>
+            <View style={styles.main}>
+              {summaryContent}
+              {detailContent}
+            </View>
+          </ScrollView>
+        )}
+        {isProjectHistoryOpen ? (
+          <View style={styles.sidebarOverlay} testID="sidebar-overlay">
+            <Pressable
+              onPress={() => {
+                setProjectActionMenuId(undefined);
+                setProjectHistoryOpen(false);
+              }}
+              style={styles.sidebarBackdrop}
+              testID="sidebar-backdrop"
+            />
+            <View
+              style={[
+                styles.sidebarDrawerPanel,
+                {
+                  paddingBottom: pagePadding + insets.bottom,
+                  paddingHorizontal: pagePadding,
+                  paddingTop: pagePadding,
+                  top: insets.top,
+                  width: historyDrawerWidth,
+                },
+              ]}
+              testID="sidebar-panel">
+              <ScrollView
+                contentContainerStyle={styles.sidebarDrawerScrollContent}
+                showsVerticalScrollIndicator={false}>
+                {sidebarContent()}
+              </ScrollView>
             </View>
           </View>
-          <View style={styles.main}>
-            {summaryContent}
-            {detailContent}
-          </View>
-        </ScrollView>
-      )}
-      {isProjectHistoryOpen ? (
-        <View style={styles.sidebarOverlay} testID="sidebar-overlay">
-          <Pressable
-            onPress={() => {
-              setProjectActionMenuId(undefined);
-              setProjectHistoryOpen(false);
+        ) : null}
+        {model.onboarding.isVisible && currentTourStep ? (
+          <WorkspaceOnboardingOverlay
+            activeRect={activeTourTargetRect}
+            hostFrame={tourHostFrame}
+            onClose={handleSkipTour}
+            onComplete={handleCompleteTour}
+            onNext={() => {
+              setTourStepIndex(currentIndex =>
+                Math.min(tourSteps.length - 1, currentIndex + 1),
+              );
             }}
-            style={styles.sidebarBackdrop}
-            testID="sidebar-backdrop"
+            onPrevious={() => {
+              setTourStepIndex(currentIndex => Math.max(0, currentIndex - 1));
+            }}
+            onSkip={handleSkipTour}
+            showPrevious={tourStepIndex > 0}
+            step={currentTourStep}
+            stepIndex={tourStepIndex}
+            totalSteps={tourSteps.length}
           />
-          <View
-            style={[
-              styles.sidebarDrawerPanel,
-              {
-                paddingBottom: pagePadding + insets.bottom,
-                paddingHorizontal: pagePadding,
-                paddingTop: pagePadding,
-                top: insets.top,
-                width: historyDrawerWidth,
-              },
-            ]}
-            testID="sidebar-panel">
-            <ScrollView
-              contentContainerStyle={styles.sidebarDrawerScrollContent}
-              showsVerticalScrollIndicator={false}>
-              {sidebarContent()}
-            </ScrollView>
-          </View>
-        </View>
-      ) : null}
-      {model.onboarding.isVisible && currentTourStep ? (
-        <WorkspaceOnboardingOverlay
-          activeRect={activeTourTargetRect}
-          insets={insets}
-          onClose={handleSkipTour}
-          onComplete={handleCompleteTour}
-          onNext={() => {
-            setTourStepIndex(currentIndex =>
-              Math.min(tourSteps.length - 1, currentIndex + 1),
-            );
-          }}
-          onPrevious={() => {
-            setTourStepIndex(currentIndex => Math.max(0, currentIndex - 1));
-          }}
-          onSkip={handleSkipTour}
-          showPrevious={tourStepIndex > 0}
-          step={currentTourStep}
-          stepIndex={tourStepIndex}
-          totalSteps={tourSteps.length}
-        />
-      ) : null}
+        ) : null}
+      </View>
     </SafeAreaView>
   );
 }
@@ -1381,6 +1455,10 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: theme.colors.background,
+    position: 'relative',
+  },
+  screenRoot: {
+    flex: 1,
     position: 'relative',
   },
   backdropLayer: {

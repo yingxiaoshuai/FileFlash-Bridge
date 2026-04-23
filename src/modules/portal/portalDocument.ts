@@ -505,7 +505,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const authKey = new URL(location.href).searchParams.get('key');
       const chunkSize = ${model.chunkSize};
       const maxChunkAttempts = 4;
+      const activeDownloads = new Map();
+      const downloadStateById = new Map();
       const fileQueue = [];
+      const sharedFilesById = new Map();
 
       const dropzone = document.getElementById('dropzone');
       const uploadList = document.getElementById('upload-list');
@@ -604,6 +607,105 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           .join('');
       }
 
+      function getDownloadState(fileId) {
+        return downloadStateById.get(fileId) || {
+          phase: 'idle',
+          progress: 0,
+        };
+      }
+
+      function buildDownloadButtonLabel(state) {
+        if (state.phase === 'downloading') {
+          return '下载中';
+        }
+        if (state.phase === 'completed') {
+          return '重新下载';
+        }
+        return '下载';
+      }
+
+      function buildDownloadStatusText(state) {
+        if (state.phase === 'downloading') {
+          return (
+            '下载中 ' +
+            Math.max(0, Math.min(100, Math.round((state.progress || 0) * 100))) +
+            '%'
+          );
+        }
+        if (state.phase === 'completed') {
+          return '已完成';
+        }
+        if (state.phase === 'failed') {
+          return '下载失败：' + (state.error || '未知错误');
+        }
+        return '待下载';
+      }
+
+      function renderDownloadState(fileId) {
+        const itemNode = document.getElementById('download-item-' + fileId);
+        if (!itemNode) {
+          return;
+        }
+
+        const state = getDownloadState(fileId);
+        const button = itemNode.querySelector('[data-download]');
+        const statusNode = document.getElementById('download-status-' + fileId);
+        if (button) {
+          button.disabled = state.phase === 'downloading';
+          button.textContent = buildDownloadButtonLabel(state);
+        }
+        if (statusNode) {
+          statusNode.textContent = buildDownloadStatusText(state);
+        }
+      }
+
+      function pruneDownloadStates(files) {
+        const nextFileIds = new Set(files.map(file => file.id));
+        for (const fileId of Array.from(downloadStateById.keys())) {
+          if (!nextFileIds.has(fileId) && !activeDownloads.has(fileId)) {
+            downloadStateById.delete(fileId);
+          }
+        }
+      }
+
+      function renderSharedFiles(files) {
+        sharedFilesById.clear();
+        for (const file of files) {
+          sharedFilesById.set(file.id, file);
+        }
+
+        if (!files.length) {
+          pruneDownloadStates([]);
+          downloadList.innerHTML = '<div class="muted">还没有共享文件</div>';
+          return;
+        }
+
+        pruneDownloadStates(files);
+        downloadList.innerHTML = files
+          .map(file => {
+            const state = getDownloadState(file.id);
+            return '<div id="download-item-' +
+              escapeHtmlText(file.id) +
+              '" class="item"><div class="item-head"><div><div class="item-title">' +
+              escapeHtmlText(file.displayName) +
+              '</div><div class="item-meta">' +
+              formatBytes(file.size) +
+              (file.isLargeFile ? ' · 分块下载' : '') +
+              '</div></div><button class="primary" data-download="' +
+              escapeHtmlText(file.id) +
+              '"' +
+              (state.phase === 'downloading' ? ' disabled' : '') +
+              '>' +
+              escapeHtmlText(buildDownloadButtonLabel(state)) +
+              '</button></div><div id="download-status-' +
+              escapeHtmlText(file.id) +
+              '" class="item-status">' +
+              escapeHtmlText(buildDownloadStatusText(state)) +
+              '</div></div>';
+          })
+          .join('');
+      }
+
       async function loadStatus() {
         try {
           const response = await fetch(withKey('/api/status'), {
@@ -630,40 +732,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         });
 
         if (!response.ok) {
+          sharedFilesById.clear();
           downloadList.innerHTML = '<div class="muted">当前无法读取共享列表</div>';
           return;
         }
 
         const payload = await response.json();
-        if (!payload.files.length) {
-          downloadList.innerHTML = '<div class="muted">还没有共享文件</div>';
-          return;
-        }
-
-        downloadList.innerHTML = payload.files
-          .map(file => {
-            return '<div class="item"><div class="item-head"><div><div class="item-title">' +
-              escapeHtmlText(file.displayName) +
-              '</div><div class="item-meta">' +
-              formatBytes(file.size) +
-              (file.isLargeFile ? ' · 分块下载' : '') +
-              '</div></div><button class="primary" data-download="' +
-              escapeHtmlText(file.id) +
-              '">下载</button></div><div id="download-status-' +
-              escapeHtmlText(file.id) +
-              '" class="item-status">待下载</div></div>';
-          })
-          .join('');
-
-        for (const button of downloadList.querySelectorAll('[data-download]')) {
-          button.addEventListener('click', async event => {
-            const fileId = event.currentTarget.getAttribute('data-download');
-            const file = payload.files.find(item => item.id === fileId);
-            if (file) {
-              await downloadSharedFile(file);
-            }
-          });
-        }
+        renderSharedFiles(payload.files || []);
       }
 
       async function postJson(path, body) {
@@ -940,35 +1015,87 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       async function downloadSharedFile(file) {
-        const statusNode = document.getElementById('download-status-' + file.id);
-        try {
-          const chunks = [];
-          const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
-          for (let index = 0; index < totalChunks; index += 1) {
-            const start = index * chunkSize;
-            const end = Math.min(file.size, start + chunkSize);
-            statusNode.textContent = '下载中 ' + Math.round((end / file.size) * 100) + '%';
-            chunks.push(await fetchChunk(file.id, start, end));
-          }
-
-          const blob = new Blob(chunks, {
-            type: file.mimeType || 'application/octet-stream',
-          });
-          const link = document.createElement('a');
-          link.href = URL.createObjectURL(blob);
-          link.download = file.displayName;
-          link.click();
-          URL.revokeObjectURL(link.href);
-          statusNode.textContent = '已完成';
-        } catch (error) {
-          statusNode.textContent = '下载失败：' + error.message;
-          updateBanner('下载失败，请检查网络后重试。', 'warn');
+        if (activeDownloads.has(file.id)) {
+          return activeDownloads.get(file.id);
         }
+
+        const downloadTask = (async () => {
+          downloadStateById.set(file.id, {
+            phase: 'downloading',
+            progress: 0,
+          });
+          renderDownloadState(file.id);
+
+          try {
+            const chunks = [];
+            const totalBytes = Math.max(0, Number(file.size) || 0);
+            const totalChunks =
+              totalBytes > 0 ? Math.max(1, Math.ceil(totalBytes / chunkSize)) : 0;
+            for (let index = 0; index < totalChunks; index += 1) {
+              const start = index * chunkSize;
+              const end = Math.min(totalBytes, start + chunkSize);
+              chunks.push(await fetchChunk(file.id, start, end));
+              downloadStateById.set(file.id, {
+                phase: 'downloading',
+                progress: totalBytes > 0 ? end / totalBytes : 1,
+              });
+              renderDownloadState(file.id);
+            }
+
+            const blob = new Blob(chunks, {
+              type: file.mimeType || 'application/octet-stream',
+            });
+            const link = document.createElement('a');
+            const objectUrl = URL.createObjectURL(blob);
+            link.href = objectUrl;
+            link.download = file.displayName;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+
+            downloadStateById.set(file.id, {
+              phase: 'completed',
+              progress: 1,
+            });
+            renderDownloadState(file.id);
+          } catch (error) {
+            downloadStateById.set(file.id, {
+              error: error.message,
+              phase: 'failed',
+              progress: 0,
+            });
+            renderDownloadState(file.id);
+            updateBanner('下载失败，请检查网络后重试。', 'warn');
+          } finally {
+            activeDownloads.delete(file.id);
+            renderDownloadState(file.id);
+          }
+        })();
+
+        activeDownloads.set(file.id, downloadTask);
+        renderDownloadState(file.id);
+        return downloadTask;
       }
 
       document.getElementById('upload-button').addEventListener('click', uploadQueuedFiles);
       document.getElementById('refresh-button').addEventListener('click', loadStatus);
       document.getElementById('text-submit').addEventListener('click', submitText);
+      downloadList.addEventListener('click', async event => {
+        if (!(event.target instanceof Element)) {
+          return;
+        }
+        const button = event.target.closest('[data-download]');
+        if (!button) {
+          return;
+        }
+        const fileId = button.getAttribute('data-download');
+        const file = fileId ? sharedFilesById.get(fileId) : undefined;
+        if (file) {
+          await downloadSharedFile(file);
+        }
+      });
       document.getElementById('file-input').addEventListener('change', event => {
         pushFiles(event.target.files || []);
         event.target.value = '';

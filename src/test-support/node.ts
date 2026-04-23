@@ -7,6 +7,7 @@ import {
   readdir,
   readFile,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import {dirname} from 'node:path';
@@ -54,6 +55,10 @@ export class NodeFileSystemAdapter implements FileSystemAdapter {
         return false;
       }
     }
+  }
+
+  async getFileSize(path: string) {
+    return (await stat(path)).size;
   }
 
   async listFiles(path: string) {

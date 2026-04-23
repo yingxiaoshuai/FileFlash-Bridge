@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  Insets,
-  Pressable,
   StyleProp,
   StyleSheet,
   Text,
@@ -55,7 +53,10 @@ export function GuidedTourTarget({
 
 type WorkspaceOnboardingOverlayProps = {
   activeRect?: WorkspaceTourAnchorRect;
-  insets: Insets;
+  hostFrame: {
+    height: number;
+    width: number;
+  };
   onClose: () => void;
   onComplete: () => void;
   onNext: () => void;
@@ -69,7 +70,7 @@ type WorkspaceOnboardingOverlayProps = {
 
 export function WorkspaceOnboardingOverlay({
   activeRect,
-  insets,
+  hostFrame,
   onClose,
   onComplete,
   onNext,
@@ -80,25 +81,77 @@ export function WorkspaceOnboardingOverlay({
   stepIndex,
   totalSteps,
 }: WorkspaceOnboardingOverlayProps) {
+  const [sheetHeight, setSheetHeight] = React.useState(0);
   const isLastStep = stepIndex === totalSteps - 1;
-  const topInset = insets.top ?? 0;
-  const rightInset = insets.right ?? 0;
-  const bottomInset = insets.bottom ?? 0;
-  const leftInset = insets.left ?? 0;
+  const isPhoneLayout = hostFrame.width < 560;
+  const overlayWidth = Math.max(0, hostFrame.width);
+  const overlayHeight = Math.max(0, hostFrame.height);
+  const anchorRect = activeRect;
+  const ringPadding = isPhoneLayout ? 6 : 8;
+  const focusRingRect = anchorRect
+    ? (() => {
+        const ringWidth = Math.min(
+          overlayWidth - 24,
+          anchorRect.width + ringPadding * 2,
+        );
+        const ringHeight = Math.min(
+          overlayHeight - 24,
+          anchorRect.height + ringPadding * 2,
+        );
+
+        return {
+          height: ringHeight,
+          left: clamp(anchorRect.x - ringPadding, 12, overlayWidth - ringWidth - 12),
+          top: clamp(anchorRect.y - ringPadding, 12, overlayHeight - ringHeight - 12),
+          width: ringWidth,
+        };
+      })()
+    : undefined;
+  const estimatedSheetHeight = sheetHeight || (isPhoneLayout ? 280 : 244);
+  const phoneSheetFrame =
+    isPhoneLayout && anchorRect
+      ? (() => {
+          const sheetWidth = Math.min(overlayWidth - 24, 380);
+          const spaceBelow =
+            overlayHeight - (anchorRect.y + anchorRect.height) - 16;
+          const spaceAbove = anchorRect.y - 16;
+          const preferBelow =
+            spaceBelow >= estimatedSheetHeight || spaceBelow >= spaceAbove;
+
+          return {
+            left: clamp(anchorRect.x, 12, overlayWidth - sheetWidth - 12),
+            top: preferBelow
+              ? clamp(
+                  anchorRect.y + anchorRect.height + 12,
+                  12,
+                  overlayHeight - estimatedSheetHeight - 12,
+                )
+              : clamp(
+                  anchorRect.y - estimatedSheetHeight - 12,
+                  12,
+                  overlayHeight - estimatedSheetHeight - 12,
+                ),
+            width: sheetWidth,
+          };
+        })()
+      : undefined;
+  const sheetWrapperTestID = isPhoneLayout
+    ? 'workspace-onboarding-sheet-phone'
+    : 'workspace-onboarding-sheet-docked';
 
   return (
     <View style={styles.overlayRoot} testID="workspace-onboarding-overlay">
       <View style={styles.backdrop} />
-      {activeRect ? (
+      {focusRingRect ? (
         <View
           pointerEvents="none"
           style={[
             styles.focusRing,
             {
-              height: activeRect.height + 16,
-              left: Math.max(12, activeRect.x - 8),
-              top: Math.max(topInset + 8, activeRect.y - 8),
-              width: activeRect.width + 16,
+              height: focusRingRect.height,
+              left: focusRingRect.left,
+              top: focusRingRect.top,
+              width: focusRingRect.width,
             },
           ]}
         />
@@ -107,64 +160,104 @@ export function WorkspaceOnboardingOverlay({
         pointerEvents="box-none"
         style={[
           styles.sheetWrap,
-          {
-            paddingBottom: Math.max(bottomInset, 12),
-            paddingLeft: Math.max(leftInset, 12),
-            paddingRight: Math.max(rightInset, 12),
-            paddingTop: Math.max(topInset, 12),
-          },
+          styles.sheetWrapPadded,
         ]}>
-        <PanelSurface style={styles.sheet}>
-          <View style={styles.sheetHeader}>
-            <View style={styles.progressPill}>
-              <Text style={styles.progressPillText}>
-                {stepIndex + 1} / {totalSteps}
+        <View
+          onLayout={event => {
+            const nextHeight = event.nativeEvent.layout.height;
+            if (nextHeight > 0 && nextHeight !== sheetHeight) {
+              setSheetHeight(nextHeight);
+            }
+          }}
+          style={[
+            styles.sheetContainer,
+            phoneSheetFrame
+              ? [
+                  styles.sheetContainerFloating,
+                  {
+                    left: phoneSheetFrame.left,
+                    top: phoneSheetFrame.top,
+                    width: phoneSheetFrame.width,
+                  },
+                ]
+              : styles.sheetContainerDocked,
+          ]}
+          testID={sheetWrapperTestID}>
+          <PanelSurface style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <View style={styles.progressPill}>
+                <Text style={styles.progressPillText}>
+                  {stepIndex + 1} / {totalSteps}
+                </Text>
+              </View>
+              <GlyphIconButton
+                accessibilityLabel="关闭引导"
+                glyph="×"
+                onPress={onClose}
+                testID="workspace-onboarding-close"
+              />
+            </View>
+            <View style={styles.copyBlock}>
+              <Text style={styles.title} testID="workspace-onboarding-title">
+                {step.title}
+              </Text>
+              <Text style={styles.body} testID="workspace-onboarding-body">
+                {step.body}
               </Text>
             </View>
-            <GlyphIconButton
-              accessibilityLabel="关闭引导"
-              glyph="×"
-              onPress={onClose}
-              testID="workspace-onboarding-close"
-            />
-          </View>
-          <View style={styles.copyBlock}>
-            <Text style={styles.title}>{step.title}</Text>
-            <Text style={styles.body}>{step.body}</Text>
-          </View>
-          <View style={styles.footer}>
-            <View style={styles.secondaryActions}>
-              <ActionButton
-                compact
-                label="跳过"
-                onPress={onSkip}
-                testID="workspace-onboarding-skip"
-              />
-              {showPrevious ? (
+            <View
+              style={[
+                styles.footer,
+                isPhoneLayout ? styles.footerCompact : null,
+              ]}>
+              <View
+                style={[
+                  styles.secondaryActions,
+                  isPhoneLayout ? styles.secondaryActionsCompact : null,
+                ]}>
+                {showPrevious ? (
+                  <ActionButton
+                    compact
+                    label="上一步"
+                    onPress={onPrevious}
+                    fullWidth={isPhoneLayout}
+                    testID="workspace-onboarding-previous"
+                  />
+                ) : null}
                 <ActionButton
                   compact
-                  label="上一步"
-                  onPress={onPrevious}
-                  testID="workspace-onboarding-previous"
+                  label="跳过"
+                  onPress={onSkip}
+                  fullWidth={isPhoneLayout}
+                  testID="workspace-onboarding-skip"
                 />
-              ) : null}
+              </View>
+              <ActionButton
+                compact
+                fullWidth={isPhoneLayout}
+                label={isLastStep ? '完成' : '下一步'}
+                onPress={isLastStep ? onComplete : onNext}
+                testID={
+                  isLastStep
+                    ? 'workspace-onboarding-complete'
+                    : 'workspace-onboarding-next'
+                }
+                tone="primary"
+              />
             </View>
-            <ActionButton
-              compact
-              label={isLastStep ? '完成' : '下一步'}
-              onPress={isLastStep ? onComplete : onNext}
-              testID={
-                isLastStep
-                  ? 'workspace-onboarding-complete'
-                  : 'workspace-onboarding-next'
-              }
-              tone="primary"
-            />
-          </View>
-        </PanelSurface>
+          </PanelSurface>
+        </View>
       </View>
     </View>
   );
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (max < min) {
+    return min;
+  }
+
+  return Math.min(Math.max(value, min), max);
 }
 
 const styles = StyleSheet.create({
@@ -200,11 +293,24 @@ const styles = StyleSheet.create({
   sheetWrap: {
     flex: 1,
     justifyContent: 'flex-end',
+    position: 'relative',
+  },
+  sheetWrapPadded: {
+    padding: 12,
+  },
+  sheetContainer: {
+    width: '100%',
+  },
+  sheetContainerDocked: {
+    alignSelf: 'center',
+    maxWidth: 420,
+  },
+  sheetContainerFloating: {
+    position: 'absolute',
   },
   sheet: {
     alignSelf: 'center',
     gap: 16,
-    maxWidth: 420,
     paddingHorizontal: 18,
     paddingVertical: 18,
     width: '100%',
@@ -244,10 +350,18 @@ const styles = StyleSheet.create({
     gap: 10,
     justifyContent: 'space-between',
   },
+  footerCompact: {
+    alignItems: 'stretch',
+    flexDirection: 'column',
+  },
   secondaryActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  secondaryActionsCompact: {
+    flexDirection: 'column',
+    width: '100%',
   },
   targetActive: {
     borderColor: theme.colors.primary,

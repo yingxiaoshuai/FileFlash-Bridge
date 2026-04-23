@@ -474,6 +474,7 @@ describe('App sidebar history', () => {
     });
 
     expect(tree!.root.findByProps({testID: 'workspace-onboarding-overlay'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-sheet-docked'})).toBeTruthy();
 
     act(() => {
       tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
@@ -494,6 +495,35 @@ describe('App sidebar history', () => {
     });
 
     expect(model.openWorkspaceOnboarding).toHaveBeenCalled();
+  });
+
+  test('uses a floating onboarding card on phone layouts', () => {
+    jest
+      .spyOn(require('react-native'), 'useWindowDimensions')
+      .mockReturnValue({
+        fontScale: 1,
+        height: 844,
+        scale: 3,
+        width: 390,
+      });
+
+    const model = createModel({
+      onboarding: {
+        canReopen: true,
+        isVisible: true,
+        shouldAutoOpen: true,
+        status: 'unseen',
+        version: 'workspace-tour-v1',
+      },
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-sheet-phone'})).toBeTruthy();
   });
 
   test('keeps the onboarding overlay available when the address target is missing and completes on the last step', () => {
@@ -553,5 +583,32 @@ describe('App sidebar history', () => {
     });
 
     expect(model.completeWorkspaceOnboarding).toHaveBeenCalled();
+  });
+
+  test('explains that files can be sent into the app through the system share flow', () => {
+    const model = createModel({
+      onboarding: {
+        canReopen: true,
+        isVisible: true,
+        shouldAutoOpen: true,
+        status: 'unseen',
+        version: 'workspace-tour-v1',
+      },
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-body'}).props.children).toContain(
+      '系统分享',
+    );
   });
 });

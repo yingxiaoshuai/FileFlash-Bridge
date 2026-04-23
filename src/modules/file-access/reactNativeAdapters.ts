@@ -151,10 +151,21 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       return;
     }
 
+    const sourceSize = await this.getFileSize(sourcePath).catch(() => undefined);
+
     try {
       await RNFS.copyFile(sourcePath, destinationPath);
       if (await RNFS.exists(destinationPath)) {
-        return;
+        const destinationSize = await this.getFileSize(destinationPath).catch(
+          () => undefined,
+        );
+        if (
+          sourceSize == null ||
+          destinationSize == null ||
+          destinationSize === sourceSize
+        ) {
+          return;
+        }
       }
     } catch {
       // Fall through to the read/write fallback below.
@@ -186,6 +197,11 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
     return RNFS.exists(path);
   }
 
+  async getFileSize(path: string) {
+    const stat = await RNFS.stat(path);
+    return Number(stat.size) || 0;
+  }
+
   async listFiles(path: string) {
     const items = await RNFS.readDir(path);
     return items.map(item => item.name);
@@ -200,11 +216,17 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       }
 
       if (nativeFileReader?.readChunkBase64) {
-        return nativeFileReader.readChunkBase64(path, start, safeLength);
+        try {
+          return await nativeFileReader.readChunkBase64(path, start, safeLength);
+        } catch {
+          // Fall back to a JS read so browser downloads still work if the
+          // native reader rejects for a platform-specific file path.
+        }
       }
 
       // Fallback only when the native module is unavailable, e.g. before the
-      // app is rebuilt after adding the iOS chunk reader.
+      // app is rebuilt after adding the iOS chunk reader, or when a specific
+      // native read path rejects and we can still recover in JS.
       const bytes = await this.readFile(path);
       const end = Math.min(bytes.byteLength, start + safeLength);
       return bytesToBase64(bytes.slice(start, end));

@@ -458,4 +458,31 @@ describe('TransferServiceController', () => {
       await rm(rootDir, {force: true, recursive: true});
     }
   });
+
+  test('resets the browser shared list after creating a new project', async () => {
+    const {controller, rootDir, storage} = await createController();
+
+    try {
+      await storage.createProject('第三轮分享');
+
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key');
+      const headers = {'x-client-id': 'client-a'};
+
+      const statusResponse = await fetch(`${accessUrl.origin}/api/status?key=${key}`, {
+        headers,
+      });
+      expect(statusResponse.status).toBe(200);
+      expect((await statusResponse.json()).sharedFileCount).toBe(0);
+
+      const sharedResponse = await fetch(`${accessUrl.origin}/api/shared?key=${key}`, {
+        headers,
+      });
+      expect(sharedResponse.status).toBe(200);
+      expect((await sharedResponse.json()).files).toEqual([]);
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
 });

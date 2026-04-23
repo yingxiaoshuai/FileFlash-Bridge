@@ -7,6 +7,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'ios') {
   const read = jest.fn();
   const readChunkBase64 = jest.fn();
   const readFile = jest.fn();
+  const stat = jest.fn();
   const writeFile = jest.fn();
 
   jest.doMock('react-native', () => ({
@@ -42,12 +43,13 @@ function loadAdapterForPlatform(platformOs: 'android' | 'ios') {
     default: {
       copyFile,
       exists,
-      mkdir,
-      read,
-      readFile,
-      writeFile,
-    },
-  }));
+        mkdir,
+        read,
+        readFile,
+        stat,
+        writeFile,
+      },
+    }));
 
   jest.doMock('pako', () => ({
     gzip: jest.fn(),
@@ -65,6 +67,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'ios') {
     read,
     readChunkBase64,
     readFile,
+    stat,
     writeFile,
   };
 }
@@ -119,6 +122,7 @@ describe('ReactNativeFileSystemAdapter', () => {
         mkdir: jest.fn(),
         read: jest.fn(),
         readFile,
+        stat: jest.fn(),
         writeFile: jest.fn(),
       },
     }));
@@ -139,6 +143,19 @@ describe('ReactNativeFileSystemAdapter', () => {
     expect(readFile).toHaveBeenCalledWith('/tmp/file.bin', 'base64');
   });
 
+  test('falls back to a JS chunk read on iOS when the native reader rejects', async () => {
+    const {adapter, read, readChunkBase64, readFile} = loadAdapterForPlatform('ios');
+    readChunkBase64.mockRejectedValue(new Error('native read failed'));
+    readFile.mockResolvedValue(Buffer.from('abcdefghij', 'utf8').toString('base64'));
+
+    const chunkBase64 = await adapter.readFileChunkBase64('/tmp/file.bin', 3, 4);
+
+    expect(Buffer.from(chunkBase64, 'base64').toString('utf8')).toBe('defg');
+    expect(readChunkBase64).toHaveBeenCalledWith('/tmp/file.bin', 3, 4);
+    expect(read).not.toHaveBeenCalled();
+    expect(readFile).toHaveBeenCalledWith('/tmp/file.bin', 'base64');
+  });
+
   test('keeps using native chunk reads on Android', async () => {
     const {adapter, read, readFile} = loadAdapterForPlatform('android');
     read.mockResolvedValue('chunk-base64');
@@ -152,11 +169,12 @@ describe('ReactNativeFileSystemAdapter', () => {
   });
 
   test('rebuilds the destination file on iOS when native copy leaves it missing', async () => {
-    const {adapter, copyFile, exists, mkdir, readFile, writeFile} =
+    const {adapter, copyFile, exists, mkdir, readFile, stat, writeFile} =
       loadAdapterForPlatform('ios');
     copyFile.mockResolvedValue(undefined);
     exists.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     readFile.mockResolvedValue(Buffer.from('image-bytes', 'utf8').toString('base64'));
+    stat.mockResolvedValueOnce({size: 11}).mockResolvedValueOnce({size: 11});
 
     await expect(
       adapter.copyFile('/tmp/source.png', '/tmp/destination.png'),

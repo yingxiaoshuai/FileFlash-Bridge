@@ -22,6 +22,7 @@ export interface FileSystemAdapter {
   deletePath(path: string): Promise<void>;
   ensureDir(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
+  getFileSize?(path: string): Promise<number>;
   listFiles(path: string): Promise<string[]>;
   readFileChunkBase64?(
     path: string,
@@ -148,6 +149,7 @@ export class InboundStorageGateway {
 
     await this.cleanupTemporaryArtifacts();
     await this.pruneMissingFiles();
+    await this.reconcileStoredFileMetadata();
 
     return this.snapshot;
   }
@@ -238,6 +240,7 @@ export class InboundStorageGateway {
     const project = this.createProjectRecord(title ?? '新的分享轮次');
     snapshot.projects.unshift(project);
     snapshot.activeProjectId = project.id;
+    snapshot.sharedFileIds = [];
     await this.persist();
     return project;
   }
@@ -319,9 +322,9 @@ export class InboundStorageGateway {
       project,
       input.relativePath ?? input.name,
     );
-    const originalSize = this.inputByteLength(input);
+    const declaredOriginalSize = this.inputByteLength(input);
     const shouldCompress =
-      originalSize < this.options.compressionThreshold &&
+      declaredOriginalSize < this.options.compressionThreshold &&
       shouldCompressInboundPayload(input.mimeType, normalizedRelativePath);
     const compression: CompressionMode = shouldCompress ? 'gzip' : 'none';
     const fileId = createId('file');
@@ -350,6 +353,7 @@ export class InboundStorageGateway {
       throw error;
     }
 
+    const logicalSize = compression === 'none' ? storedSize : declaredOriginalSize;
     const fileRecord: SharedFileRecord = {
       id: fileId,
       projectId: project.id,
@@ -359,8 +363,8 @@ export class InboundStorageGateway {
       compression,
       createdAt,
       mimeType: input.mimeType,
-      originalSize,
-      size: originalSize,
+      originalSize: logicalSize,
+      size: logicalSize,
       storedSize,
       isLargeFile: !shouldCompress,
     };
@@ -474,13 +478,14 @@ export class InboundStorageGateway {
       file.compression === 'none' &&
       this.options.fileSystem.readFileChunkBase64
     ) {
-      return {
-        base64: await this.options.fileSystem.readFileChunkBase64(
-          file.storagePath,
-          start,
-          contentLength,
-        ),
+      const base64 = await this.options.fileSystem.readFileChunkBase64(
+        file.storagePath,
+        start,
         contentLength,
+      );
+      return {
+        base64,
+        contentLength: inboundBase64ByteLength(base64),
         file,
         totalSize: file.size,
       } satisfies StoredFileChunk;
@@ -773,6 +778,43 @@ export class InboundStorageGateway {
     await this.persist();
   }
 
+  private async reconcileStoredFileMetadata() {
+    if (!this.snapshot || !this.options.fileSystem.getFileSize) {
+      return;
+    }
+
+    let shouldPersist = false;
+
+    for (const file of Object.values(this.snapshot.files)) {
+      let actualStoredSize: number;
+      try {
+        actualStoredSize = await this.options.fileSystem.getFileSize(file.storagePath);
+      } catch {
+        continue;
+      }
+
+      if (file.storedSize !== actualStoredSize) {
+        file.storedSize = actualStoredSize;
+        shouldPersist = true;
+      }
+
+      if (file.compression === 'none') {
+        if (file.size !== actualStoredSize) {
+          file.size = actualStoredSize;
+          shouldPersist = true;
+        }
+        if (file.originalSize !== actualStoredSize) {
+          file.originalSize = actualStoredSize;
+          shouldPersist = true;
+        }
+      }
+    }
+
+    if (shouldPersist) {
+      await this.persist();
+    }
+  }
+
   private cloneSnapshot() {
     if (!this.snapshot) {
       throw new Error('Storage snapshot was not initialized');
@@ -814,6 +856,13 @@ export class InboundStorageGateway {
 
     if ('sourcePath' in input && this.options.fileSystem.copyFile) {
       await this.options.fileSystem.copyFile(input.sourcePath, storagePath);
+      if (this.options.fileSystem.getFileSize) {
+        try {
+          return await this.options.fileSystem.getFileSize(storagePath);
+        } catch {
+          throw new Error(`Stored file is missing after write: ${storagePath}`);
+        }
+      }
       return input.byteLength;
     }
 

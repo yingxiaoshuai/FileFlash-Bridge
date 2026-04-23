@@ -15,6 +15,10 @@ describe('buildPortalDocument', () => {
     expect(html).toContain('device-pill');
     expect(html).toContain('progress-track');
     expect(html).toContain('progress-fill');
+    expect(html).toContain('const activeDownloads = new Map();');
+    expect(html).toContain('const downloadStateById = new Map();');
+    expect(html).toContain("state.phase === 'downloading'");
+    expect(html).toContain('setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);');
     expect(html).not.toContain('hero-copy');
     expect(html).not.toContain('#f5efe3');
     expect(html).not.toContain('rgba(255, 249, 239');
