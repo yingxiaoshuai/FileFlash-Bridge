@@ -348,39 +348,27 @@ function AppScreen(): React.JSX.Element {
   const tourSteps: WorkspaceTourStep<WorkspaceTourTargetId>[] = [
     {
       body: isServiceRunning
-        ? '服务已经在运行，这里可以继续停止服务、查看网络状态，并确认当前访问模式。'
-        : '先从这里启动服务。服务起来以后，浏览器入口、二维码和共享内容才会对外可用。',
+        ? '这里是服务中心。你可以查看当前地址、确认网络状态，并随时停止或继续使用当前服务。'
+        : '先从这里启动服务。服务开启后，浏览器入口和二维码才会出现，其他设备才能访问你的共享内容。',
       id: 'service',
       target: 'service-panel',
-      title: isServiceRunning ? '这里控制当前服务' : '先从这里启动服务',
-    },
-    {
-      body: hasReachableAddress
-        ? '当地址和二维码出现后，就可以复制链接或让另一台设备扫码打开浏览器入口。'
-        : '当前没有可用地址时，我们会退回到整个服务区域提示你；连上可用局域网后，这里会显示真实入口。',
-      fallbackTarget: 'service-panel',
-      id: 'access',
-      target: 'service-address',
-      title: hasReachableAddress ? '把这个入口发给另一台设备' : '地址会在这里出现',
+      title: isServiceRunning
+        ? '先看看服务中心'
+        : '先从这里启动服务',
     },
     {
       body:
-        '从本机导入的文件会先出现在共享列表里；也支持你在系统相册、文件或其他 App 里通过系统分享把文件直接发送到 FileFlash Bridge，进来后就能继续查看和处理。',
+        '通过系统分享、相册或文件导入进来的内容都会先进入共享文件区。FileFlash Bridge 也支持从其他 App 直接把文件分享到这里，再继续分析和整理。',
       id: 'shared-files',
       target: 'shared-files-panel',
-      title: '共享文件集中放在这里',
+      title: '共享文件会先集中到这里',
     },
     {
-      body: '浏览器发来的文本、接收到的文件，以及后续导出操作，都会继续归到当前项目里整理。',
+      body:
+        '每次新建项目后，这里会展示当前项目里的文本和文件结果，方便你继续查看、分析和导出。',
       id: 'project',
       target: 'project-panel',
-      title: '当前项目里查看本轮内容',
-    },
-    {
-      body: '忘记流程时，点右上角这个入口就能从第一步重新打开引导，不会改动当前服务或项目数据。',
-      id: 'help',
-      target: 'help-button',
-      title: '以后也能随时重看这套说明',
+      title: '项目区负责整理本次内容',
     },
   ];
 

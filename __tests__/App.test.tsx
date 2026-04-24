@@ -475,6 +475,7 @@ describe('App sidebar history', () => {
 
     expect(tree!.root.findByProps({testID: 'workspace-onboarding-overlay'})).toBeTruthy();
     expect(tree!.root.findByProps({testID: 'workspace-onboarding-sheet-docked'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-image-service'})).toBeTruthy();
 
     act(() => {
       tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
@@ -482,6 +483,9 @@ describe('App sidebar history', () => {
 
     expect(
       tree!.root.findByProps({testID: 'workspace-onboarding-previous'}),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({testID: 'workspace-onboarding-image-shared-files'}),
     ).toBeTruthy();
 
     act(() => {
@@ -567,16 +571,18 @@ describe('App sidebar history', () => {
     });
 
     expect(tree!.root.findByProps({testID: 'workspace-onboarding-overlay'})).toBeTruthy();
+    expect(
+      tree!.root.findByProps({testID: 'workspace-onboarding-image-shared-files'}),
+    ).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
-      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
       tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
     });
 
     expect(
       tree!.root.findByProps({testID: 'workspace-onboarding-complete'}),
     ).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-image-project'})).toBeTruthy();
 
     act(() => {
       tree!.root.findByProps({testID: 'workspace-onboarding-complete'}).props.onPress();
@@ -603,7 +609,6 @@ describe('App sidebar history', () => {
     });
 
     act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
       tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
     });
 
