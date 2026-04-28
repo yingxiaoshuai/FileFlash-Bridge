@@ -8,17 +8,18 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
-
-import {styles} from './appShellStyles';
-import {AppBottomTabBar} from './navigation/AppBottomTabBar';
-import {HomeScreen} from './screens/HomeScreen';
-import {SettingsScreen} from './screens/SettingsScreen';
-import {theme} from './theme';
-import {useAppModel} from './useAppModel';
 import {
-  WorkspaceOnboardingOverlay,
-} from './workspaceOnboarding';
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+
+import { styles } from './appShellStyles';
+import { AppBottomTabBar } from './navigation/AppBottomTabBar';
+import { HomeScreen } from './screens/HomeScreen';
+import { SettingsScreen } from './screens/SettingsScreen';
+import { theme } from './theme';
+import { useAppModel } from './useAppModel';
+import { WorkspaceOnboardingOverlay } from './workspaceOnboarding';
 import {
   APP_LOCALE_OPTIONS,
   createAppTranslator,
@@ -27,7 +28,7 @@ import type {
   WorkspaceTourAnchorRect,
   WorkspaceTourStep,
 } from './workspaceOnboarding';
-import type {AppTabId, WorkspaceTourTargetId} from './workspaceTypes';
+import type { AppTabId, WorkspaceTourTargetId } from './workspaceTypes';
 
 type TourTargetNode = React.ElementRef<typeof View>;
 
@@ -44,7 +45,7 @@ export function AppShell(): React.JSX.Element {
   const [projectActionMenuId, setProjectActionMenuId] = React.useState<
     string | undefined
   >();
-  const {height, width} = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [tourStepIndex, setTourStepIndex] = React.useState(0);
   const [tourTargetRects, setTourTargetRects] = React.useState<
@@ -66,119 +67,122 @@ export function AppShell(): React.JSX.Element {
     ? width - pagePadding * 2 - 36
     : Math.max(160, Math.floor((width - pagePadding * 2 - 14) / 2) - 36);
   const serviceQrSize = Math.min(qrSize, Math.max(112, serviceCardContentMax));
-  const tabBarPadding = 20;
+  const tabBarPadding = 12;
   const historyDrawerWidth =
     width < 560
       ? Math.min(Math.max(280, Math.floor(width * 0.82)), 340)
       : Math.min(Math.max(304, Math.floor(width * 0.32)), 380);
   const currentLocaleLabel = t(
-    APP_LOCALE_OPTIONS.find(option => option.value === model.locale)?.labelKey ??
-      'settings.language.option.zh',
+    APP_LOCALE_OPTIONS.find(option => option.value === model.locale)
+      ?.labelKey ?? 'settings.language.option.zh',
   );
   const previousActiveProjectIdRef = React.useRef<string | undefined>(
     model.activeProject?.id,
   );
 
-  const setTourTargetRef = React.useCallback((
-    targetId: WorkspaceTourTargetId,
-    node: TourTargetNode | null,
-  ) => {
-    tourTargetRefs.current[targetId] = node;
-  }, []);
+  const setTourTargetRef = React.useCallback(
+    (targetId: WorkspaceTourTargetId, node: TourTargetNode | null) => {
+      tourTargetRefs.current[targetId] = node;
+    },
+    [],
+  );
 
-  const measureTourTarget = React.useCallback((targetId: WorkspaceTourTargetId) => {
-    const node = tourTargetRefs.current[targetId];
-    const tourHostNode = tourHostRef.current;
-    if (!node) {
-      setTourTargetRects(currentRects => {
-        if (!currentRects[targetId]) {
-          return currentRects;
-        }
-
-        const nextRects = {...currentRects};
-        delete nextRects[targetId];
-        return nextRects;
-      });
-      return;
-    }
-
-    const updateRect = (
-      x: number,
-      y: number,
-      measuredWidth: number,
-      measuredHeight: number,
-    ) => {
-      if (!measuredWidth || !measuredHeight) {
+  const measureTourTarget = React.useCallback(
+    (targetId: WorkspaceTourTargetId) => {
+      const node = tourTargetRefs.current[targetId];
+      const tourHostNode = tourHostRef.current;
+      if (!node) {
         setTourTargetRects(currentRects => {
           if (!currentRects[targetId]) {
             return currentRects;
           }
 
-          const nextRects = {...currentRects};
+          const nextRects = { ...currentRects };
           delete nextRects[targetId];
           return nextRects;
         });
         return;
       }
 
+      const updateRect = (
+        x: number,
+        y: number,
+        measuredWidth: number,
+        measuredHeight: number,
+      ) => {
+        if (!measuredWidth || !measuredHeight) {
+          setTourTargetRects(currentRects => {
+            if (!currentRects[targetId]) {
+              return currentRects;
+            }
+
+            const nextRects = { ...currentRects };
+            delete nextRects[targetId];
+            return nextRects;
+          });
+          return;
+        }
+
+        setTourTargetRects(currentRects => {
+          const previousRect = currentRects[targetId];
+          if (
+            previousRect &&
+            previousRect.x === x &&
+            previousRect.y === y &&
+            previousRect.width === measuredWidth &&
+            previousRect.height === measuredHeight
+          ) {
+            return currentRects;
+          }
+
+          return {
+            ...currentRects,
+            [targetId]: {
+              height: measuredHeight,
+              width: measuredWidth,
+              x,
+              y,
+            },
+          };
+        });
+      };
+
+      if (tourHostNode && typeof node.measureLayout === 'function') {
+        node.measureLayout(
+          tourHostNode,
+          (x, y, measuredWidth, measuredHeight) => {
+            updateRect(x, y, measuredWidth, measuredHeight);
+          },
+          () => {
+            if (typeof node.measureInWindow === 'function') {
+              node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+                updateRect(x, y, measuredWidth, measuredHeight);
+              });
+            }
+          },
+        );
+        return;
+      }
+
+      if (typeof node.measureInWindow === 'function') {
+        node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
+          updateRect(x, y, measuredWidth, measuredHeight);
+        });
+        return;
+      }
+
       setTourTargetRects(currentRects => {
-        const previousRect = currentRects[targetId];
-        if (
-          previousRect &&
-          previousRect.x === x &&
-          previousRect.y === y &&
-          previousRect.width === measuredWidth &&
-          previousRect.height === measuredHeight
-        ) {
+        if (!currentRects[targetId]) {
           return currentRects;
         }
 
-        return {
-          ...currentRects,
-          [targetId]: {
-            height: measuredHeight,
-            width: measuredWidth,
-            x,
-            y,
-          },
-        };
+        const nextRects = { ...currentRects };
+        delete nextRects[targetId];
+        return nextRects;
       });
-    };
-
-    if (tourHostNode && typeof node.measureLayout === 'function') {
-      node.measureLayout(
-        tourHostNode,
-        (x, y, measuredWidth, measuredHeight) => {
-          updateRect(x, y, measuredWidth, measuredHeight);
-        },
-        () => {
-          if (typeof node.measureInWindow === 'function') {
-            node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
-              updateRect(x, y, measuredWidth, measuredHeight);
-            });
-          }
-        },
-      );
-      return;
-    }
-
-    if (typeof node.measureInWindow === 'function') {
-      node.measureInWindow((x, y, measuredWidth, measuredHeight) => {
-        updateRect(x, y, measuredWidth, measuredHeight);
-      });
-      return;
-    }
-
-    setTourTargetRects(currentRects => {
-      if (!currentRects[targetId]) {
-        return currentRects;
-      }
-
-      const nextRects = {...currentRects};
-      delete nextRects[targetId];
-      return nextRects;
-    });
-  }, []);
+    },
+    [],
+  );
 
   const tourTargetCallbacks = React.useMemo(
     () => ({
@@ -298,7 +302,11 @@ export function AppShell(): React.JSX.Element {
     return () => {
       subscription.remove();
     };
-  }, [model.onboarding.isVisible, model.skipWorkspaceOnboarding, tourStepIndex]);
+  }, [
+    model.onboarding.isVisible,
+    model.skipWorkspaceOnboarding,
+    tourStepIndex,
+  ]);
 
   React.useEffect(() => {
     if (Platform.OS !== 'android' || model.onboarding.isVisible) {
@@ -366,10 +374,7 @@ export function AppShell(): React.JSX.Element {
     : undefined;
   const activeTourTargetId = currentTourStep
     ? currentTourStep.target === 'service-address' &&
-      !(
-        model.serviceState.accessUrl &&
-        model.serviceState.network.reachable
-      )
+      !(model.serviceState.accessUrl && model.serviceState.network.reachable)
       ? currentTourStep.fallbackTarget ?? currentTourStep.target
       : currentTourStep.target
     : undefined;
@@ -377,7 +382,9 @@ export function AppShell(): React.JSX.Element {
     ? tourTargetRects[activeTourTargetId]
     : undefined;
 
-  const handleSelectLocale = (locale: (typeof APP_LOCALE_OPTIONS)[number]['value']) => {
+  const handleSelectLocale = (
+    locale: (typeof APP_LOCALE_OPTIONS)[number]['value'],
+  ) => {
     setLocaleMenuVisible(false);
     setSettingsQuickLocaleMenuVisible(false);
     setSettingsLocaleMenuVisible(false);
@@ -402,7 +409,8 @@ export function AppShell(): React.JSX.Element {
           }
         }}
         ref={tourHostRef}
-        style={styles.screenRoot}>
+        style={styles.screenRoot}
+      >
         <StatusBar
           barStyle="dark-content"
           backgroundColor={theme.colors.background}

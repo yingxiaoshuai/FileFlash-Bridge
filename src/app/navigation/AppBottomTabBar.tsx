@@ -1,10 +1,12 @@
 import React from 'react';
-import {Text, View} from 'react-native';
-import {SegmentedButtons} from 'react-native-paper';
+import { View } from 'react-native';
+import { SegmentedButtons } from 'react-native-paper';
 
-import {styles} from '../appShellStyles';
-import {createAppTranslator} from '../../modules/localization/i18n';
-import type {AppTabId} from '../workspaceTypes';
+import { styles } from '../appShellStyles';
+import { theme } from '../theme';
+import { HomeTabIcon, SettingsTabIcon } from '../icons/AppIcons';
+import { createAppTranslator } from '../../modules/localization/i18n';
+import type { AppTabId } from '../workspaceTypes';
 
 type TranslateApp = ReturnType<typeof createAppTranslator>;
 
@@ -19,48 +21,44 @@ export function AppBottomTabBar({
   onTabChange,
   t,
 }: AppBottomTabBarProps) {
-  const renderGlyphIcon = React.useCallback(
-    (glyph: string) =>
-      ({color, size}: {color: string; size: number}) => (
-        <Text
-          style={[
-            styles.segmentedTabGlyph,
-            {
-              color,
-              fontSize: size * 0.95,
-            },
-          ]}>
-          {glyph}
-        </Text>
-      ),
-    [],
-  );
-
   return (
     <View
       style={[
         styles.segmentedTabBar,
         {
-          paddingBottom: 8,
+          paddingBottom: 4,
         },
       ]}
-      testID="bottom-tab-bar">
+      testID="bottom-tab-bar"
+    >
       <SegmentedButtons<AppTabId>
         buttons={[
           {
             accessibilityLabel: t('tabs.home'),
-            icon: renderGlyphIcon('⌂'),
+            checkedColor: theme.colors.primaryStrong,
+            icon: ({ color, size }) => (
+              <HomeTabIcon color={color} size={size * 0.95} />
+            ),
             label: t('tabs.home'),
+            labelStyle: styles.segmentedTabLabel,
             showSelectedCheck: false,
+            style: styles.segmentedTabButton,
             testID: 'tab-home',
+            uncheckedColor: theme.colors.inkSoft,
             value: 'home',
           },
           {
             accessibilityLabel: t('tabs.settings'),
-            icon: renderGlyphIcon('⚙'),
+            checkedColor: theme.colors.primaryStrong,
+            icon: ({ color, size }) => (
+              <SettingsTabIcon color={color} size={size * 0.95} />
+            ),
             label: t('tabs.settings'),
+            labelStyle: styles.segmentedTabLabel,
             showSelectedCheck: false,
+            style: styles.segmentedTabButton,
             testID: 'tab-settings',
+            uncheckedColor: theme.colors.inkSoft,
             value: 'settings',
           },
         ]}
@@ -69,6 +67,14 @@ export function AppBottomTabBar({
           onTabChange(value);
         }}
         style={styles.segmentedTabs}
+        theme={{
+          colors: {
+            onSecondaryContainer: theme.colors.primaryStrong,
+            onSurface: theme.colors.inkSoft,
+            outline: 'transparent',
+            secondaryContainer: theme.colors.primarySoft,
+          },
+        }}
         value={activeTab}
       />
     </View>

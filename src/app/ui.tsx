@@ -1,8 +1,8 @@
 import React from 'react';
-import {StyleProp, StyleSheet, Text, View, ViewStyle} from 'react-native';
-import {Button, IconButton, Surface} from 'react-native-paper';
+import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { Button, IconButton, Surface } from 'react-native-paper';
 
-import {theme} from './theme';
+import { theme } from './theme';
 
 type ButtonTone = 'primary' | 'secondary' | 'danger';
 
@@ -71,7 +71,8 @@ export function ActionButton({
         fullWidth ? styles.fullWidth : null,
       ]}
       testID={testID}
-      textColor={config.textColor}>
+      textColor={config.textColor}
+    >
       {label}
     </Button>
   );
@@ -98,10 +99,10 @@ export function GlyphIconButton({
     <IconButton
       accessibilityLabel={accessibilityLabel}
       containerColor={
-        selected ? theme.colors.primarySoft : theme.colors.surfaceElevated
+        selected ? theme.colors.primarySoft : theme.colors.surfaceGlassStrong
       }
       disabled={disabled}
-      icon={({size, color}) => (
+      icon={({ size, color }) => (
         <Text
           style={[
             styles.iconGlyph,
@@ -109,7 +110,8 @@ export function GlyphIconButton({
               color,
               fontSize: size * 0.88,
             },
-          ]}>
+          ]}
+        >
           {glyph}
         </Text>
       )}
@@ -128,9 +130,11 @@ type PanelSurfaceProps = {
   testID?: string;
 };
 
-export function PanelSurface({children, style, testID}: PanelSurfaceProps) {
+export function PanelSurface({ children, style, testID }: PanelSurfaceProps) {
   return (
     <Surface mode="flat" style={[styles.panel, style]} testID={testID}>
+      <View pointerEvents="none" style={styles.panelSheen} />
+      <View pointerEvents="none" style={styles.panelHighlight} />
       {children}
     </Surface>
   );
@@ -155,9 +159,10 @@ export function FeedbackBanner({
         tone === 'success'
           ? styles.bannerSuccess
           : tone === 'error'
-            ? styles.bannerError
-            : styles.bannerInfo,
-      ]}>
+          ? styles.bannerError
+          : styles.bannerInfo,
+      ]}
+    >
       <Text style={styles.bannerMessage}>{message}</Text>
       <ActionButton compact label="关闭" onPress={onDismiss} />
     </Surface>
@@ -168,7 +173,7 @@ type EmptyStateCardProps = {
   title: string;
 };
 
-export function EmptyStateCard({title}: EmptyStateCardProps) {
+export function EmptyStateCard({ title }: EmptyStateCardProps) {
   return (
     <Surface mode="flat" style={styles.emptyState}>
       <Text style={styles.emptyStateTitle}>{title}</Text>
@@ -181,13 +186,21 @@ type InlineMetaProps = {
   style?: StyleProp<ViewStyle>;
 };
 
-export function InlineMeta({children, style}: InlineMetaProps) {
+export function InlineMeta({ children, style }: InlineMetaProps) {
   return <View style={[styles.inlineMeta, style]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
   button: {
     borderRadius: theme.radius.pill,
+    elevation: 3,
+    shadowColor: theme.colors.shadowStrong,
+    shadowOffset: {
+      height: 8,
+      width: 0,
+    },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
   },
   buttonContent: {
     minHeight: 44,
@@ -200,17 +213,19 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.dangerSoft,
   },
   panel: {
-    backgroundColor: theme.colors.overlay,
+    backgroundColor: theme.colors.surfaceGlassStrong,
     borderColor: theme.colors.border,
     borderRadius: theme.radius.card,
     borderWidth: 1,
+    elevation: 10,
+    position: 'relative',
     shadowColor: theme.colors.shadow,
     shadowOffset: {
-      height: 14,
+      height: 20,
       width: 0,
     },
     shadowOpacity: 1,
-    shadowRadius: 28,
+    shadowRadius: 32,
   },
   fullWidth: {
     width: '100%',
@@ -219,12 +234,38 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     borderWidth: 1,
     margin: 0,
+    shadowColor: theme.colors.shadowStrong,
+    shadowOffset: {
+      height: 7,
+      width: 0,
+    },
+    shadowOpacity: 0.22,
+    shadowRadius: 12,
   },
   iconGlyph: {
     fontWeight: '700',
     lineHeight: 22,
     marginTop: -1,
     textAlign: 'center',
+  },
+  panelSheen: {
+    backgroundColor: theme.colors.highlight,
+    height: 1,
+    left: 1,
+    opacity: 0.85,
+    position: 'absolute',
+    right: 1,
+    top: 1,
+  },
+  panelHighlight: {
+    backgroundColor: theme.colors.primarySoft,
+    borderRadius: 999,
+    height: 92,
+    opacity: 0.4,
+    position: 'absolute',
+    right: 10,
+    top: 8,
+    width: 120,
   },
   banner: {
     alignItems: 'center',

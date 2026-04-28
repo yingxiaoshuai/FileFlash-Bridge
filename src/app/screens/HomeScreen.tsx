@@ -9,11 +9,16 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import {Drawer, Menu} from 'react-native-paper';
+import { Drawer, Menu } from 'react-native-paper';
 import QRCode from 'react-native-qrcode-svg';
 
-import {styles} from '../appShellStyles';
-import {theme} from '../theme';
+import { styles } from '../appShellStyles';
+import {
+  WorkspaceConnectionsIcon,
+  WorkspaceSecurityIcon,
+  WorkspaceSharedIcon,
+} from '../icons/AppIcons';
+import { theme } from '../theme';
 import {
   ActionButton,
   EmptyStateCard,
@@ -21,23 +26,21 @@ import {
   InlineMeta,
   PanelSurface,
 } from '../ui';
-import {useAppModel} from '../useAppModel';
-import {
-  GuidedTourTarget,
-} from '../workspaceOnboarding';
+import { useAppModel } from '../useAppModel';
+import { GuidedTourTarget } from '../workspaceOnboarding';
 import {
   APP_LOCALE_OPTIONS,
   createAppTranslator,
 } from '../../modules/localization/i18n';
-import type {AppLocale} from '../../modules/localization/i18n';
-import type {EdgeInsets} from 'react-native-safe-area-context';
+import type { AppLocale } from '../../modules/localization/i18n';
+import type { EdgeInsets } from 'react-native-safe-area-context';
 import type {
   ProjectRecord,
   ServiceError,
   SharedFileRecord,
   TextMessage,
 } from '../../modules/service/models';
-import type {WorkspaceTourTargetId} from '../workspaceTypes';
+import type { WorkspaceTourTargetId } from '../workspaceTypes';
 
 type TranslateApp = ReturnType<typeof createAppTranslator>;
 type AppModel = ReturnType<typeof useAppModel>;
@@ -97,21 +100,27 @@ export function HomeScreen({
 }: HomeScreenProps) {
   const isBusy = Boolean(model.busyAction);
   const [renameProjectDraft, setRenameProjectDraft] = React.useState('');
-  const [renameProjectId, setRenameProjectId] = React.useState<string | undefined>();
+  const [renameProjectId, setRenameProjectId] = React.useState<
+    string | undefined
+  >();
   const isCompactScreen = width < 560;
   const isServiceRunning = model.serviceState.phase === 'running';
   const securityModeLabel =
     model.serviceState.config.securityMode === 'secure'
       ? t('home.mode.secureDetailed')
       : t('home.mode.simpleDetailed');
-  const localizedServiceError = localizeServiceError(model.serviceState.error, t);
+  const localizedServiceError = localizeServiceError(
+    model.serviceState.error,
+    t,
+  );
   const displayNetworkLabel = resolveNetworkLabel(
     model.serviceState.network.mode,
     model.serviceState.network.label,
     t,
   );
   const hasReachableAddress =
-    Boolean(model.serviceState.accessUrl) && model.serviceState.network.reachable;
+    Boolean(model.serviceState.accessUrl) &&
+    model.serviceState.network.reachable;
   const stoppedAddressCopy = model.serviceState.network.reachable
     ? t('home.service.addressPlaceholder')
     : localizedServiceError?.message ?? displayNetworkLabel;
@@ -208,7 +217,8 @@ export function HomeScreen({
           {
             paddingHorizontal: pagePadding,
           },
-        ]}>
+        ]}
+      >
         <View style={[styles.globalTopBar, styles.globalTopBarStacked]}>
           <IconButton
             accessibilityLabel={t('home.sidebar.open')}
@@ -241,7 +251,8 @@ export function HomeScreen({
               }}
               statusBarHeight={0}
               testID="locale-menu"
-              visible={isLocaleMenuVisible}>
+              visible={isLocaleMenuVisible}
+            >
               {APP_LOCALE_OPTIONS.map(option => (
                 <Menu.Item
                   key={option.value}
@@ -261,7 +272,8 @@ export function HomeScreen({
             <GuidedTourTarget
               active={activeTourTargetId === 'help-button'}
               captureRef={tourTargetCallbacks['help-button']}
-              style={styles.helpTargetWrap}>
+              style={styles.helpTargetWrap}
+            >
               <IconButton
                 accessibilityLabel={t('home.help.reopen')}
                 disabled={isBusy}
@@ -271,7 +283,9 @@ export function HomeScreen({
               />
             </GuidedTourTarget>
             <StatusChip
-              accent={isServiceRunning ? theme.colors.success : theme.colors.inkSoft}
+              accent={
+                isServiceRunning ? theme.colors.success : theme.colors.inkSoft
+              }
               label={
                 isServiceRunning
                   ? t('home.service.online')
@@ -292,16 +306,23 @@ export function HomeScreen({
             paddingBottom: tabBarPadding,
           },
         ]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.main}>
           <PanelSurface style={styles.summaryShell}>
+            <View pointerEvents="none" style={styles.summaryShellHaloPrimary} />
+            <View
+              pointerEvents="none"
+              style={styles.summaryShellHaloSecondary}
+            />
             <View style={styles.header}>
               <View style={styles.headerMain}>
                 <Text
                   style={[
                     styles.headerTitle,
                     isCompactScreen ? styles.headerTitleCompact : null,
-                  ]}>
+                  ]}
+                >
                   {t('home.header.title')}
                 </Text>
                 <Text numberOfLines={1} style={styles.headerMeta}>
@@ -312,25 +333,38 @@ export function HomeScreen({
 
             <View style={styles.metricRow}>
               <InfoBadge
-                icon="◌"
+                compact={isCompactScreen}
+                icon={<WorkspaceConnectionsIcon size={22} />}
                 label={t('home.metric.connections')}
                 testID="workspace-summary-connections"
                 value={String(model.serviceState.activeConnections.length)}
               />
               <InfoBadge
-                icon="↗"
+                compact={isCompactScreen}
+                icon={<WorkspaceSharedIcon size={22} />}
                 label={t('home.metric.shared')}
                 testID="workspace-summary-shared"
                 value={String(model.sharedFiles.length)}
               />
               <InfoBadge
-                icon={model.serviceState.config.securityMode === 'secure' ? '◉' : '◎'}
+                compact={isCompactScreen}
+                icon={
+                  <WorkspaceSecurityIcon
+                    secure={model.serviceState.config.securityMode === 'secure'}
+                    size={22}
+                  />
+                }
                 label={t('home.metric.mode')}
                 testID="workspace-summary-mode"
                 value={
                   model.serviceState.config.securityMode === 'secure'
                     ? t('home.mode.secure')
                     : t('home.mode.simple')
+                }
+                valueColor={
+                  model.serviceState.config.securityMode === 'secure'
+                    ? theme.colors.success
+                    : undefined
                 }
               />
             </View>
@@ -340,11 +374,13 @@ export function HomeScreen({
             style={[
               styles.topGrid,
               stackOverviewCards ? styles.topGridCompact : null,
-            ]}>
+            ]}
+          >
             <GuidedTourTarget
               active={activeTourTargetId === 'service-panel'}
               captureRef={tourTargetCallbacks['service-panel']}
-              style={styles.topGridTourTarget}>
+              style={styles.topGridTourTarget}
+            >
               <PanelSurface style={[styles.card, styles.serviceCard]}>
                 <View style={styles.serviceHeaderRow}>
                   <View style={styles.serviceHeaderTitleWrap}>
@@ -362,7 +398,8 @@ export function HomeScreen({
                     active={activeTourTargetId === 'service-address'}
                     captureRef={tourTargetCallbacks['service-address']}
                     style={styles.serviceAddressTarget}
-                    testID="service-address-row">
+                    testID="service-address-row"
+                  >
                     <View style={styles.serviceAddressSection}>
                       <KeyValueTile
                         fill
@@ -392,7 +429,8 @@ export function HomeScreen({
                 ) : (
                   <View
                     style={styles.serviceAddressCollapsed}
-                    testID="service-address-collapsed">
+                    testID="service-address-collapsed"
+                  >
                     <Text style={styles.serviceAddressCollapsedLabel}>
                       {t('home.service.address')}
                     </Text>
@@ -406,7 +444,9 @@ export function HomeScreen({
                   disabled={isBusy}
                   fullWidth
                   label={
-                    isServiceRunning ? t('home.service.stop') : t('home.service.start')
+                    isServiceRunning
+                      ? t('home.service.stop')
+                      : t('home.service.start')
                   }
                   onPress={() => {
                     void model.toggleService();
@@ -415,7 +455,10 @@ export function HomeScreen({
                 />
 
                 <View style={styles.serviceSecondaryPanel}>
-                  <View style={styles.serviceSecondaryRow} testID="service-mode-panel">
+                  <View
+                    style={styles.serviceSecondaryRow}
+                    testID="service-mode-panel"
+                  >
                     <View style={styles.securityModeSwitchText}>
                       <View style={styles.securityModeTitleRow}>
                         <Text style={styles.quickToolsTitle}>
@@ -440,14 +483,18 @@ export function HomeScreen({
                       disabled={isBusy}
                       ios_backgroundColor={theme.colors.border}
                       onValueChange={nextSecure => {
-                        void model.setSecurityMode(nextSecure ? 'secure' : 'simple');
+                        void model.setSecurityMode(
+                          nextSecure ? 'secure' : 'simple',
+                        );
                       }}
                       thumbColor={theme.colors.surfaceElevated}
                       trackColor={{
                         false: theme.colors.border,
                         true: theme.colors.primary,
                       }}
-                      value={model.serviceState.config.securityMode === 'secure'}
+                      value={
+                        model.serviceState.config.securityMode === 'secure'
+                      }
                     />
                   </View>
                 </View>
@@ -468,7 +515,8 @@ export function HomeScreen({
             <GuidedTourTarget
               active={activeTourTargetId === 'shared-files-panel'}
               captureRef={tourTargetCallbacks['shared-files-panel']}
-              style={styles.topGridTourTarget}>
+              style={styles.topGridTourTarget}
+            >
               <PanelSurface style={[styles.card, styles.sharedFilesCard]}>
                 <View style={styles.cardHeaderRow}>
                   <SectionTitle title={t('home.shared.title')} />
@@ -529,7 +577,8 @@ export function HomeScreen({
           <GuidedTourTarget
             active={activeTourTargetId === 'project-panel'}
             captureRef={tourTargetCallbacks['project-panel']}
-            style={styles.projectTourTarget}>
+            style={styles.projectTourTarget}
+          >
             <PanelSurface style={styles.card}>
               {model.activeProject ? (
                 <>
@@ -548,8 +597,11 @@ export function HomeScreen({
                   <View
                     style={[
                       styles.projectContentGrid,
-                      stackProjectPanels ? styles.projectContentGridCompact : null,
-                    ]}>
+                      stackProjectPanels
+                        ? styles.projectContentGridCompact
+                        : null,
+                    ]}
+                  >
                     <View style={styles.subsection}>
                       <Text style={styles.subsectionTitle}>
                         {t('home.project.textTitle')}
@@ -566,7 +618,10 @@ export function HomeScreen({
                               model.copyMessage(message);
                             }}
                             onDelete={() => {
-                              void model.deleteMessage(model.activeProject!.id, message.id);
+                              void model.deleteMessage(
+                                model.activeProject!.id,
+                                message.id,
+                              );
                             }}
                             t={t}
                           />
@@ -639,10 +694,12 @@ export function HomeScreen({
                 width: historyDrawerWidth,
               },
             ]}
-            testID="sidebar-panel">
+            testID="sidebar-panel"
+          >
             <ScrollView
               contentContainerStyle={styles.sidebarDrawerScrollContent}
-              showsVerticalScrollIndicator={false}>
+              showsVerticalScrollIndicator={false}
+            >
               <PanelSurface style={styles.sidebarPanel}>
                 <View style={styles.sidebarListCard}>
                   <View style={styles.sidebarHeaderRow}>
@@ -651,7 +708,9 @@ export function HomeScreen({
                         {t('home.sidebar.title')}
                       </Text>
                       <Text style={styles.sidebarSectionMeta}>
-                        {t('home.sidebar.count', {count: model.projects.length})}
+                        {t('home.sidebar.count', {
+                          count: model.projects.length,
+                        })}
                       </Text>
                     </View>
                     <GhostButton
@@ -672,7 +731,8 @@ export function HomeScreen({
                           active={project.id === model.activeProject?.id}
                           key={project.id}
                           lastItem={
-                            project.id === model.projects[model.projects.length - 1]?.id
+                            project.id ===
+                            model.projects[model.projects.length - 1]?.id
                           }
                           locale={model.locale}
                           menuLabel={t('home.sidebar.menu')}
@@ -760,7 +820,7 @@ type SectionTitleProps = {
   title: string;
 };
 
-function SectionTitle({title}: SectionTitleProps) {
+function SectionTitle({ title }: SectionTitleProps) {
   return <Text style={styles.sectionTitle}>{title}</Text>;
 }
 
@@ -770,13 +830,11 @@ type NetworkTagProps = {
   text: string;
 };
 
-function NetworkTag({label, reachable = true, text}: NetworkTagProps) {
+function NetworkTag({ label, reachable = true, text }: NetworkTagProps) {
   return (
     <View
-      style={[
-        styles.networkTag,
-        !reachable ? styles.networkTagWarning : null,
-      ]}>
+      style={[styles.networkTag, !reachable ? styles.networkTagWarning : null]}
+    >
       <Text style={styles.networkTagLabel}>{label}</Text>
       <Text numberOfLines={1} style={styles.networkTagValue}>
         {text}
@@ -790,29 +848,68 @@ type StatusChipProps = {
   label: string;
 };
 
-function StatusChip({accent, label}: StatusChipProps) {
+function StatusChip({ accent, label }: StatusChipProps) {
   return (
-    <View style={[styles.statusChip, {borderColor: accent}]}>
-      <View style={[styles.statusDot, {backgroundColor: accent}]} />
+    <View style={[styles.statusChip, { borderColor: accent }]}>
+      <View style={[styles.statusDot, { backgroundColor: accent }]} />
       <Text style={styles.statusChipText}>{label}</Text>
     </View>
   );
 }
 
 type InfoBadgeProps = {
-  icon: string;
+  compact?: boolean;
+  icon: React.ReactNode;
   label: string;
   testID?: string;
   value: string;
+  valueColor?: string;
 };
 
-function InfoBadge({icon, label, testID, value}: InfoBadgeProps) {
+function InfoBadge({
+  compact,
+  icon,
+  label,
+  testID,
+  value,
+  valueColor,
+}: InfoBadgeProps) {
   return (
-    <View style={styles.infoBadge} testID={testID}>
-      <Text style={styles.infoBadgeIcon}>{icon}</Text>
-      <View style={styles.infoBadgeText}>
-        <Text style={styles.infoBadgeLabel}>{label}</Text>
-        <Text style={styles.infoBadgeValue}>{value}</Text>
+    <View
+      style={[styles.infoBadge, compact ? styles.infoBadgeCompact : null]}
+      testID={testID}
+    >
+      <View
+        style={[
+          styles.infoBadgeIconWrap,
+          compact ? styles.infoBadgeIconWrapCompact : null,
+        ]}
+      >
+        {icon}
+      </View>
+      <View
+        style={[
+          styles.infoBadgeText,
+          compact ? styles.infoBadgeTextCompact : null,
+        ]}
+      >
+        <Text
+          style={[
+            styles.infoBadgeLabel,
+            compact ? styles.infoBadgeLabelCompact : null,
+          ]}
+        >
+          {label}
+        </Text>
+        <Text
+          style={[
+            styles.infoBadgeValue,
+            compact ? styles.infoBadgeValueCompact : null,
+            valueColor ? { color: valueColor } : null,
+          ]}
+        >
+          {value}
+        </Text>
       </View>
     </View>
   );
@@ -824,7 +921,7 @@ type KeyValueTileProps = {
   value: string;
 };
 
-function KeyValueTile({fill, label, value}: KeyValueTileProps) {
+function KeyValueTile({ fill, label, value }: KeyValueTileProps) {
   return (
     <View style={[styles.keyValueTile, fill ? styles.keyValueTileFill : null]}>
       <Text style={styles.keyLabel}>{label}</Text>
@@ -994,18 +1091,21 @@ function ProjectHistoryRow({
         styles.projectHistoryRow,
         active ? styles.projectHistoryRowActive : null,
         !lastItem ? styles.projectHistoryRowDivider : null,
-      ]}>
+      ]}
+    >
       <Pressable
         onPress={onPress}
         style={styles.projectHistoryRowBody}
-        testID={`project-drawer-item-${project.id}`}>
+        testID={`project-drawer-item-${project.id}`}
+      >
         <View style={styles.projectHistoryRowHeader}>
           <Text
             numberOfLines={1}
             style={[
               styles.projectHistoryRowTitle,
               active ? styles.projectHistoryRowTitleActive : null,
-            ]}>
+            ]}
+          >
             {project.title}
           </Text>
           <Text style={styles.projectHistoryRowDate}>
@@ -1017,14 +1117,16 @@ function ProjectHistoryRow({
             style={[
               styles.projectHistoryRowMeta,
               active ? styles.projectHistoryRowMetaActive : null,
-            ]}>
-            {t('home.project.history.files', {count: project.fileIds.length})}
+            ]}
+          >
+            {t('home.project.history.files', { count: project.fileIds.length })}
           </Text>
           <Text
             style={[
               styles.projectHistoryRowMeta,
               active ? styles.projectHistoryRowMetaActive : null,
-            ]}>
+            ]}
+          >
             {t('home.project.history.messages', {
               count: project.messages.length,
             })}
@@ -1043,7 +1145,8 @@ function ProjectHistoryRow({
         onDismiss={onDismissMenu}
         statusBarHeight={statusBarHeight}
         testID={`project-row-menu-${project.id}`}
-        visible={menuVisible}>
+        visible={menuVisible}
+      >
         <Menu.Item
           onPress={onRename}
           testID={`project-row-menu-rename-${project.id}`}
@@ -1068,7 +1171,13 @@ type MessageCardProps = {
   t: TranslateApp;
 };
 
-function MessageCard({locale, message, onCopy, onDelete, t}: MessageCardProps) {
+function MessageCard({
+  locale,
+  message,
+  onCopy,
+  onDelete,
+  t,
+}: MessageCardProps) {
   return (
     <PanelSurface style={styles.messageCard}>
       <Text style={styles.messageBody}>{message.content}</Text>
@@ -1115,14 +1224,20 @@ function FileCard({
         style={[
           styles.fileCardHeader,
           compact ? styles.fileCardHeaderCompact : null,
-        ]}>
+        ]}
+      >
         <View style={styles.fileCardHeaderMain}>
           <Text numberOfLines={2} style={styles.fileName}>
             {file.displayName}
           </Text>
           <Text style={styles.fileMeta}>{formatBytes(file.size)}</Text>
-          <Text style={styles.fileReceivedAt} testID={`file-received-at-${file.id}`}>
-            {t('file.receivedAt', {date: formatDateTime(file.createdAt, locale)})}
+          <Text
+            style={styles.fileReceivedAt}
+            testID={`file-received-at-${file.id}`}
+          >
+            {t('file.receivedAt', {
+              date: formatDateTime(file.createdAt, locale),
+            })}
           </Text>
           <Text numberOfLines={2} style={styles.filePath}>
             {file.relativePath}
@@ -1136,7 +1251,8 @@ function FileCard({
         style={[
           styles.fileCardActionsRow,
           compact ? styles.fileCardActionsRowCompact : null,
-        ]}>
+        ]}
+      >
         <View style={styles.fileCardActionCell}>
           <GhostButton
             compact
@@ -1196,7 +1312,8 @@ function SharedListCard({
         style={[
           styles.fileCardHeader,
           compact ? styles.fileCardHeaderCompact : null,
-        ]}>
+        ]}
+      >
         <View style={styles.fileCardHeaderMain}>
           <Text numberOfLines={2} style={styles.fileName}>
             {file.displayName}
@@ -1206,7 +1323,8 @@ function SharedListCard({
           </Text>
           <Text
             style={styles.fileReceivedAt}
-            testID={`shared-file-received-at-${file.id}`}>
+            testID={`shared-file-received-at-${file.id}`}
+          >
             {formatDateTime(file.createdAt, locale)}
           </Text>
         </View>
@@ -1215,7 +1333,8 @@ function SharedListCard({
         style={[
           styles.fileCardActionsRow,
           compact ? styles.fileCardActionsRowCompact : null,
-        ]}>
+        ]}
+      >
         <View style={styles.fileCardActionCell}>
           <GhostButton
             compact
@@ -1243,7 +1362,7 @@ type EmptyStateProps = {
   title: string;
 };
 
-function EmptyState({title}: EmptyStateProps) {
+function EmptyState({ title }: EmptyStateProps) {
   return <EmptyStateCard title={title} />;
 }
 

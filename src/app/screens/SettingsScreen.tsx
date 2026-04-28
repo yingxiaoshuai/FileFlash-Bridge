@@ -1,14 +1,15 @@
 import React from 'react';
-import {Pressable, ScrollView, Text, View} from 'react-native';
-import {Menu} from 'react-native-paper';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Menu } from 'react-native-paper';
 
-import {styles} from '../appShellStyles';
-import {ActionButton, PanelSurface} from '../ui';
+import { styles } from '../appShellStyles';
+import { LanguageSettingsIcon } from '../icons/AppIcons';
+import { ActionButton, PanelSurface } from '../ui';
 import {
   APP_LOCALE_OPTIONS,
   createAppTranslator,
 } from '../../modules/localization/i18n';
-import type {AppLocale} from '../../modules/localization/i18n';
+import type { AppLocale } from '../../modules/localization/i18n';
 
 type TranslateApp = ReturnType<typeof createAppTranslator>;
 
@@ -52,7 +53,8 @@ export function SettingsScreen({
           {
             paddingHorizontal: pagePadding,
           },
-        ]}>
+        ]}
+      >
         <View style={styles.settingsTopBar}>
           <Menu
             anchor={
@@ -70,7 +72,8 @@ export function SettingsScreen({
             onDismiss={onDismissQuickLocaleMenu}
             statusBarHeight={0}
             testID="settings-locale-menu"
-            visible={isQuickLocaleMenuVisible}>
+            visible={isQuickLocaleMenuVisible}
+          >
             {APP_LOCALE_OPTIONS.map(option => (
               <Menu.Item
                 key={`settings-${option.value}`}
@@ -101,18 +104,22 @@ export function SettingsScreen({
             paddingBottom: tabBarPadding,
           },
         ]}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+      >
         <PanelSurface style={styles.settingsCard}>
-          <Text style={styles.settingsSectionLabel}>{t('settings.preferences')}</Text>
+          <Text style={styles.settingsSectionLabel}>
+            {t('settings.preferences')}
+          </Text>
           <Menu
             anchor={
               <Pressable
                 onPress={onOpenLocaleMenu}
                 style={styles.settingsRow}
-                testID="settings-language-item">
+                testID="settings-language-item"
+              >
                 <View style={styles.settingsRowLead}>
                   <View style={styles.settingsIconWrap}>
-                    <Text style={styles.settingsIcon}>文A</Text>
+                    <LanguageSettingsIcon />
                   </View>
                   <View style={styles.settingsRowText}>
                     <Text style={styles.settingsRowTitle}>
@@ -123,14 +130,17 @@ export function SettingsScreen({
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.settingsRowValue}>{currentLocaleLabel}</Text>
+                <Text style={styles.settingsRowValue}>
+                  {currentLocaleLabel}
+                </Text>
               </Pressable>
             }
             anchorPosition="bottom"
             onDismiss={onDismissLocaleMenu}
             statusBarHeight={0}
             testID="settings-language-menu"
-            visible={isLocaleMenuVisible}>
+            visible={isLocaleMenuVisible}
+          >
             {APP_LOCALE_OPTIONS.map(option => (
               <Menu.Item
                 key={`settings-item-${option.value}`}
