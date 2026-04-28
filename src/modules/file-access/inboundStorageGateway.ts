@@ -1,6 +1,8 @@
 import {
+  DEFAULT_SERVICE_CONFIG,
   CompressionMode,
   ProjectRecord,
+  SecurityMode,
   SharedFileRecord,
   StorageSnapshot,
   TextMessage,
@@ -11,6 +13,11 @@ import {
   WorkspaceOnboardingSnapshot,
   deriveWorkspaceOnboardingSnapshot,
 } from '../onboarding/models';
+import {
+  AppLocale,
+  DEFAULT_APP_LOCALE,
+  resolveAppLocale,
+} from '../localization/i18n';
 
 export const SESSION_DELETION_WARNING =
   '删除将清除该会话的数据及关联文件。如需保留文件，请先进入该会话执行“保存到…”或导出。';
@@ -169,6 +176,44 @@ export class InboundStorageGateway {
     );
   }
 
+  async getLocalePreference(): Promise<AppLocale> {
+    await this.initialize();
+    return resolveAppLocale(this.uiMetadata.localePreference?.locale);
+  }
+
+  async setLocalePreference(
+    locale: AppLocale,
+    updatedAt = new Date().toISOString(),
+  ): Promise<AppLocale> {
+    await this.initialize();
+    this.uiMetadata.localePreference = {
+      locale,
+      updatedAt,
+    };
+    await this.persistUiMetadata();
+    return locale;
+  }
+
+  async getSecurityModePreference(): Promise<SecurityMode> {
+    await this.initialize();
+    return resolveSecurityModePreference(
+      this.uiMetadata.securityModePreference?.securityMode,
+    );
+  }
+
+  async setSecurityModePreference(
+    securityMode: SecurityMode,
+    updatedAt = new Date().toISOString(),
+  ): Promise<SecurityMode> {
+    await this.initialize();
+    this.uiMetadata.securityModePreference = {
+      securityMode,
+      updatedAt,
+    };
+    await this.persistUiMetadata();
+    return securityMode;
+  }
+
   async recordManualWorkspaceOnboardingOpen(
     version: string,
     openedAt = new Date().toISOString(),
@@ -254,6 +299,24 @@ export class InboundStorageGateway {
 
     snapshot.activeProjectId = projectId;
     await this.persist();
+  }
+
+  async renameProject(projectId: string, title: string) {
+    const snapshot = await this.requireSnapshot();
+    const project = this.resolveProject(snapshot, projectId);
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      throw new Error('项目名称不能为空。');
+    }
+
+    if (project.title === trimmedTitle) {
+      return project;
+    }
+
+    project.title = trimmedTitle;
+    project.updatedAt = new Date().toISOString();
+    await this.persist();
+    return project;
   }
 
   async appendTextMessage(
@@ -826,12 +889,31 @@ export class InboundStorageGateway {
   private async loadUiMetadata() {
     const metadataPath = this.uiMetadataFilePath();
     if (!(await this.options.fileSystem.exists(metadataPath))) {
-      this.uiMetadata = {};
+      this.uiMetadata = {
+        localePreference: {
+          locale: DEFAULT_APP_LOCALE,
+        },
+      };
       return;
     }
 
     const rawMetadata = await this.options.fileSystem.readText(metadataPath);
-    this.uiMetadata = JSON.parse(rawMetadata) as AppUiMetadata;
+    const parsedMetadata = JSON.parse(rawMetadata) as AppUiMetadata;
+    this.uiMetadata = {
+      ...parsedMetadata,
+      localePreference: {
+        ...parsedMetadata.localePreference,
+        locale: resolveAppLocale(parsedMetadata.localePreference?.locale),
+      },
+      securityModePreference: parsedMetadata.securityModePreference
+        ? {
+            ...parsedMetadata.securityModePreference,
+            securityMode: resolveSecurityModePreference(
+              parsedMetadata.securityModePreference.securityMode,
+            ),
+          }
+        : undefined,
+    };
   }
 
   private async persistUiMetadata() {
@@ -896,6 +978,12 @@ export class InboundStorageGateway {
 
     return decodeBase64(input.base64);
   }
+}
+
+function resolveSecurityModePreference(value: unknown): SecurityMode {
+  return value === 'simple' || value === 'secure'
+    ? value
+    : DEFAULT_SERVICE_CONFIG.securityMode;
 }
 
 function decodeBase64(value: string) {

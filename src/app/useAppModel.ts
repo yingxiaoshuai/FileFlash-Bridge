@@ -7,8 +7,12 @@ import {
   WorkspaceOnboardingSnapshot,
 } from '../modules/onboarding/models';
 import {
+  AppLocale,
+  createAppTranslator,
+  DEFAULT_APP_LOCALE,
+} from '../modules/localization/i18n';
+import {
   InboundStorageGateway,
-  SESSION_DELETION_WARNING,
 } from '../modules/file-access/inboundStorageGateway';
 import {
   cleanupImportedDeviceFiles,
@@ -49,6 +53,7 @@ type AppNotice = {
 type AppModelState = {
   busyAction?: string;
   isReady: boolean;
+  locale: AppLocale;
   notice?: AppNotice;
   onboarding: WorkspaceOnboardingViewState;
   serviceState: ServiceState;
@@ -99,6 +104,47 @@ function buildImportedContentNotice(summary: {
 
   if (summary.textCount > 0) {
     return `Received ${summary.textCount} shared notes and added them to the current project.`;
+  }
+
+  return '';
+}
+
+function resolveLocalizedErrorMessage(error: unknown, locale: AppLocale) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return createAppTranslator(locale)('error.unknown');
+}
+
+function buildLocalizedProjectTitle(
+  projects: ProjectRecord[],
+  locale: AppLocale,
+) {
+  return createAppTranslator(locale)('project.defaultTitle', {
+    count: projects.length + 1,
+  });
+}
+
+function buildLocalizedImportedContentNotice(
+  summary: {
+    fileCount: number;
+    textCount: number;
+  },
+  locale: AppLocale,
+) {
+  const t = createAppTranslator(locale);
+
+  if (summary.fileCount > 0 && summary.textCount > 0) {
+    return t('notice.imported.both', summary);
+  }
+
+  if (summary.fileCount > 0) {
+    return t('notice.imported.files', summary);
+  }
+
+  if (summary.textCount > 0) {
+    return t('notice.imported.texts', summary);
   }
 
   return '';
@@ -167,6 +213,7 @@ export function useAppModel() {
 
   const [state, setState] = useState<AppModelState>(() => ({
     isReady: false,
+    locale: DEFAULT_APP_LOCALE,
     onboarding: createWorkspaceOnboardingViewState(),
     serviceState: createInitialServiceState(configRef.current!),
   }));
@@ -194,6 +241,7 @@ export function useAppModel() {
       try {
         await gatewayRef.current!.initialize();
         await controllerRef.current!.initialize();
+        const locale = await gatewayRef.current!.getLocalePreference();
         const importedSummary = await importPendingSystemSharedItems();
         const snapshot = await gatewayRef.current!.getSnapshot();
         const onboarding = await gatewayRef.current!.getWorkspaceOnboardingState(
@@ -206,10 +254,14 @@ export function useAppModel() {
 
         setState({
           isReady: true,
+          locale,
           notice:
             importedSummary.fileCount > 0 || importedSummary.textCount > 0
               ? {
-                  message: buildImportedContentNotice(importedSummary),
+                  message: buildLocalizedImportedContentNotice(
+                    importedSummary,
+                    locale,
+                  ),
                   tone: 'success',
                 }
               : undefined,
@@ -229,7 +281,7 @@ export function useAppModel() {
           busyAction: undefined,
           isReady: true,
           notice: {
-            message: asErrorMessage(error),
+            message: resolveLocalizedErrorMessage(error, currentState.locale),
             tone: 'error',
           },
         }));
@@ -253,6 +305,7 @@ export function useAppModel() {
         try {
           const restoreResult = await controllerRef.current!.restoreIfNeeded();
           const importedSummary = await importPendingSystemSharedItems();
+          const locale = await gatewayRef.current!.getLocalePreference();
           const hasImportedContent =
             importedSummary.fileCount > 0 || importedSummary.textCount > 0;
           if (!restoreResult.restored && !hasImportedContent) {
@@ -262,13 +315,17 @@ export function useAppModel() {
           const snapshot = await gatewayRef.current!.getSnapshot();
           setState(currentState => ({
             ...currentState,
+            locale,
             notice: hasImportedContent
               ? {
-                  message: buildImportedContentNotice(importedSummary),
+                  message: buildLocalizedImportedContentNotice(
+                    importedSummary,
+                    locale,
+                  ),
                   tone: 'success',
                 }
               : {
-                  message: 'Resumed service after app returned to the foreground.',
+                  message: createAppTranslator(locale)('notice.resumedForeground'),
                   tone: 'info',
                 },
             serviceState: restoreResult.state,
@@ -278,7 +335,7 @@ export function useAppModel() {
           setState(currentState => ({
             ...currentState,
             notice: {
-              message: asErrorMessage(error),
+              message: resolveLocalizedErrorMessage(error, currentState.locale),
               tone: 'error',
             },
           }));
@@ -332,7 +389,7 @@ export function useAppModel() {
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
       }));
@@ -417,12 +474,23 @@ export function useAppModel() {
               tone: 'success' as const,
             };
 
+      const localizedNextNotice =
+        nextServiceState.phase === 'error'
+          ? nextNotice
+          : {
+              ...nextNotice,
+              message:
+                nextServiceState.phase === 'running'
+                  ? createAppTranslator(state.locale)('notice.serviceStarted')
+                  : createAppTranslator(state.locale)('notice.serviceStopped'),
+            };
+
       const nextSnapshot = await gatewayRef.current!.getSnapshot();
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
         isReady: true,
-        notice: nextNotice,
+        notice: localizedNextNotice,
         serviceState: nextServiceState,
         snapshot: nextSnapshot,
       }));
@@ -431,7 +499,7 @@ export function useAppModel() {
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
       }));
@@ -448,21 +516,21 @@ export function useAppModel() {
       const nextServiceState = await controllerRef.current!.refreshAddress({
         rotateAccessKey: true,
       });
+      const localizedRefreshNotice: AppNotice = nextServiceState.error
+        ? {
+            message: nextServiceState.error.message,
+            tone: nextServiceState.phase === 'error' ? 'error' : 'info',
+          }
+        : {
+            message: createAppTranslator(state.locale)('notice.addressRefreshed'),
+            tone: 'success',
+          };
       const nextSnapshot = await gatewayRef.current!.getSnapshot();
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
         isReady: true,
-        notice: nextServiceState.error
-          ? {
-              message: nextServiceState.error.message,
-              tone: nextServiceState.phase === 'error' ? 'error' : 'info',
-            }
-          : {
-              message:
-                '访问地址与访问密钥已更新，请使用 App 内最新链接与二维码；旧链接与旧二维码已失效。',
-              tone: 'success',
-            },
+        notice: localizedRefreshNotice,
         serviceState: nextServiceState,
         snapshot: nextSnapshot,
       }));
@@ -471,7 +539,7 @@ export function useAppModel() {
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
       }));
@@ -487,18 +555,21 @@ export function useAppModel() {
     try {
       const nextServiceState =
         await controllerRef.current!.setSecurityMode(securityMode);
+      const localizedSecurityNotice: AppNotice | undefined =
+        securityMode === 'secure'
+          ? {
+              message: createAppTranslator(state.locale)(
+                'notice.securityModeSecure',
+              ),
+              tone: 'info',
+            }
+          : undefined;
       const nextSnapshot = await gatewayRef.current!.getSnapshot();
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
         isReady: true,
-        notice:
-          securityMode === 'secure'
-            ? {
-                message: '已切换到安全模式，访问需要携带 key。',
-                tone: 'info' as const,
-              }
-            : undefined,
+        notice: localizedSecurityNotice,
         serviceState: nextServiceState,
         snapshot: nextSnapshot,
       }));
@@ -507,9 +578,10 @@ export function useAppModel() {
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
+        serviceState: controllerRef.current!.getState(),
       }));
     }
   };
@@ -520,7 +592,7 @@ export function useAppModel() {
       async () => {
         const currentSnapshot = await gatewayRef.current!.getSnapshot();
         await gatewayRef.current!.createProject(
-          buildNextProjectTitle(currentSnapshot.projects),
+          buildLocalizedProjectTitle(currentSnapshot.projects, state.locale),
         );
       },
       {
@@ -528,12 +600,51 @@ export function useAppModel() {
         tone: 'success',
       },
     );
+
+    setState(currentState => ({
+      ...currentState,
+      notice: {
+        message: createAppTranslator(currentState.locale)('notice.projectCreated'),
+        tone: 'success',
+      },
+    }));
   };
 
   const selectProject = async (projectId: string) => {
     await runAction('project', async () => {
       await gatewayRef.current!.setActiveProject(projectId);
     });
+  };
+
+  const renameProject = async (projectId: string, title: string) => {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      return false;
+    }
+
+    setState(currentState => ({
+      ...currentState,
+      busyAction: 'project',
+    }));
+
+    try {
+      await gatewayRef.current!.renameProject(projectId, trimmedTitle);
+      await syncSnapshot({
+        message: createAppTranslator(state.locale)('notice.projectRenamed'),
+        tone: 'success',
+      });
+      return true;
+    } catch (error) {
+      setState(currentState => ({
+        ...currentState,
+        busyAction: undefined,
+        notice: {
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
+          tone: 'error',
+        },
+      }));
+      return false;
+    }
   };
 
   const toggleSharedFile = async (fileId: string) => {
@@ -555,6 +666,16 @@ export function useAppModel() {
         tone: 'success',
       },
     );
+
+    setState(currentState => ({
+      ...currentState,
+      notice: {
+        message: createAppTranslator(currentState.locale)(
+          isShared ? 'notice.fileUnshared' : 'notice.fileShared',
+        ),
+        tone: 'success',
+      },
+    }));
   };
 
   const importExternalFiles = async (
@@ -592,7 +713,7 @@ export function useAppModel() {
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
       }));
@@ -604,14 +725,20 @@ export function useAppModel() {
   const importFilesForShare = async () => {
     await importExternalFiles(
       pickDeviceFilesForShare,
-      count => `Imported ${count} files from this device and added them to sharing.`,
+      count =>
+        createAppTranslator(state.locale)('notice.importFiles', {
+          count,
+        }),
     );
   };
 
   const importMediaForShare = async () => {
     await importExternalFiles(
       pickDeviceMediaForShare,
-      count => `Imported ${count} media items from the gallery and added them to sharing.`,
+      count =>
+        createAppTranslator(state.locale)('notice.importMedia', {
+          count,
+        }),
     );
   };
 
@@ -626,6 +753,14 @@ export function useAppModel() {
         tone: 'info',
       },
     );
+
+    setState(currentState => ({
+      ...currentState,
+      notice: {
+        message: createAppTranslator(currentState.locale)('notice.messageDeleted'),
+        tone: 'info',
+      },
+    }));
   };
 
   const deleteProject = async (projectId: string) => {
@@ -639,6 +774,14 @@ export function useAppModel() {
         tone: 'info',
       },
     );
+
+    setState(currentState => ({
+      ...currentState,
+      notice: {
+        message: createAppTranslator(currentState.locale)('notice.projectDeleted'),
+        tone: 'info',
+      },
+    }));
   };
 
   const deleteFile = async (fileId: string) => {
@@ -652,16 +795,32 @@ export function useAppModel() {
         tone: 'info',
       },
     );
+
+    setState(currentState => ({
+      ...currentState,
+      notice: {
+        message: createAppTranslator(currentState.locale)('notice.fileDeleted'),
+        tone: 'info',
+      },
+    }));
   };
 
   const copyMessage = (message: TextMessage) => {
     Clipboard.setString(message.content);
+    const copiedNotice = {
+      message: createAppTranslator(state.locale)('notice.textCopied'),
+      tone: 'success' as const,
+    };
     setState(currentState => ({
       ...currentState,
       notice: {
         message: '文本已复制到系统剪贴板。',
         tone: 'success',
       },
+    }));
+    setState(currentState => ({
+      ...currentState,
+      notice: copiedNotice,
     }));
   };
 
@@ -681,6 +840,21 @@ export function useAppModel() {
               );
               return exportPreparedFile(preparedFile.file, preparedFile.bytes);
             })();
+      const localizedExportNotice = {
+        message:
+          result.method === 'android-saf'
+            ? createAppTranslator(state.locale)('notice.export.saved', {
+                name: file.displayName,
+              })
+            : result.method === 'ios-files'
+              ? createAppTranslator(state.locale)('notice.export.ios', {
+                  name: file.displayName,
+                })
+              : createAppTranslator(state.locale)('notice.export.share', {
+                  name: file.displayName,
+                }),
+        tone: 'success' as const,
+      };
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
@@ -694,12 +868,18 @@ export function useAppModel() {
           tone: 'success',
         },
       }));
+      setState(currentState => ({
+        ...currentState,
+        notice: localizedExportNotice,
+      }));
     } catch (error) {
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: `导出失败：${asErrorMessage(error)}`,
+          message: createAppTranslator(currentState.locale)('error.exportFailed', {
+            message: resolveLocalizedErrorMessage(error, currentState.locale),
+          }),
           tone: 'error',
         },
       }));
@@ -730,7 +910,7 @@ export function useAppModel() {
       setState(currentState => ({
         ...currentState,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
       }));
@@ -752,7 +932,7 @@ export function useAppModel() {
       setState(currentState => ({
         ...currentState,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
       }));
@@ -774,7 +954,29 @@ export function useAppModel() {
       setState(currentState => ({
         ...currentState,
         notice: {
-          message: asErrorMessage(error),
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
+          tone: 'error',
+        },
+      }));
+    }
+  };
+
+  const setLocale = async (locale: AppLocale) => {
+    if (locale === state.locale) {
+      return;
+    }
+
+    try {
+      await gatewayRef.current!.setLocalePreference(locale);
+      setState(currentState => ({
+        ...currentState,
+        locale,
+      }));
+    } catch (error) {
+      setState(currentState => ({
+        ...currentState,
+        notice: {
+          message: resolveLocalizedErrorMessage(error, currentState.locale),
           tone: 'error',
         },
       }));
@@ -791,19 +993,22 @@ export function useAppModel() {
     deleteFile,
     deleteMessage,
     deleteProject,
-    deletionWarning: SESSION_DELETION_WARNING,
+    deletionWarning: createAppTranslator(state.locale)('home.project.deleteBody'),
     exportFile,
     importFilesForShare,
     importMediaForShare,
     isFileShared: (fileId: string) => sharedFileIds.has(fileId),
     isReady: state.isReady,
+    locale: state.locale,
     notice: state.notice,
     onboarding: state.onboarding,
     openWorkspaceOnboarding,
     projects,
     refreshAddress,
+    renameProject,
     securityCopy,
     selectProject,
+    setLocale,
     serviceState: state.serviceState,
     setSecurityMode,
     sharedFiles,

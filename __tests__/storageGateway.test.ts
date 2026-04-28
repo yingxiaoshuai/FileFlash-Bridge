@@ -134,6 +134,44 @@ describe('InboundStorageGateway', () => {
     }
   });
 
+  test('renames a project and persists the updated title', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-project-rename',
+    });
+
+    try {
+      await gateway.initialize();
+      const snapshot = await gateway.getSnapshot();
+      const activeProjectId = snapshot.activeProjectId;
+
+      await gateway.renameProject(activeProjectId, '新的项目名称');
+
+      const renamedSnapshot = await gateway.getSnapshot();
+      expect(
+        renamedSnapshot.projects.find(project => project.id === activeProjectId)?.title,
+      ).toBe('新的项目名称');
+
+      const reloadedGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem: new NodeFileSystemAdapter(),
+        rootDir,
+        sessionId: 'session-project-rename',
+      });
+      const reloadedSnapshot = await reloadedGateway.getSnapshot();
+      expect(
+        reloadedSnapshot.projects.find(project => project.id === activeProjectId)?.title,
+      ).toBe('新的项目名称');
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('stores versioned workspace onboarding metadata outside the session snapshot', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const gateway = new InboundStorageGateway({
@@ -222,6 +260,117 @@ describe('InboundStorageGateway', () => {
         updatedAt: '2026-04-22T09:05:00.000Z',
         version: 'tour-v1',
       });
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('stores locale preference, restores it on reload, and falls back to Chinese for invalid values', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-locale-preference',
+    });
+
+    try {
+      await gateway.initialize();
+      await expect(gateway.getLocalePreference()).resolves.toBe('zh-CN');
+
+      await gateway.setLocalePreference('en-US', '2026-04-28T09:00:00.000Z');
+
+      const reloadedGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem: new NodeFileSystemAdapter(),
+        rootDir,
+        sessionId: 'session-locale-preference',
+      });
+      await expect(reloadedGateway.getLocalePreference()).resolves.toBe('en-US');
+
+      await fsWriteFile(
+        join(rootDir, 'ui-state.json'),
+        JSON.stringify(
+          {
+            localePreference: {
+              locale: 'fr-FR',
+            },
+          },
+          null,
+          2,
+        ),
+        'utf8',
+      );
+
+      const fallbackGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem: new NodeFileSystemAdapter(),
+        rootDir,
+        sessionId: 'session-locale-preference',
+      });
+      await expect(fallbackGateway.getLocalePreference()).resolves.toBe('zh-CN');
+    } finally {
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('stores security mode preference, restores it on reload, and falls back to secure for invalid values', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 16,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'session-security-preference',
+    });
+
+    try {
+      await gateway.initialize();
+      await expect(gateway.getSecurityModePreference()).resolves.toBe('secure');
+
+      await gateway.setSecurityModePreference(
+        'simple',
+        '2026-04-28T09:00:00.000Z',
+      );
+
+      const reloadedGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem: new NodeFileSystemAdapter(),
+        rootDir,
+        sessionId: 'session-security-preference',
+      });
+      await expect(reloadedGateway.getSecurityModePreference()).resolves.toBe(
+        'simple',
+      );
+
+      await fsWriteFile(
+        join(rootDir, 'ui-state.json'),
+        JSON.stringify(
+          {
+            securityModePreference: {
+              securityMode: 'invalid-mode',
+            },
+          },
+          null,
+          2,
+        ),
+        'utf8',
+      );
+
+      const fallbackGateway = new InboundStorageGateway({
+        compression: nodeGzipCompression,
+        compressionThreshold: 16,
+        fileSystem: new NodeFileSystemAdapter(),
+        rootDir,
+        sessionId: 'session-security-preference',
+      });
+      await expect(fallbackGateway.getSecurityModePreference()).resolves.toBe(
+        'secure',
+      );
     } finally {
       await rm(rootDir, {force: true, recursive: true});
     }

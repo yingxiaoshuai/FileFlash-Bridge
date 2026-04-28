@@ -155,6 +155,85 @@ describe('TransferServiceController', () => {
     }
   });
 
+  test('renders portal and status copy in English when the app locale preference is en-US', async () => {
+    const {controller, rootDir, storage} = await createController();
+
+    try {
+      await storage.setLocalePreference('en-US');
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key');
+
+      const pageResponse = await fetch(`${accessUrl.origin}/?key=${key}`, {
+        headers: {'x-client-id': 'client-a'},
+      });
+      expect(pageResponse.status).toBe(200);
+      const html = await pageResponse.text();
+      expect(html).toContain('Browser Transfer');
+      expect(html).toContain('Upload to Phone');
+      expect(html).toContain('Shared From Phone');
+      expect(html).not.toContain('浏览器投递');
+
+      const statusResponse = await fetch(
+        `${accessUrl.origin}/api/status?key=${key}`,
+        {
+          headers: {'x-client-id': 'client-a'},
+        },
+      );
+      expect(statusResponse.status).toBe(200);
+      expect((await statusResponse.json()).notice).toBe(
+        'Secure mode is active. The link and QR code already include the key.',
+      );
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
+  test('restores the persisted security mode during initialization and writes back later changes', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-controller-security-'));
+    const storage = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 128,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'controller-security-session',
+    });
+
+    const controller = new TransferServiceController({
+      config: {
+        ...DEFAULT_SERVICE_CONFIG,
+        port: 0,
+        securityMode: 'secure',
+      },
+      networkProvider: async () => [
+        {
+          address: '127.0.0.1',
+          family: 'IPv4',
+          internal: false,
+          modeHint: 'wifi',
+          name: 'Wi-Fi',
+        },
+      ],
+      runtime: new NodeHttpRuntime(),
+      storage,
+    });
+
+    try {
+      await storage.setSecurityModePreference('simple');
+      const started = await controller.start();
+
+      expect(started.config.securityMode).toBe('simple');
+      expect(await storage.getSecurityModePreference()).toBe('simple');
+
+      const updated = await controller.setSecurityMode('secure');
+      expect(updated.config.securityMode).toBe('secure');
+      expect(await storage.getSecurityModePreference()).toBe('secure');
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('refreshAddress rebuilds the link from the refreshed runtime origin after the device IP changes', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-refresh-origin-'));
     const storage = new InboundStorageGateway({

@@ -1,4 +1,9 @@
 import {InboundStorageGateway} from '../file-access/inboundStorageGateway';
+import {
+  AppLocale,
+  createAppTranslator,
+  DEFAULT_APP_LOCALE,
+} from '../localization/i18n';
 import {buildPortalDocument} from '../portal/portalDocument';
 import {portalTheme} from '../portal/portalTheme';
 import {
@@ -124,8 +129,15 @@ export class TransferServiceController {
 
   async initialize() {
     const snapshot = await this.options.storage.initialize();
+    const securityMode = await this.options.storage
+      .getSecurityModePreference()
+      .catch(() => this.state.config.securityMode);
     this.state = {
       ...this.state,
+      config: {
+        ...this.state.config,
+        securityMode,
+      },
       activeProjectId: snapshot.activeProjectId,
       sharedFileCount: snapshot.sharedFileIds.length,
     };
@@ -136,6 +148,21 @@ export class TransferServiceController {
     return {
       ...this.state,
       activeConnections: [...this.state.activeConnections],
+    };
+  }
+
+  private async getTranslator(): Promise<{
+    locale: AppLocale;
+    t: ReturnType<typeof createAppTranslator>;
+  }> {
+    const locale =
+      (await this.options.storage
+        .getLocalePreference()
+        .catch(() => DEFAULT_APP_LOCALE)) ?? DEFAULT_APP_LOCALE;
+
+    return {
+      locale,
+      t: createAppTranslator(locale),
     };
   }
 
@@ -173,6 +200,7 @@ export class TransferServiceController {
 
   async start() {
     await this.initialize();
+    const {t} = await this.getTranslator();
 
     try {
       if (this.options.runtime) {
@@ -189,9 +217,9 @@ export class TransferServiceController {
       if (!address) {
         this.setError({
           code: 'NETWORK_UNAVAILABLE',
-          message: '当前网络无法被同一局域网中的设备访问，请切换到可用 Wi-Fi 或热点。',
+          message: t('api.networkUnavailable'),
           recoverable: true,
-          suggestedAction: '切换网络后重试',
+          suggestedAction: t('api.switchNetworkRetry'),
         });
         return this.getState();
       }
@@ -219,12 +247,12 @@ export class TransferServiceController {
       return this.getState();
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : '服务启动失败，请稍后重试。';
+        error instanceof Error ? error.message : t('api.startServiceFailed');
       this.setError({
         code: /EADDRINUSE/i.test(message) ? 'PORT_IN_USE' : 'SERVICE_STOPPED',
         message,
         recoverable: true,
-        suggestedAction: '更换端口或停止占用该端口的服务',
+        suggestedAction: t('api.changePortOrStopConflict'),
       });
       return this.getState();
     }
@@ -273,6 +301,7 @@ export class TransferServiceController {
   }
 
   async refreshAddress(options?: {rotateAccessKey?: boolean}) {
+    const {t} = await this.getTranslator();
     if (options?.rotateAccessKey) {
       this.state = {
         ...this.state,
@@ -292,9 +321,9 @@ export class TransferServiceController {
     if (!address) {
       this.setError({
         code: 'NETWORK_UNAVAILABLE',
-        message: '没有探测到可被其他设备访问的地址，请检查当前 Wi-Fi 或热点连接。',
+        message: t('api.addressUnavailable'),
         recoverable: true,
-        suggestedAction: '切换网络或重试刷新',
+        suggestedAction: t('api.switchNetworkOrRefresh'),
       });
       return this.getState();
     }
@@ -317,15 +346,16 @@ export class TransferServiceController {
       qrValue: accessUrl,
       error: {
         code: 'NETWORK_REFRESHED',
-        message: '网络地址已刷新，旧地址应视为失效。',
+        message: t('api.networkRefreshed'),
         recoverable: true,
-        suggestedAction: '使用新地址重新访问',
+        suggestedAction: t('api.useNewAddress'),
       },
     };
     return this.getState();
   }
 
   async setSecurityMode(mode: ServiceConfig['securityMode']) {
+    await this.options.storage.setSecurityModePreference(mode);
     this.state = {
       ...this.state,
       config: {
@@ -346,6 +376,8 @@ export class TransferServiceController {
   }
 
   async handleRequest(request: TransferRequest): Promise<TransferResponse> {
+    const {locale, t} = await this.getTranslator();
+
     if (request.path === '/api/health' && request.method === 'GET') {
       return this.json(200, {ok: true});
     }
@@ -358,7 +390,13 @@ export class TransferServiceController {
 
     if (!authorization.ok) {
       if (request.path === '/') {
-        return this.html(401, this.renderUnauthorizedPage(authorization.reason ?? '未授权'));
+        return this.html(
+          401,
+          this.renderUnauthorizedPage(
+            authorization.reason ?? t('api.unauthorized'),
+            locale,
+          ),
+        );
       }
 
       return this.json(401, {
@@ -382,6 +420,7 @@ export class TransferServiceController {
           buildPortalDocument({
             chunkSize: this.state.config.chunkSize,
             deviceName: this.state.config.deviceName,
+            locale,
             securityMode: this.state.config.securityMode,
           }),
         );
@@ -395,8 +434,8 @@ export class TransferServiceController {
           chunkSize: this.state.config.chunkSize,
           notice:
             this.state.config.securityMode === 'simple'
-              ? '当前为简单模式，仅建议在可信 Wi-Fi 或热点使用。'
-              : '当前为安全模式，链接和二维码已携带 key。',
+              ? t('api.status.simpleNotice')
+              : t('api.status.secureNotice'),
           phase: this.state.phase,
           securityMode: this.state.config.securityMode,
           sharedFileCount: this.state.sharedFileCount,
@@ -408,7 +447,7 @@ export class TransferServiceController {
         if (!payload) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
-            message: '请求体必须是 JSON 对象。',
+            message: t('api.invalidJsonObject'),
           });
         }
 
@@ -420,7 +459,7 @@ export class TransferServiceController {
         if (!name || totalBytes == null || totalBytes <= 0) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
-            message: '请提供有效的 name、relativePath 与 totalBytes。',
+            message: t('api.invalidUploadBeginFields'),
           });
         }
 
@@ -434,7 +473,7 @@ export class TransferServiceController {
           return this.json(200, {uploadId});
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : '无法开始分块上传。';
+            error instanceof Error ? error.message : t('api.cannotStartChunkedUpload');
           return this.json(400, {code: 'INVALID_REQUEST', message});
         }
       }
@@ -444,7 +483,7 @@ export class TransferServiceController {
         if (!uploadId) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
-            message: '缺少 uploadId。',
+            message: t('api.missingUploadId'),
           });
         }
 
@@ -453,7 +492,7 @@ export class TransferServiceController {
           return this.json(200, {ok: true});
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : '分块写入失败。';
+            error instanceof Error ? error.message : t('api.chunkWriteFailed');
           return this.json(400, {code: 'INVALID_REQUEST', message});
         }
       }
@@ -467,7 +506,7 @@ export class TransferServiceController {
         if (!uploadId) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
-            message: '缺少 uploadId。',
+            message: t('api.missingUploadId'),
           });
         }
 
@@ -479,11 +518,13 @@ export class TransferServiceController {
           this.notifyInboundStorageChanged();
           return this.json(200, {
             files: [savedFile],
-            message: '文件已写入手机端 App 内会话存储。',
+            message: t('api.fileSavedToSession'),
           });
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : '无法完成分块上传。';
+            error instanceof Error
+              ? error.message
+              : t('api.finishChunkedUploadFailed');
           return this.json(400, {code: 'INVALID_REQUEST', message});
         }
       }
@@ -506,7 +547,7 @@ export class TransferServiceController {
         if (!files.length) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
-            message: '请至少上传一个文件。',
+            message: t('api.noFilesUploaded'),
           });
         }
 
@@ -536,7 +577,7 @@ export class TransferServiceController {
         this.notifyInboundStorageChanged();
         return this.json(200, {
           files: results,
-          message: '文件已写入手机端 App 内会话存储。',
+          message: t('api.fileSavedToSession'),
         });
       }
 
@@ -546,14 +587,14 @@ export class TransferServiceController {
         if (!text) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
-            message: '请先输入要提交的文本内容。',
+            message: t('api.emptySubmittedText'),
           });
         }
 
         if (text.length > this.state.config.maxTextLength) {
           return this.json(413, {
             code: 'TEXT_TOO_LARGE',
-            message: '文本内容超过当前服务允许的上限。',
+            message: t('api.textTooLarge'),
           });
         }
 
@@ -566,7 +607,7 @@ export class TransferServiceController {
         this.notifyInboundStorageChanged();
         return this.json(200, {
           activeProjectId: snapshot.activeProjectId,
-          activeProjectTitle: activeProject?.title ?? '当前分享轮次',
+          activeProjectTitle: activeProject?.title ?? t('project.currentRound'),
           message,
         });
       }
@@ -623,11 +664,11 @@ export class TransferServiceController {
 
       return this.json(404, {
         code: 'INVALID_REQUEST',
-        message: '未找到请求的资源。',
+        message: t('api.resourceNotFound'),
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : '服务处理请求时发生未知错误。';
+        error instanceof Error ? error.message : t('api.storageUnknown');
       return this.json(500, {
         code: 'STORAGE_WRITE_FAILED',
         message,
@@ -651,13 +692,14 @@ export class TransferServiceController {
     };
   }
 
-  private renderUnauthorizedPage(message: string) {
+  private renderUnauthorizedPage(message: string, locale: AppLocale) {
+    const t = createAppTranslator(locale);
     return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${locale}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>访问受限</title>
+    <title>${t('portal.unauthorizedTitle')}</title>
       <style>
         body {
           margin: 0;
@@ -686,9 +728,9 @@ export class TransferServiceController {
   </head>
   <body>
     <div class="card">
-      <h1>需要重新获取链接</h1>
+      <h1>${t('portal.unauthorizedTitle')}</h1>
       <p>${message}</p>
-      <p>请回到手机端，复制最新 URL 或重新扫描二维码后再访问。</p>
+      <p>${t('portal.unauthorizedInstruction')}</p>
     </div>
   </body>
 </html>`;

@@ -1,9 +1,11 @@
+import {AppLocale, createAppTranslator} from '../localization/i18n';
 import {SecurityMode} from '../service/models';
 import {portalTheme} from './portalTheme';
 
 export interface PortalDocumentModel {
   chunkSize: number;
   deviceName: string;
+  locale: AppLocale;
   securityMode: SecurityMode;
 }
 
@@ -17,14 +19,61 @@ function escapeHtml(value: string) {
 }
 
 export function buildPortalDocument(model: PortalDocumentModel) {
-  const deviceName = escapeHtml(model.deviceName);
+  const t = createAppTranslator(model.locale);
+  const portalText = {
+    badge: 'FileFlash Bridge',
+    browserUnavailable: t('portal.browserUnavailable'),
+    chooseFiles: t('portal.chooseFiles'),
+    chooseFolders: t('portal.chooseFolders'),
+    deviceLabel: t('portal.deviceLabel', {deviceName: model.deviceName}),
+    downloadBannerFailed: t('portal.download.bannerFailed'),
+    downloadButton: t('portal.download.button'),
+    downloadButtonAgain: t('portal.download.buttonAgain'),
+    downloadButtonBusy: t('portal.download.buttonBusy'),
+    downloadChunked: t('portal.download.chunked'),
+    downloadComplete: t('portal.download.complete'),
+    downloadFailed: t('portal.download.failed', {message: '__MESSAGE__'}),
+    downloadInProgress: t('portal.download.inProgress', {percent: '__PERCENT__'}),
+    downloadPending: t('portal.download.pending'),
+    emptyShared: t('portal.emptyShared'),
+    emptyUpload: t('portal.emptyUpload'),
+    eyebrowShared: t('portal.eyebrowShared'),
+    eyebrowText: t('portal.eyebrowText'),
+    eyebrowUpload: t('portal.eyebrowUpload'),
+    heroTitle: t('portal.heroTitle'),
+    networkInterrupted: t('portal.networkInterrupted'),
+    requestFailed: t('portal.requestFailed'),
+    sectionShared: t('portal.sectionShared'),
+    sectionText: t('portal.sectionText'),
+    sectionUpload: t('portal.sectionUpload'),
+    selectFilesFirst: t('portal.selectFilesFirst'),
+    serviceOffline: t('portal.serviceOffline'),
+    serviceOnline: t('portal.serviceOnline'),
+    sharedUnavailable: t('portal.sharedUnavailable'),
+    submitText: t('portal.submitText'),
+    textEmpty: t('portal.text.empty'),
+    textPlaceholder: t('portal.textPlaceholder'),
+    textSentTo: t('portal.text.sentTo', {projectTitle: '__PROJECT__'}),
+    title: t('portal.title', {deviceName: model.deviceName}),
+    uploadComplete: t('portal.upload.complete'),
+    uploadFailed: t('portal.upload.failed'),
+    uploadPrompt: t('portal.uploadPrompt'),
+    uploadSelection: t('portal.uploadSelection'),
+    uploadSentToPhone: t('portal.upload.sentToPhone'),
+    uploadUploading: t('portal.upload.inProgress'),
+    uploadWaiting: t('portal.upload.pending'),
+  };
+  const escapedText = Object.fromEntries(
+    Object.entries(portalText).map(([key, value]) => [key, escapeHtml(value)]),
+  ) as Record<keyof typeof portalText, string>;
+  const portalTextJson = JSON.stringify(portalText);
 
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${model.locale}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${deviceName} · FileFlash Bridge</title>
+    <title>${escapedText.title}</title>
     <style>
       :root {
         color-scheme: light;
@@ -445,15 +494,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       <section class="hero">
         <div class="hero-top">
           <div>
-            <div class="badge">FileFlash Bridge</div>
-            <h1>浏览器投递</h1>
+            <div class="badge">${escapedText.badge}</div>
+            <h1>${escapedText.heroTitle}</h1>
           </div>
-          <div class="device-pill">设备：${deviceName}</div>
+          <div class="device-pill">${escapedText.deviceLabel}</div>
         </div>
         <div class="hero-actions">
           <div id="service-pill" class="service-pill">
             <span class="service-dot"></span>
-            <span id="service-state">服务离线</span>
+            <span id="service-state">${escapedText.serviceOffline}</span>
           </div>
         </div>
         <div hidden id="status-banner" class="banner"></div>
@@ -462,15 +511,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       <div class="grid">
         <section class="panel">
           <div class="panel-head">
-            <div class="eyebrow">Drop & Deliver</div>
-            <h2>上传到手机</h2>
+            <div class="eyebrow">${escapedText.eyebrowUpload}</div>
+            <h2>${escapedText.sectionUpload}</h2>
           </div>
           <div id="dropzone" class="dropzone">
-            <div class="item-title">拖拽文件到这里，或选择文件 / 文件夹</div>
+            <div class="item-title">${escapedText.uploadPrompt}</div>
             <div class="button-row">
-              <label class="file-button primary" for="file-input">选择文件</label>
-              <label class="file-button ghost" for="folder-input">选择文件夹</label>
-              <button id="upload-button" class="ghost" type="button">上传所选内容</button>
+              <label class="file-button primary" for="file-input">${escapedText.chooseFiles}</label>
+              <label class="file-button ghost" for="folder-input">${escapedText.chooseFolders}</label>
+              <button id="upload-button" class="ghost" type="button">${escapedText.uploadSelection}</button>
             </div>
             <input id="file-input" class="hidden-input" type="file" multiple />
             <input id="folder-input" class="hidden-input" type="file" webkitdirectory directory multiple />
@@ -480,13 +529,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
         <section class="panel">
           <div class="panel-head">
-            <div class="eyebrow">Paste & Send</div>
-            <h2>发送文本</h2>
+            <div class="eyebrow">${escapedText.eyebrowText}</div>
+            <h2>${escapedText.sectionText}</h2>
           </div>
-          <textarea id="text-input" placeholder="粘贴文本后直接提交"></textarea>
+          <textarea id="text-input" placeholder="${escapedText.textPlaceholder}"></textarea>
           <div class="status-actions" style="margin-top: 14px">
-            <button id="text-submit" class="primary" type="button">提交文本</button>
-            <button id="refresh-button" class="ghost" type="button">刷新状态</button>
+            <button id="text-submit" class="primary" type="button">${escapedText.submitText}</button>
+            <button id="refresh-button" class="ghost" type="button">${escapeHtml(
+              t('portal.refresh'),
+            )}</button>
           </div>
           <p id="text-feedback" class="muted"></p>
         </section>
@@ -494,14 +545,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       <section class="panel" style="margin-top: 16px">
         <div class="panel-head">
-          <div class="eyebrow">Shared From Phone</div>
-          <h2>共享文件</h2>
+          <div class="eyebrow">${escapedText.eyebrowShared}</div>
+          <h2>${escapedText.sectionShared}</h2>
         </div>
         <div id="download-list" class="download-list"></div>
       </section>
     </div>
 
     <script>
+      const text = ${portalTextJson};
       const authKey = new URL(location.href).searchParams.get('key');
       const chunkSize = ${model.chunkSize};
       const maxChunkAttempts = 4;
@@ -536,6 +588,12 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           .replaceAll("'", '&#39;');
       }
 
+      function interpolate(template, params) {
+        return String(template).replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => {
+          return params && params[key] != null ? String(params[key]) : '';
+        });
+      }
+
       function formatBytes(size) {
         if (size >= 1024 * 1024) {
           return (size / (1024 * 1024)).toFixed(1) + ' MB';
@@ -560,7 +618,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       function setServiceOnline(online) {
         servicePill.className = online ? 'service-pill online' : 'service-pill';
-        serviceState.textContent = online ? '服务在线' : '服务离线';
+        serviceState.textContent = online ? text.serviceOnline : text.serviceOffline;
       }
 
       function getClientHeaders(extraHeaders = {}) {
@@ -589,7 +647,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       function renderUploadQueue() {
         if (fileQueue.length === 0) {
-          uploadList.innerHTML = '<div class="muted">还没有待上传内容</div>';
+          uploadList.innerHTML =
+            '<div class="muted">' + escapeHtmlText(text.emptyUpload) + '</div>';
           return;
         }
 
@@ -597,7 +656,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           .map(file => {
             return '<div class="item"><div class="item-head"><div class="item-title">' +
               escapeHtmlText(file.name) +
-              '</div><div class="chip warn">待上传</div></div><div class="item-meta">' +
+              '</div><div class="chip warn">' +
+              escapeHtmlText(text.uploadWaiting) +
+              '</div></div><div class="item-meta">' +
               formatBytes(file.size) +
               (file.webkitRelativePath
                 ? ' · ' + escapeHtmlText(file.webkitRelativePath)
@@ -616,29 +677,29 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       function buildDownloadButtonLabel(state) {
         if (state.phase === 'downloading') {
-          return '下载中';
+          return text.downloadButtonBusy;
         }
         if (state.phase === 'completed') {
-          return '重新下载';
+          return text.downloadButtonAgain;
         }
-        return '下载';
+        return text.downloadButton;
       }
 
       function buildDownloadStatusText(state) {
         if (state.phase === 'downloading') {
-          return (
-            '下载中 ' +
-            Math.max(0, Math.min(100, Math.round((state.progress || 0) * 100))) +
-            '%'
-          );
+          return interpolate(text.downloadInProgress, {
+            percent: Math.max(0, Math.min(100, Math.round((state.progress || 0) * 100))),
+          });
         }
         if (state.phase === 'completed') {
-          return '已完成';
+          return text.downloadComplete;
         }
         if (state.phase === 'failed') {
-          return '下载失败：' + (state.error || '未知错误');
+          return interpolate(text.downloadFailed, {
+            message: state.error || text.requestFailed,
+          });
         }
-        return '待下载';
+        return text.downloadPending;
       }
 
       function renderDownloadState(fileId) {
@@ -676,7 +737,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
         if (!files.length) {
           pruneDownloadStates([]);
-          downloadList.innerHTML = '<div class="muted">还没有共享文件</div>';
+          downloadList.innerHTML =
+            '<div class="muted">' + escapeHtmlText(text.emptyShared) + '</div>';
           return;
         }
 
@@ -690,7 +752,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               escapeHtmlText(file.displayName) +
               '</div><div class="item-meta">' +
               formatBytes(file.size) +
-              (file.isLargeFile ? ' · 分块下载' : '') +
+              (file.isLargeFile ? ' · ' + escapeHtmlText(text.downloadChunked) : '') +
               '</div></div><button class="primary" data-download="' +
               escapeHtmlText(file.id) +
               '"' +
@@ -713,7 +775,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           });
 
           if (!response.ok) {
-            throw new Error('服务暂不可用');
+            throw new Error(text.browserUnavailable);
           }
 
           const payload = await response.json();
@@ -722,7 +784,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           await loadSharedFiles();
         } catch (error) {
           setServiceOnline(false);
-          updateBanner('手机端服务不可用，请确认 App 仍在运行。', 'warn');
+          updateBanner(text.browserUnavailable, 'warn');
         }
       }
 
@@ -733,7 +795,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
         if (!response.ok) {
           sharedFilesById.clear();
-          downloadList.innerHTML = '<div class="muted">当前无法读取共享列表</div>';
+          downloadList.innerHTML =
+            '<div class="muted">' + escapeHtmlText(text.sharedUnavailable) + '</div>';
           return;
         }
 
@@ -752,7 +815,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(payload.message || '请求失败');
+          throw new Error(payload.message || text.requestFailed);
         }
 
         return payload;
@@ -833,11 +896,11 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               return;
             }
 
-            reject(new Error(payload.message || '请求失败'));
+            reject(new Error(payload.message || text.requestFailed));
           };
 
           request.onerror = () => {
-            reject(new Error('网络中断，上传未完成'));
+            reject(new Error(text.networkInterrupted));
           };
 
           request.send(file);
@@ -862,7 +925,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           });
           uploadId = beginPayload.uploadId;
           if (!uploadId || typeof uploadId !== 'string') {
-            throw new Error('服务端未返回有效的 uploadId');
+            throw new Error(text.requestFailed);
           }
 
           onProgress(0);
@@ -884,7 +947,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             );
             const payload = await response.json().catch(() => ({}));
             if (!response.ok) {
-              throw new Error(payload.message || '分块上传失败');
+              throw new Error(payload.message || text.requestFailed);
             }
             onProgress(end / file.size);
           }
@@ -913,7 +976,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
       async function uploadQueuedFiles() {
         if (fileQueue.length === 0) {
-          updateBanner('请先选择要上传的文件或文件夹。', 'warn');
+          updateBanner(text.selectFilesFirst, 'warn');
           return;
         }
 
@@ -926,7 +989,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             'beforeend',
             '<div class="item" id="' + entryId + '"><div class="item-head"><div class="item-title">' +
               escapeHtmlText(file.name) +
-              '</div><div class="chip warn">上传中</div></div><div class="item-meta">' +
+              '</div><div class="chip warn">' +
+              escapeHtmlText(text.uploadUploading) +
+              '</div></div><div class="item-meta">' +
               formatBytes(file.size) +
               (file.webkitRelativePath
                 ? ' · ' + escapeHtmlText(file.webkitRelativePath)
@@ -939,13 +1004,19 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               setUploadProgress(entryId, progress);
             });
             setUploadProgress(entryId, 1);
-            setUploadState(entryId, 'ok', '完成', '已送达手机', 'ok');
+            setUploadState(
+              entryId,
+              'ok',
+              text.uploadComplete,
+              text.uploadSentToPhone,
+              'ok',
+            );
           } catch (error) {
             setUploadState(
               entryId,
               'danger',
-              '失败',
-              '上传失败：' + error.message,
+              text.uploadFailed,
+              text.requestFailed + ': ' + error.message,
               'danger',
             );
             updateBanner(error.message, 'warn');
@@ -957,9 +1028,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       async function submitText() {
-        const text = textInput.value.trim();
-        if (!text) {
-          textFeedback.textContent = '请先输入或粘贴要发送的文本。';
+        const textValue = textInput.value.trim();
+        if (!textValue) {
+          textFeedback.textContent = text.textEmpty;
           return;
         }
 
@@ -969,13 +1040,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             headers: getClientHeaders({
               'content-type': 'text/plain; charset=utf-8',
             }),
-            body: text,
+            body: textValue,
           });
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) {
-            throw new Error(payload.message || '文本提交失败');
+            throw new Error(payload.message || text.requestFailed);
           }
-          textFeedback.textContent = '已发送到：' + payload.activeProjectTitle;
+          textFeedback.textContent = interpolate(text.textSentTo, {
+            projectTitle: payload.activeProjectTitle,
+          });
           textInput.value = '';
           await loadStatus();
         } catch (error) {
@@ -984,7 +1057,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       async function fetchChunk(fileId, start, end) {
-        let lastError = new Error('下载失败');
+        let lastError = new Error(text.requestFailed);
         for (let attempt = 1; attempt <= maxChunkAttempts; attempt += 1) {
           try {
             const url = new URL(withKey('/api/shared/' + fileId + '/download'));
@@ -997,8 +1070,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             });
 
             if (!response.ok) {
-              const text = await response.text();
-              throw new Error(text || '下载分块失败');
+              const responseText = await response.text();
+              throw new Error(responseText || text.requestFailed);
             }
 
             return new Uint8Array(await response.arrayBuffer());
@@ -1067,7 +1140,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               progress: 0,
             });
             renderDownloadState(file.id);
-            updateBanner('下载失败，请检查网络后重试。', 'warn');
+            updateBanner(text.downloadBannerFailed, 'warn');
           } finally {
             activeDownloads.delete(file.id);
             renderDownloadState(file.id);

@@ -82,6 +82,113 @@ jest.mock('react-native-paper', () => {
     },
   );
 
+  const BottomNavigation = {
+    Bar: ({
+      navigationState,
+      onTabPress,
+      renderIcon,
+      renderLabel,
+      testID,
+    }: {
+      navigationState: {
+        index: number;
+        routes: Array<{
+          key: string;
+          testID?: string;
+          title: string;
+        }>;
+      };
+      onTabPress: (props: {
+        defaultPrevented: boolean;
+        preventDefault: () => void;
+        route: {
+          key: string;
+          testID?: string;
+          title: string;
+        };
+      }) => void;
+      renderIcon?: (props: {
+        color: string;
+        focused: boolean;
+        route: {
+          key: string;
+          testID?: string;
+          title: string;
+        };
+      }) => React.ReactNode;
+      renderLabel?: (props: {
+        color: string;
+        focused: boolean;
+        route: {
+          key: string;
+          testID?: string;
+          title: string;
+        };
+      }) => React.ReactNode;
+      testID?: string;
+    }) => (
+      <View testID={testID}>
+        {navigationState.routes.map((route, index) => {
+          const focused = navigationState.index === index;
+
+          return (
+            <Pressable
+              key={route.key}
+              onPress={() => {
+                onTabPress({
+                  defaultPrevented: false,
+                  preventDefault: jest.fn(),
+                  route,
+                });
+              }}
+              testID={route.testID}>
+              {renderIcon?.({
+                color: focused ? 'active' : 'inactive',
+                focused,
+                route,
+              })}
+              {renderLabel?.({
+                color: focused ? 'active' : 'inactive',
+                focused,
+                route,
+              }) ?? <Text>{route.title}</Text>}
+            </Pressable>
+          );
+        })}
+      </View>
+    ),
+  };
+
+  const SegmentedButtons = ({
+    buttons,
+    onValueChange,
+    testID,
+    value,
+  }: {
+    buttons: Array<{
+      label?: string;
+      testID?: string;
+      value: string;
+    }>;
+    onValueChange: (value: string) => void;
+    testID?: string;
+    value: string;
+  }) => (
+    <View testID={testID}>
+      {buttons.map(button => (
+        <Pressable
+          key={button.value}
+          onPress={() => {
+            onValueChange(button.value);
+          }}
+          testID={button.testID}>
+          <Text>{button.label}</Text>
+          <Text>{button.value === value ? 'selected' : 'idle'}</Text>
+        </Pressable>
+      ))}
+    </View>
+  );
+
   return {
     Button: ({
       children,
@@ -96,6 +203,7 @@ jest.mock('react-native-paper', () => {
         <Text>{children}</Text>
       </Pressable>
     ),
+    BottomNavigation,
     IconButton: ({
       onPress,
       testID,
@@ -108,6 +216,7 @@ jest.mock('react-native-paper', () => {
     },
     Menu,
     PaperProvider: ({children}: {children: React.ReactNode}) => <>{children}</>,
+    SegmentedButtons,
     Surface: ({children, style, testID}: {children: React.ReactNode; style?: unknown; testID?: string}) => (
       <View style={style} testID={testID}>
         {children}
@@ -206,6 +315,7 @@ function createModel(overrides: Record<string, unknown> = {}) {
     importMediaForShare: jest.fn().mockResolvedValue(undefined),
     isFileShared: jest.fn().mockReturnValue(false),
     isReady: true,
+    locale: 'zh-CN',
     notice: undefined,
     onboarding: {
       canReopen: true,
@@ -217,8 +327,10 @@ function createModel(overrides: Record<string, unknown> = {}) {
     openWorkspaceOnboarding: jest.fn().mockResolvedValue(undefined),
     projects: [projectA, projectB],
     refreshAddress: jest.fn().mockResolvedValue(undefined),
+    renameProject: jest.fn().mockResolvedValue(true),
     securityCopy: '',
     selectProject: jest.fn().mockResolvedValue(true),
+    setLocale: jest.fn().mockResolvedValue(undefined),
     serviceState: {
       activeConnections: [],
       config: {
@@ -324,6 +436,46 @@ describe('App sidebar history', () => {
     );
   });
 
+  test('renames a project from the sidebar menu', async () => {
+    const model = createModel();
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
+    });
+
+    act(() => {
+      tree!.root
+        .findByProps({testID: 'project-row-menu-open-project-b'})
+        .props.onPress();
+    });
+
+    act(() => {
+      tree!.root
+        .findByProps({testID: 'project-row-menu-rename-project-b'})
+        .props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'project-rename-dialog'})).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'project-rename-input'}).props.onChangeText(
+        '新的项目名',
+      );
+    });
+
+    await act(async () => {
+      tree!.root.findByProps({testID: 'project-rename-submit'}).props.onPress();
+    });
+
+    expect(model.renameProject).toHaveBeenCalledWith('project-b', '新的项目名');
+  });
+
   test('keeps service and file import actions on the home workspace instead of inside the sidebar', () => {
     const model = createModel();
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
@@ -359,7 +511,7 @@ describe('App sidebar history', () => {
     expect(() => tree!.root.findByProps({testID: 'service-address-collapsed'})).toThrow();
   });
 
-  test('collapses the address area and hides address actions when no reachable address is available', () => {
+  test('collapses the address area and hides duplicate offline diagnostics when no reachable address is available', () => {
     const model = createModel({
       serviceState: {
         ...createModel().serviceState,
@@ -387,10 +539,10 @@ describe('App sidebar history', () => {
     });
 
     expect(tree!.root.findByProps({testID: 'service-address-collapsed'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'service-network-warning'})).toBeTruthy();
     expect(() => tree!.root.findByProps({testID: 'service-copy-link'})).toThrow();
     expect(() => tree!.root.findByProps({testID: 'service-refresh-address'})).toThrow();
     expect(() => tree!.root.findByProps({testID: 'service-address-row'})).toThrow();
+    expect(() => tree!.root.findByProps({testID: 'service-network-warning'})).toThrow();
   });
 
   test('shows received file timestamps and removes the shared file project shortcut', () => {
@@ -501,6 +653,85 @@ describe('App sidebar history', () => {
     expect(model.openWorkspaceOnboarding).toHaveBeenCalled();
   });
 
+  test('opens a locale menu in the header and forwards language changes', () => {
+    const model = createModel();
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'locale-menu-open'}).props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'locale-menu-item-zh-CN'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'locale-menu-item-en-US'})).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'locale-menu-item-en-US'}).props.onPress();
+    });
+
+    expect(model.setLocale).toHaveBeenCalledWith('en-US');
+  });
+
+  test('switches between home and settings tabs while keeping transfer actions on home', () => {
+    const model = createModel();
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(tree!.root.findByProps({testID: 'tab-home'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'tab-settings'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'home-toggle-service'})).toBeTruthy();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'tab-settings'}).props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'settings-language-item'})).toBeTruthy();
+    expect(() => tree!.root.findByProps({testID: 'home-toggle-service'})).toThrow();
+
+    act(() => {
+      tree!.root.findByProps({testID: 'tab-home'}).props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'home-toggle-service'})).toBeTruthy();
+  });
+
+  test('opens the settings language menu and forwards language changes', () => {
+    const model = createModel();
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'tab-settings'}).props.onPress();
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'settings-language-item'}).props.onPress();
+    });
+
+    expect(tree!.root.findByProps({testID: 'settings-language-menu-item-zh-CN'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'settings-language-menu-item-en-US'})).toBeTruthy();
+
+    act(() => {
+      tree!.root
+        .findByProps({testID: 'settings-language-menu-item-en-US'})
+        .props.onPress();
+    });
+
+    expect(model.setLocale).toHaveBeenCalledWith('en-US');
+  });
+
   test('uses a floating onboarding card on phone layouts', () => {
     jest
       .spyOn(require('react-native'), 'useWindowDimensions')
@@ -583,6 +814,12 @@ describe('App sidebar history', () => {
       tree!.root.findByProps({testID: 'workspace-onboarding-complete'}),
     ).toBeTruthy();
     expect(tree!.root.findByProps({testID: 'workspace-onboarding-image-project'})).toBeTruthy();
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-body'}).props.children).toContain(
+      'App Store',
+    );
+    expect(tree!.root.findByProps({testID: 'workspace-onboarding-body'}).props.children).toContain(
+      'GitHub',
+    );
 
     act(() => {
       tree!.root.findByProps({testID: 'workspace-onboarding-complete'}).props.onPress();

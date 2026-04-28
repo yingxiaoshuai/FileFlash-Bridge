@@ -28,6 +28,14 @@ export type WorkspaceTourStep<AnchorId extends string = string> = {
   title: string;
 };
 
+export type WorkspaceOnboardingLabels = {
+  close: string;
+  complete: string;
+  next: string;
+  previous: string;
+  skip: string;
+};
+
 type GuidedTourTargetProps = {
   active?: boolean;
   captureRef?: (node: React.ElementRef<typeof View> | null) => void;
@@ -63,6 +71,7 @@ type WorkspaceOnboardingOverlayProps = {
     height: number;
     width: number;
   };
+  labels: WorkspaceOnboardingLabels;
   onClose: () => void;
   onComplete: () => void;
   onNext: () => void;
@@ -89,6 +98,7 @@ function getOnboardingImage(stepId: string) {
 export function WorkspaceOnboardingOverlay({
   activeRect: _activeRect,
   hostFrame,
+  labels,
   onClose,
   onComplete,
   onNext,
@@ -152,7 +162,7 @@ export function WorkspaceOnboardingOverlay({
               </Text>
             </View>
             <GlyphIconButton
-              accessibilityLabel="关闭引导"
+              accessibilityLabel={labels.close}
               glyph="X"
               onPress={onClose}
               testID="workspace-onboarding-close"
@@ -198,7 +208,7 @@ export function WorkspaceOnboardingOverlay({
                   <ActionButton
                     compact
                     fullWidth={isPhoneLayout}
-                    label="上一步"
+                    label={labels.previous}
                     onPress={onPrevious}
                     testID="workspace-onboarding-previous"
                   />
@@ -206,7 +216,7 @@ export function WorkspaceOnboardingOverlay({
                 <ActionButton
                   compact
                   fullWidth={isPhoneLayout}
-                  label="跳过"
+                  label={labels.skip}
                   onPress={onSkip}
                   testID="workspace-onboarding-skip"
                 />
@@ -215,7 +225,7 @@ export function WorkspaceOnboardingOverlay({
               <ActionButton
                 compact
                 fullWidth={isPhoneLayout}
-                label={isLastStep ? '完成' : '下一步'}
+                label={isLastStep ? labels.complete : labels.next}
                 onPress={isLastStep ? onComplete : onNext}
                 testID={
                   isLastStep
