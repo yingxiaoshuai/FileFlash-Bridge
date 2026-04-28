@@ -1,6 +1,6 @@
-import {AppLocale, createAppTranslator} from '../localization/i18n';
-import {SecurityMode} from '../service/models';
-import {portalTheme} from './portalTheme';
+import { AppLocale, createAppTranslator } from '../localization/i18n';
+import { SecurityMode } from '../service/models';
+import { portalTheme } from './portalTheme';
 
 export interface PortalDocumentModel {
   chunkSize: number;
@@ -25,15 +25,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
     browserUnavailable: t('portal.browserUnavailable'),
     chooseFiles: t('portal.chooseFiles'),
     chooseFolders: t('portal.chooseFolders'),
-    deviceLabel: t('portal.deviceLabel', {deviceName: model.deviceName}),
+    deviceLabel: t('portal.deviceLabel', { deviceName: model.deviceName }),
     downloadBannerFailed: t('portal.download.bannerFailed'),
     downloadButton: t('portal.download.button'),
     downloadButtonAgain: t('portal.download.buttonAgain'),
     downloadButtonBusy: t('portal.download.buttonBusy'),
     downloadChunked: t('portal.download.chunked'),
     downloadComplete: t('portal.download.complete'),
-    downloadFailed: t('portal.download.failed', {message: '__MESSAGE__'}),
-    downloadInProgress: t('portal.download.inProgress', {percent: '__PERCENT__'}),
+    downloadFailed: t('portal.download.failed'),
+    downloadInProgress: t('portal.download.inProgress'),
     downloadPending: t('portal.download.pending'),
     emptyShared: t('portal.emptyShared'),
     emptyUpload: t('portal.emptyUpload'),
@@ -53,8 +53,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
     submitText: t('portal.submitText'),
     textEmpty: t('portal.text.empty'),
     textPlaceholder: t('portal.textPlaceholder'),
-    textSentTo: t('portal.text.sentTo', {projectTitle: '__PROJECT__'}),
-    title: t('portal.title', {deviceName: model.deviceName}),
+    textSentTo: t('portal.text.sentTo'),
+    title: t('portal.title', { deviceName: model.deviceName }),
     uploadComplete: t('portal.upload.complete'),
     uploadFailed: t('portal.upload.failed'),
     uploadPrompt: t('portal.uploadPrompt'),
@@ -517,9 +517,15 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           <div id="dropzone" class="dropzone">
             <div class="item-title">${escapedText.uploadPrompt}</div>
             <div class="button-row">
-              <label class="file-button primary" for="file-input">${escapedText.chooseFiles}</label>
-              <label class="file-button ghost" for="folder-input">${escapedText.chooseFolders}</label>
-              <button id="upload-button" class="ghost" type="button">${escapedText.uploadSelection}</button>
+              <label class="file-button primary" for="file-input">${
+                escapedText.chooseFiles
+              }</label>
+              <label class="file-button ghost" for="folder-input">${
+                escapedText.chooseFolders
+              }</label>
+              <button id="upload-button" class="ghost" type="button">${
+                escapedText.uploadSelection
+              }</button>
             </div>
             <input id="file-input" class="hidden-input" type="file" multiple />
             <input id="folder-input" class="hidden-input" type="file" webkitdirectory directory multiple />
@@ -532,9 +538,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             <div class="eyebrow">${escapedText.eyebrowText}</div>
             <h2>${escapedText.sectionText}</h2>
           </div>
-          <textarea id="text-input" placeholder="${escapedText.textPlaceholder}"></textarea>
+          <textarea id="text-input" placeholder="${
+            escapedText.textPlaceholder
+          }"></textarea>
           <div class="status-actions" style="margin-top: 14px">
-            <button id="text-submit" class="primary" type="button">${escapedText.submitText}</button>
+            <button id="text-submit" class="primary" type="button">${
+              escapedText.submitText
+            }</button>
             <button id="refresh-button" class="ghost" type="button">${escapeHtml(
               t('portal.refresh'),
             )}</button>
@@ -556,6 +566,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const text = ${portalTextJson};
       const authKey = new URL(location.href).searchParams.get('key');
       const chunkSize = ${model.chunkSize};
+      const maxConcurrentDownloadChunks = Math.max(
+        2,
+        Math.min(4, Number(navigator.hardwareConcurrency) || 4),
+      );
       const maxChunkAttempts = 4;
       const activeDownloads = new Map();
       const downloadStateById = new Map();
@@ -711,12 +725,33 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         const state = getDownloadState(fileId);
         const button = itemNode.querySelector('[data-download]');
         const statusNode = document.getElementById('download-status-' + fileId);
+        const progressTrack = document.getElementById(
+          'download-progress-track-' + fileId,
+        );
+        const progressFill = document.getElementById(
+          'download-progress-fill-' + fileId,
+        );
+        const percentage = Math.max(
+          0,
+          Math.min(100, Math.round((state.progress || 0) * 100)),
+        );
         if (button) {
           button.disabled = state.phase === 'downloading';
           button.textContent = buildDownloadButtonLabel(state);
         }
         if (statusNode) {
           statusNode.textContent = buildDownloadStatusText(state);
+        }
+        if (progressTrack && progressFill) {
+          progressTrack.hidden = state.phase === 'idle';
+          progressTrack.setAttribute('aria-valuenow', String(percentage));
+          progressFill.style.width = percentage + '%';
+          progressFill.className =
+            state.phase === 'failed'
+              ? 'progress-fill danger'
+              : state.phase === 'completed'
+                ? 'progress-fill ok'
+                : 'progress-fill';
         }
       }
 
@@ -763,7 +798,23 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               escapeHtmlText(file.id) +
               '" class="item-status">' +
               escapeHtmlText(buildDownloadStatusText(state)) +
-              '</div></div>';
+              '</div><div id="download-progress-track-' +
+              escapeHtmlText(file.id) +
+              '" class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' +
+              Math.max(0, Math.min(100, Math.round((state.progress || 0) * 100))) +
+              '"' +
+              (state.phase === 'idle' ? ' hidden' : '') +
+              '><div id="download-progress-fill-' +
+              escapeHtmlText(file.id) +
+              '" class="progress-fill' +
+              (state.phase === 'failed'
+                ? ' danger'
+                : state.phase === 'completed'
+                  ? ' ok'
+                  : '') +
+              '" style="width:' +
+              Math.max(0, Math.min(100, Math.round((state.progress || 0) * 100))) +
+              '%"></div></div></div>';
           })
           .join('');
       }
@@ -1056,9 +1107,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
       }
 
-      async function fetchChunk(fileId, start, end) {
+      async function fetchChunk(fileId, start, end, signal) {
         let lastError = new Error(text.requestFailed);
         for (let attempt = 1; attempt <= maxChunkAttempts; attempt += 1) {
+          if (signal && signal.aborted) {
+            throw signal.reason || lastError;
+          }
+
           try {
             const url = new URL(withKey('/api/shared/' + fileId + '/download'));
             url.searchParams.set('offset', String(start));
@@ -1067,6 +1122,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               headers: {
                 'x-client-id': getClientId(),
               },
+              signal: signal,
             });
 
             if (!response.ok) {
@@ -1077,6 +1133,9 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             return new Uint8Array(await response.arrayBuffer());
           } catch (error) {
             lastError = error;
+            if (signal && signal.aborted) {
+              throw error;
+            }
             if (attempt === maxChunkAttempts) {
               break;
             }
@@ -1085,6 +1144,82 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
 
         throw lastError;
+      }
+
+      function createDownloadChunks(totalBytes) {
+        const chunks = [];
+        const totalChunks =
+          totalBytes > 0 ? Math.max(1, Math.ceil(totalBytes / chunkSize)) : 0;
+
+        for (let index = 0; index < totalChunks; index += 1) {
+          const start = index * chunkSize;
+          const end = Math.min(totalBytes, start + chunkSize);
+          chunks.push({
+            end: end,
+            index: index,
+            length: end - start,
+            start: start,
+          });
+        }
+
+        return chunks;
+      }
+
+      async function downloadFileChunks(file, onProgress) {
+        const totalBytes = Math.max(0, Number(file.size) || 0);
+        const chunkPlan = createDownloadChunks(totalBytes);
+
+        if (chunkPlan.length === 0) {
+          onProgress(1);
+          return [];
+        }
+
+        const abortController =
+          typeof AbortController === 'function' ? new AbortController() : null;
+        const downloadedChunks = new Array(chunkPlan.length);
+        const workerCount = Math.min(chunkPlan.length, maxConcurrentDownloadChunks);
+        let completedBytes = 0;
+        let nextChunkIndex = 0;
+
+        const downloadNextChunk = async () => {
+          while (true) {
+            if (abortController?.signal.aborted) {
+              return;
+            }
+
+            const planIndex = nextChunkIndex;
+            nextChunkIndex += 1;
+            const descriptor = chunkPlan[planIndex];
+            if (!descriptor) {
+              return;
+            }
+
+            const chunk = await fetchChunk(
+              file.id,
+              descriptor.start,
+              descriptor.end,
+              abortController?.signal,
+            );
+
+            if (abortController?.signal.aborted) {
+              return;
+            }
+
+            downloadedChunks[descriptor.index] = chunk;
+            completedBytes += descriptor.length;
+            onProgress(totalBytes > 0 ? completedBytes / totalBytes : 1);
+          }
+        };
+
+        try {
+          await Promise.all(
+            Array.from({length: workerCount}, () => downloadNextChunk()),
+          );
+          return downloadedChunks;
+        } catch (error) {
+          abortController?.abort(error);
+          throw error;
+        }
       }
 
       async function downloadSharedFile(file) {
@@ -1100,20 +1235,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           renderDownloadState(file.id);
 
           try {
-            const chunks = [];
-            const totalBytes = Math.max(0, Number(file.size) || 0);
-            const totalChunks =
-              totalBytes > 0 ? Math.max(1, Math.ceil(totalBytes / chunkSize)) : 0;
-            for (let index = 0; index < totalChunks; index += 1) {
-              const start = index * chunkSize;
-              const end = Math.min(totalBytes, start + chunkSize);
-              chunks.push(await fetchChunk(file.id, start, end));
+            const chunks = await downloadFileChunks(file, progress => {
               downloadStateById.set(file.id, {
                 phase: 'downloading',
-                progress: totalBytes > 0 ? end / totalBytes : 1,
+                progress: progress,
               });
               renderDownloadState(file.id);
-            }
+            });
 
             const blob = new Blob(chunks, {
               type: file.mimeType || 'application/octet-stream',

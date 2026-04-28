@@ -134,7 +134,6 @@ export function PanelSurface({ children, style, testID }: PanelSurfaceProps) {
   return (
     <Surface mode="flat" style={[styles.panel, style]} testID={testID}>
       <View pointerEvents="none" style={styles.panelSheen} />
-      <View pointerEvents="none" style={styles.panelHighlight} />
       {children}
     </Surface>
   );
@@ -256,16 +255,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 1,
     top: 1,
-  },
-  panelHighlight: {
-    backgroundColor: theme.colors.primarySoft,
-    borderRadius: 999,
-    height: 92,
-    opacity: 0.4,
-    position: 'absolute',
-    right: 10,
-    top: 8,
-    width: 120,
   },
   banner: {
     alignItems: 'center',

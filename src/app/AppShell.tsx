@@ -415,11 +415,6 @@ export function AppShell(): React.JSX.Element {
           barStyle="dark-content"
           backgroundColor={theme.colors.background}
         />
-        <View pointerEvents="none" style={styles.backdropLayer}>
-          <View style={[styles.backdropGlow, styles.backdropGlowPrimary]} />
-          <View style={[styles.backdropGlow, styles.backdropGlowSecondary]} />
-        </View>
-
         {!model.isReady ? (
           <View style={styles.loadingShell}>
             <ActivityIndicator color={theme.colors.primary} size="large" />

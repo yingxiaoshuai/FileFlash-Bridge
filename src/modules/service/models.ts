@@ -103,7 +103,7 @@ export interface StorageSnapshot {
 
 export const DEFAULT_SERVICE_CONFIG: ServiceConfig = {
   port: 8668,
-  chunkSize: 1024 * 1024,
+  chunkSize: 5 * 1024 * 1024,
   largeFileThreshold: 8 * 1024 * 1024,
   compressionThreshold: 2 * 1024 * 1024,
   securityMode: 'secure',

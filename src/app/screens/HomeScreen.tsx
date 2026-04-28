@@ -1,4 +1,3 @@
-import Clipboard from '@react-native-clipboard/clipboard';
 import React from 'react';
 import {
   Alert,
@@ -18,6 +17,7 @@ import {
   WorkspaceSecurityIcon,
   WorkspaceSharedIcon,
 } from '../icons/AppIcons';
+import { setClipboardString } from '../../platform/clipboard';
 import { theme } from '../theme';
 import {
   ActionButton,
@@ -155,7 +155,7 @@ export function HomeScreen({
       return;
     }
 
-    Clipboard.setString(model.serviceState.accessUrl);
+    setClipboardString(model.serviceState.accessUrl);
     Alert.alert(t('home.service.copiedTitle'), t('home.service.copiedBody'));
   };
 
@@ -310,11 +310,6 @@ export function HomeScreen({
       >
         <View style={styles.main}>
           <PanelSurface style={styles.summaryShell}>
-            <View pointerEvents="none" style={styles.summaryShellHaloPrimary} />
-            <View
-              pointerEvents="none"
-              style={styles.summaryShellHaloSecondary}
-            />
             <View style={styles.header}>
               <View style={styles.headerMain}>
                 <Text

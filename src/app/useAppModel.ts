@@ -1,6 +1,5 @@
-import Clipboard from '@react-native-clipboard/clipboard';
-import {AppState} from 'react-native';
-import {useEffect, useMemo, useRef, useState} from 'react';
+import { AppState } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   WORKSPACE_ONBOARDING_VERSION,
@@ -11,20 +10,15 @@ import {
   createAppTranslator,
   DEFAULT_APP_LOCALE,
 } from '../modules/localization/i18n';
-import {
-  InboundStorageGateway,
-} from '../modules/file-access/inboundStorageGateway';
+import { InboundStorageGateway } from '../modules/file-access/inboundStorageGateway';
 import {
   cleanupImportedDeviceFiles,
   consumePendingSharedItems,
-  createReactNativeInboundStorageGateway,
   exportStoredFile,
   exportPreparedFile,
   ImportedDeviceFile,
   ImportedDeviceText,
-  pickDeviceFilesForShare,
-  pickDeviceMediaForShare,
-} from '../modules/file-access/reactNativeAdapters';
+} from '../platform/fileAccess';
 import {
   describeSecurityMode,
   generateAccessKey,
@@ -39,9 +33,18 @@ import {
   TextMessage,
   createInitialServiceState,
 } from '../modules/service/models';
-import {fetchNetworkInterfacesFromNetInfo} from '../modules/service/netInfoNetworkProvider';
-import {createReactNativeHttpRuntime} from '../modules/service/reactNativeHttpRuntime';
-import {TransferServiceController} from '../modules/service/transferServiceController';
+import {
+  ServiceRuntime,
+  TransferServiceController,
+} from '../modules/service/transferServiceController';
+import { setClipboardString } from '../platform/clipboard';
+import {
+  createPlatformInboundStorageGateway,
+  pickPlatformFilesForShare,
+  pickPlatformMediaForShare,
+} from '../platform/fileAccess';
+import { fetchPlatformNetworkInterfaces } from '../platform/networkProvider';
+import { createPlatformServiceRuntime } from '../platform/serviceRuntime';
 
 type NoticeTone = 'info' | 'success' | 'error';
 
@@ -152,7 +155,7 @@ function buildLocalizedImportedContentNotice(
 
 function createWorkspaceOnboardingViewState(
   snapshot?: WorkspaceOnboardingSnapshot,
-  options?: {isVisible?: boolean},
+  options?: { isVisible?: boolean },
 ): WorkspaceOnboardingViewState {
   const resolvedSnapshot: WorkspaceOnboardingSnapshot = snapshot ?? {
     status: 'unseen',
@@ -171,28 +174,26 @@ export function useAppModel() {
   const configRef = useRef<ServiceConfig | null>(null);
   const gatewayRef = useRef<InboundStorageGateway | null>(null);
   const controllerRef = useRef<TransferServiceController | null>(null);
-  const runtimeRef = useRef<ReturnType<typeof createReactNativeHttpRuntime> | null>(
-    null,
-  );
+  const runtimeRef = useRef<ServiceRuntime | null>(null);
 
   if (!configRef.current) {
     configRef.current = createInitialConfig();
   }
 
   if (!gatewayRef.current) {
-    gatewayRef.current = createReactNativeInboundStorageGateway(
+    gatewayRef.current = createPlatformInboundStorageGateway(
       configRef.current.sessionId,
     );
   }
 
   if (!runtimeRef.current) {
-    runtimeRef.current = createReactNativeHttpRuntime();
+    runtimeRef.current = createPlatformServiceRuntime();
   }
 
   if (!controllerRef.current) {
     controllerRef.current = new TransferServiceController({
       config: configRef.current,
-      networkProvider: fetchNetworkInterfacesFromNetInfo,
+      networkProvider: fetchPlatformNetworkInterfaces,
       resolveInboundStorageChangeHandler: () => async () => {
         const gateway = gatewayRef.current;
         if (!gateway) {
@@ -202,7 +203,8 @@ export function useAppModel() {
         const snapshot = await gateway.getSnapshot();
         setState(current => ({
           ...current,
-          serviceState: controllerRef.current?.getState() ?? current.serviceState,
+          serviceState:
+            controllerRef.current?.getState() ?? current.serviceState,
           snapshot,
         }));
       },
@@ -244,9 +246,10 @@ export function useAppModel() {
         const locale = await gatewayRef.current!.getLocalePreference();
         const importedSummary = await importPendingSystemSharedItems();
         const snapshot = await gatewayRef.current!.getSnapshot();
-        const onboarding = await gatewayRef.current!.getWorkspaceOnboardingState(
-          WORKSPACE_ONBOARDING_VERSION,
-        );
+        const onboarding =
+          await gatewayRef.current!.getWorkspaceOnboardingState(
+            WORKSPACE_ONBOARDING_VERSION,
+          );
 
         if (!active) {
           return;
@@ -325,7 +328,9 @@ export function useAppModel() {
                   tone: 'success',
                 }
               : {
-                  message: createAppTranslator(locale)('notice.resumedForeground'),
+                  message: createAppTranslator(locale)(
+                    'notice.resumedForeground',
+                  ),
                   tone: 'info',
                 },
             serviceState: restoreResult.state,
@@ -522,7 +527,9 @@ export function useAppModel() {
             tone: nextServiceState.phase === 'error' ? 'error' : 'info',
           }
         : {
-            message: createAppTranslator(state.locale)('notice.addressRefreshed'),
+            message: createAppTranslator(state.locale)(
+              'notice.addressRefreshed',
+            ),
             tone: 'success',
           };
       const nextSnapshot = await gatewayRef.current!.getSnapshot();
@@ -553,8 +560,9 @@ export function useAppModel() {
     }));
 
     try {
-      const nextServiceState =
-        await controllerRef.current!.setSecurityMode(securityMode);
+      const nextServiceState = await controllerRef.current!.setSecurityMode(
+        securityMode,
+      );
       const localizedSecurityNotice: AppNotice | undefined =
         securityMode === 'secure'
           ? {
@@ -604,7 +612,9 @@ export function useAppModel() {
     setState(currentState => ({
       ...currentState,
       notice: {
-        message: createAppTranslator(currentState.locale)('notice.projectCreated'),
+        message: createAppTranslator(currentState.locale)(
+          'notice.projectCreated',
+        ),
         tone: 'success',
       },
     }));
@@ -723,22 +733,18 @@ export function useAppModel() {
   };
 
   const importFilesForShare = async () => {
-    await importExternalFiles(
-      pickDeviceFilesForShare,
-      count =>
-        createAppTranslator(state.locale)('notice.importFiles', {
-          count,
-        }),
+    await importExternalFiles(pickPlatformFilesForShare, count =>
+      createAppTranslator(state.locale)('notice.importFiles', {
+        count,
+      }),
     );
   };
 
   const importMediaForShare = async () => {
-    await importExternalFiles(
-      pickDeviceMediaForShare,
-      count =>
-        createAppTranslator(state.locale)('notice.importMedia', {
-          count,
-        }),
+    await importExternalFiles(pickPlatformMediaForShare, count =>
+      createAppTranslator(state.locale)('notice.importMedia', {
+        count,
+      }),
     );
   };
 
@@ -757,7 +763,9 @@ export function useAppModel() {
     setState(currentState => ({
       ...currentState,
       notice: {
-        message: createAppTranslator(currentState.locale)('notice.messageDeleted'),
+        message: createAppTranslator(currentState.locale)(
+          'notice.messageDeleted',
+        ),
         tone: 'info',
       },
     }));
@@ -778,7 +786,9 @@ export function useAppModel() {
     setState(currentState => ({
       ...currentState,
       notice: {
-        message: createAppTranslator(currentState.locale)('notice.projectDeleted'),
+        message: createAppTranslator(currentState.locale)(
+          'notice.projectDeleted',
+        ),
         tone: 'info',
       },
     }));
@@ -806,7 +816,7 @@ export function useAppModel() {
   };
 
   const copyMessage = (message: TextMessage) => {
-    Clipboard.setString(message.content);
+    setClipboardString(message.content);
     const copiedNotice = {
       message: createAppTranslator(state.locale)('notice.textCopied'),
       tone: 'success' as const,
@@ -847,12 +857,12 @@ export function useAppModel() {
                 name: file.displayName,
               })
             : result.method === 'ios-files'
-              ? createAppTranslator(state.locale)('notice.export.ios', {
-                  name: file.displayName,
-                })
-              : createAppTranslator(state.locale)('notice.export.share', {
-                  name: file.displayName,
-                }),
+            ? createAppTranslator(state.locale)('notice.export.ios', {
+                name: file.displayName,
+              })
+            : createAppTranslator(state.locale)('notice.export.share', {
+                name: file.displayName,
+              }),
         tone: 'success' as const,
       };
       setState(currentState => ({
@@ -863,8 +873,8 @@ export function useAppModel() {
             result.method === 'android-saf'
               ? `已保存到你选择的位置：${file.displayName}`
               : result.method === 'ios-files'
-                ? `已打开“存储到文件”流程：${file.displayName}`
-                : `已打开系统分享流程：${file.displayName}`,
+              ? `已打开“存储到文件”流程：${file.displayName}`
+              : `已打开系统分享流程：${file.displayName}`,
           tone: 'success',
         },
       }));
@@ -877,9 +887,12 @@ export function useAppModel() {
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: createAppTranslator(currentState.locale)('error.exportFailed', {
-            message: resolveLocalizedErrorMessage(error, currentState.locale),
-          }),
+          message: createAppTranslator(currentState.locale)(
+            'error.exportFailed',
+            {
+              message: resolveLocalizedErrorMessage(error, currentState.locale),
+            },
+          ),
           tone: 'error',
         },
       }));
@@ -993,7 +1006,9 @@ export function useAppModel() {
     deleteFile,
     deleteMessage,
     deleteProject,
-    deletionWarning: createAppTranslator(state.locale)('home.project.deleteBody'),
+    deletionWarning: createAppTranslator(state.locale)(
+      'home.project.deleteBody',
+    ),
     exportFile,
     importFilesForShare,
     importMediaForShare,
