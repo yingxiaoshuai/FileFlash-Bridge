@@ -8,10 +8,7 @@ import {
   pickDeviceMediaForShare,
 } from '../modules/file-access/reactNativeAdapters';
 
-import {
-  createUnsupportedHarmonyFeatureError,
-  isHarmonyPlatform,
-} from './platform';
+import { isHarmonyPlatform } from './platform';
 
 export {
   cleanupImportedDeviceFiles,
@@ -28,25 +25,15 @@ export type {
 } from '../modules/file-access/reactNativeAdapters';
 
 export function createPlatformInboundStorageGateway(sessionId?: string) {
-  if (isHarmonyPlatform()) {
-    throw createUnsupportedHarmonyFeatureError('local file storage');
-  }
-
   return createReactNativeInboundStorageGateway(sessionId);
 }
 
 export async function pickPlatformFilesForShare() {
-  if (isHarmonyPlatform()) {
-    throw createUnsupportedHarmonyFeatureError('document import');
-  }
-
   return pickDeviceFilesForShare();
 }
 
 export async function pickPlatformMediaForShare() {
-  if (isHarmonyPlatform()) {
-    throw createUnsupportedHarmonyFeatureError('media import');
-  }
-
-  return pickDeviceMediaForShare();
+  return isHarmonyPlatform()
+    ? pickDeviceFilesForShare()
+    : pickDeviceMediaForShare();
 }

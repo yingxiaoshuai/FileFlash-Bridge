@@ -23,6 +23,8 @@ describe('buildPortalDocument', () => {
     expect(html).toContain("state.phase === 'downloading'");
     expect(html).toContain('await Promise.all(');
     expect(html).toContain('downloadedChunks[descriptor.index] = chunk;');
+    expect(html).toContain('response.body?.getReader?.()');
+    expect(html).toContain('const chunkProgressByIndex = new Array(chunkPlan.length).fill(0);');
     expect(html).toContain('setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);');
     expect(html).not.toContain('浏览器投递');
     expect(html).not.toContain('hero-copy');

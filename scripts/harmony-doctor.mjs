@@ -9,34 +9,97 @@ const staticServerPackagePath = path.join(
   'packages',
   'fileflash-static-server',
 );
+const harmonyTcpRuntimePath = path.join(
+  repoRoot,
+  'src',
+  'modules',
+  'service',
+  'reactNativeTcpHttpRuntime.ts',
+);
 
 const knownSupportMatrix = {
   '@fileflash/react-native-static-server': {
     evidence: 'Local package only contains android/ and ios/ native sources.',
     recommendation:
-      'Port this module to HarmonyOS or replace it with a Harmony-compatible HTTP runtime.',
-    status: 'blocked',
+      'Keep this module for iOS/Android, and use the Harmony TCP runtime path instead of porting it directly.',
+    status: 'conditional',
   },
   '@react-native-clipboard/clipboard': {
     evidence:
-      'No verified Harmony template package has been confirmed in the current registry check.',
+      'Verified Harmony template package exists: @react-native-oh-tpl/clipboard@1.13.2-0.0.9.',
     recommendation:
-      'Verify the official/template package name or implement a Harmony clipboard bridge.',
-    status: 'unknown',
+      'Swap to the Harmony template package when creating the Harmony branch/target.',
+    status: 'supported',
   },
   '@react-native-community/netinfo': {
     evidence:
-      'No verified Harmony template package has been confirmed in the current registry check.',
+      'Verified Harmony template package exists: @react-native-oh-tpl/netinfo@11.1.0-0.0.8.',
     recommendation:
-      'Verify the official/template package name or replace with a Harmony network interface provider.',
-    status: 'unknown',
+      'Swap to the Harmony template package when creating the Harmony branch/target.',
+    status: 'supported',
   },
   '@react-native-documents/picker': {
     evidence:
-      'No verified Harmony template package has been confirmed in the current registry check.',
+      'Verified Harmony package exists: @react-native-ohos/react-native-document-picker@9.2.2.',
     recommendation:
-      'Verify the official/template package name or implement a Harmony document picker adapter.',
-    status: 'unknown',
+      'Use the Harmony document picker package when creating the Harmony branch/target.',
+    status: 'supported',
+  },
+  '@react-native-oh-tpl/clipboard': {
+    evidence:
+      'Harmony template clipboard package is installed in the current workspace.',
+    recommendation:
+      'Keep this package wired into the Harmony host project and Metro alias path.',
+    status: 'supported',
+  },
+  '@react-native-oh-tpl/netinfo': {
+    evidence:
+      'Harmony template netinfo package is installed in the current workspace.',
+    recommendation:
+      'Keep this package wired into the Harmony host project and Metro alias path.',
+    status: 'supported',
+  },
+  '@react-native-oh-tpl/react-native-fs': {
+    evidence:
+      'Harmony template react-native-fs package is installed in the current workspace.',
+    recommendation:
+      'Keep this package wired into the Harmony host project and Metro alias path.',
+    status: 'supported',
+  },
+  '@react-native-oh-tpl/react-native-safe-area-context': {
+    evidence:
+      'Harmony template safe-area-context package is installed in the current workspace.',
+    recommendation:
+      'Keep this package wired into the Harmony host project and Metro alias path.',
+    status: 'supported',
+  },
+  '@react-native-oh-tpl/react-native-share': {
+    evidence:
+      'Harmony template react-native-share package is installed in the current workspace.',
+    recommendation:
+      'Keep this package wired into the Harmony host project and Metro alias path.',
+    status: 'supported',
+  },
+  '@react-native-oh-tpl/react-native-svg': {
+    evidence:
+      'Harmony template react-native-svg package is installed in the current workspace.',
+    recommendation:
+      'Keep this package wired into the Harmony host project and Metro alias path.',
+    status: 'supported',
+  },
+  '@react-native-oh-tpl/react-native-tcp-socket': {
+    evidence:
+      'Harmony template react-native-tcp-socket package is installed in the current workspace.',
+    recommendation:
+      'Keep this package wired into the Harmony host project and Metro alias path.',
+    status: 'supported',
+  },
+  '@react-native-ohos/react-native-document-picker': {
+    evidence:
+      'Harmony document picker package is installed in the current workspace.',
+    recommendation:
+      'Keep this package autolinked and route Harmony document picking through the compatibility wrapper.',
+    status: 'supported',
   },
   '@react-native-oh/react-native-harmony': {
     evidence: 'Latest verified package version: 0.82.23.',
@@ -57,9 +120,9 @@ const knownSupportMatrix = {
   },
   'react-native': {
     evidence:
-      'Current project dependency: 0.85.0. Latest verified RNOH package: 0.82.23.',
+      'React Native compatibility is tied to the verified RNOH package line 0.82.23.',
     recommendation:
-      'Downgrade to a supported React Native line for the Harmony port, or wait for an official RNOH release matching 0.85.x.',
+      'Use react-native@0.82.1 with @react-native-oh/react-native-harmony@0.82.23, or wait for a newer official RNOH release.',
     status: 'blocked',
   },
   'react-native-fs': {
@@ -94,6 +157,13 @@ const knownSupportMatrix = {
       'Verified Harmony template package exists: @react-native-oh-tpl/react-native-share@10.2.1-0.0.6.',
     recommendation:
       'Swap to the Harmony template package when creating the Harmony branch/target.',
+    status: 'supported',
+  },
+  'react-native-tcp-socket': {
+    evidence:
+      'Verified Harmony template package exists: @react-native-oh-tpl/react-native-tcp-socket@6.2.0-0.0.3.',
+    recommendation:
+      'Use this package as the base for the Harmony JS HTTP runtime.',
     status: 'supported',
   },
   'react-native-svg': {
@@ -140,14 +210,19 @@ function detectStaticServerStatus() {
   const hasHarmony =
     fs.existsSync(path.join(staticServerPackagePath, 'harmony')) ||
     fs.existsSync(path.join(staticServerPackagePath, 'ohos'));
+  const hasHarmonyTcpRuntime = fs.existsSync(harmonyTcpRuntimePath);
 
   if (hasAndroid && hasIos && !hasHarmony) {
     return {
       evidence:
-        'packages/fileflash-static-server contains android/ and ios/ implementations, but no harmony/ or ohos/ implementation.',
+        hasHarmonyTcpRuntime
+          ? 'packages/fileflash-static-server still only contains android/ and ios/ implementations, but the repo now includes a Harmony JS TCP runtime fallback.'
+          : 'packages/fileflash-static-server contains android/ and ios/ implementations, but no harmony/ or ohos/ implementation.',
       recommendation:
-        'Port this custom native module before attempting to start the local transfer service on Harmony.',
-      status: 'blocked',
+        hasHarmonyTcpRuntime
+          ? 'Keep this module for iOS/Android and wire Harmony builds to the TCP runtime path.'
+          : 'Port this custom native module before attempting to start the local transfer service on Harmony.',
+      status: hasHarmonyTcpRuntime ? 'conditional' : 'blocked',
     };
   }
 
@@ -195,6 +270,77 @@ function evaluateDependency(name, version) {
     name,
     version,
     ...entry,
+  };
+}
+
+function evaluateInboundSharingBridge() {
+  const iosBridgePath = path.join(
+    repoRoot,
+    'ios',
+    'FileFlashBridge',
+    'FPInboundSharing.m',
+  );
+  const androidBridgePath = path.join(
+    repoRoot,
+    'android',
+    'app',
+    'src',
+    'main',
+    'java',
+    'com',
+    'com.fileflashbridge',
+    'FPInboundSharingModule.kt',
+  );
+  const harmonyBridgePaths = [
+    path.join(repoRoot, 'harmony', 'FPInboundSharing'),
+    path.join(
+      repoRoot,
+      'harmony',
+      'entry',
+      'src',
+      'main',
+      'ets',
+      'fpinboundsharing',
+      'ShareInbox.ets',
+    ),
+    path.join(
+      repoRoot,
+      'harmony',
+      'entry',
+      'src',
+      'main',
+      'ets',
+      'entryability',
+      'EntryAbility.ets',
+    ),
+  ];
+
+  const hasIosBridge = fs.existsSync(iosBridgePath);
+  const hasAndroidBridge = fs.existsSync(androidBridgePath);
+  const hasHarmonyBridge = harmonyBridgePaths.some(candidatePath =>
+    fs.existsSync(candidatePath),
+  );
+
+  if (hasIosBridge && hasAndroidBridge && !hasHarmonyBridge) {
+    return {
+      evidence:
+        'The app-owned FPInboundSharing bridge exists for iOS and Android, but no Harmony implementation was found.',
+      name: 'FPInboundSharing',
+      recommendation:
+        'Port this bridge if you want Harmony to receive files/text from the OS share sheet.',
+      status: 'blocked',
+      version: 'app-native',
+    };
+  }
+
+  return {
+    evidence:
+      'No missing app-owned inbound sharing bridge was detected for Harmony in the current workspace.',
+    name: 'FPInboundSharing',
+    recommendation:
+      'Keep the inbound sharing bridge aligned across all native targets.',
+    status: 'supported',
+    version: 'app-native',
   };
 }
 
@@ -256,10 +402,10 @@ function printTextReport(results) {
     '2. Replace supported third-party packages with their Harmony template variants.',
   );
   console.log(
-    '3. Port or replace custom native modules such as @fileflash/react-native-static-server.',
+    '3. Prefer the TCP socket Harmony runtime path, and only keep custom native server modules for iOS/Android.',
   );
   console.log(
-    '4. Verify unknown dependencies before generating the Harmony target.',
+    '4. Verify app-owned native bridges such as the inbound share receiver before generating the Harmony target.',
   );
 }
 
@@ -275,9 +421,12 @@ function main() {
   };
 
   const evaluated = sortBySeverity(
-    Object.entries(dependencies).map(([name, version]) =>
-      evaluateDependency(name, normalizeVersion(version)),
-    ),
+    [
+      ...Object.entries(dependencies).map(([name, version]) =>
+        evaluateDependency(name, normalizeVersion(version)),
+      ),
+      evaluateInboundSharingBridge(),
+    ],
   );
 
   const hasBlockingItems = evaluated.some(item => item.status === 'blocked');

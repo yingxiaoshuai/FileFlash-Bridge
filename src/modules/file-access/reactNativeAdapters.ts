@@ -1,17 +1,16 @@
 import {NativeModules, Platform} from 'react-native';
 import {
-  errorCodes as documentPickerErrorCodes,
-  isErrorWithCode as isDocumentPickerErrorWithCode,
-  keepLocalCopy,
-  pick as pickDocuments,
-  saveDocuments,
-  type FileToCopy,
-  types as documentPickerTypes,
-} from '@react-native-documents/picker';
+  documentPickerErrorCodes,
+  documentPickerTypes,
+  isDocumentPickerErrorWithCode,
+  pickDocuments,
+  savePickedDocuments,
+} from '../../platform/documentPicker';
 import Share from 'react-native-share';
 import RNFS from 'react-native-fs';
 import {gzip, ungzip} from 'pako';
 
+import {isHarmonyPlatform} from '../../platform/platform';
 import {
   CompressionAdapter,
   FileSystemAdapter,
@@ -49,10 +48,18 @@ type NativePendingSharedItems = {
   texts?: NativeImportedDeviceText[];
 };
 
+type LocalCopyFile = {
+  convertVirtualFileToType?: string;
+  fileName: string;
+  uri: string;
+};
+
 type NativeInboundSharingModule = {
   consumePendingSharedItems?: () => Promise<NativePendingSharedItems>;
   pickMediaFiles?: () => Promise<NativeImportedDeviceFile[]>;
 };
+
+const HARMONY_PENDING_SHARE_MANIFEST_PATH = `${RNFS.DocumentDirectoryPath}/ffb-inbound/pending.json`;
 
 const nativeFileReader = NativeModules.FPFileReader as
   | NativeFileReaderModule
@@ -402,50 +409,61 @@ function normalizeImportedDeviceText(
   };
 }
 
-export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
+async function consumeHarmonyPendingSharedItems(): Promise<NativePendingSharedItems> {
+  const exists = await RNFS.exists(HARMONY_PENDING_SHARE_MANIFEST_PATH);
+  if (!exists) {
+    return {
+      files: [],
+      texts: [],
+    };
+  }
+
   try {
-    const selectedFiles = await pickDocuments({
-      allowMultiSelection: true,
-      type: [documentPickerTypes.allFiles],
-    });
-    const filesToCopy = selectedFiles.map(file => ({
-      fileName: file.name ?? fileNameFromPath(file.uri),
-      ...(file.isVirtual && file.convertibleToMimeTypes?.[0]?.mimeType
-        ? {
-            convertVirtualFileToType:
-              file.convertibleToMimeTypes[0].mimeType,
-          }
-        : {}),
-      uri: file.uri,
-    })) as [FileToCopy, ...FileToCopy[]];
-    const localCopies = await keepLocalCopy({
-      destination: 'cachesDirectory',
-      files: filesToCopy,
-    });
-    const localCopiesBySourceUri = new Map(
-      localCopies.map(localCopy => [localCopy.sourceUri, localCopy]),
+    const rawManifest = await RNFS.readFile(
+      HARMONY_PENDING_SHARE_MANIFEST_PATH,
+      'utf8',
     );
-    const normalizedFiles = selectedFiles.map(file => {
-      const localCopy = localCopiesBySourceUri.get(file.uri);
-      return {
-        ...file,
-        copyError:
-          localCopy?.status === 'error' ? localCopy.copyError : undefined,
-        fileCopyUri:
-          localCopy?.status === 'success' ? localCopy.localUri : undefined,
-      };
-    });
+    const parsed = JSON.parse(rawManifest) as NativePendingSharedItems | null;
+    return {
+      files: Array.isArray(parsed?.files) ? parsed.files : [],
+      texts: Array.isArray(parsed?.texts) ? parsed.texts : [],
+    };
+  } catch {
+    throw new Error('Failed to read pending Harmony shared items.');
+  } finally {
+    await safeDeletePath(HARMONY_PENDING_SHARE_MANIFEST_PATH);
+  }
+}
+
+async function pickDocumentsForShare(
+  requestedTypes: string[],
+): Promise<ImportedDeviceFile[]> {
+  try {
+    const selectedFiles = await pickDocuments(
+      isHarmonyPlatform()
+        ? {
+            allowMultiSelection: true,
+            copyTo: 'cachesDirectory',
+            type: requestedTypes,
+          }
+        : {
+            allowMultiSelection: true,
+            type: requestedTypes,
+          },
+    );
+    const normalizedFiles = isHarmonyPlatform()
+      ? selectedFiles
+      : await copyPickedDocumentsToCache(selectedFiles);
 
     const importedFiles: ImportedDeviceFile[] = [];
     for (const file of normalizedFiles) {
-      const localCopy = localCopiesBySourceUri.get(file.uri);
-      if (!localCopy || localCopy.status !== 'success') {
+      if (!file.fileCopyUri) {
         throw new Error(
           `无法读取 ${file.name ?? '所选文件'}：${file.copyError}`,
         );
       }
 
-      const sourceUri = file.fileCopyUri ?? file.uri;
+      const sourceUri = file.fileCopyUri;
       if (!sourceUri) {
         throw new Error('所选文件缺少可读取的本地路径。');
       }
@@ -454,7 +472,7 @@ export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
       const fileStat = await RNFS.stat(normalizedPath);
       importedFiles.push({
         byteLength: Number(fileStat.size) || 0,
-        cleanupPath: file.fileCopyUri ? normalizedPath : undefined,
+        cleanupPath: normalizedPath,
         mimeType: file.type ?? undefined,
         name: file.name ?? fileNameFromPath(normalizedPath),
         relativePath: file.name ?? fileNameFromPath(normalizedPath),
@@ -472,26 +490,90 @@ export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
   }
 }
 
+async function copyPickedDocumentsToCache(
+  selectedFiles: Array<{
+    convertibleToMimeTypes?: Array<{mimeType: string}>;
+    isVirtual?: boolean;
+    name: string | null;
+    type?: string | null;
+    uri: string;
+  }>,
+) {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const {keepLocalCopy} = require('@react-native-documents/picker') as {
+    keepLocalCopy: (options: {
+      destination: 'cachesDirectory' | 'documentDirectory';
+      files: [LocalCopyFile, ...LocalCopyFile[]];
+    }) => Promise<
+      Array<
+        | {
+            localUri: string;
+            sourceUri: string;
+            status: 'success';
+          }
+        | {
+            copyError: string;
+            sourceUri: string;
+            status: 'error';
+          }
+      >
+    >;
+  };
+
+  const filesToCopy = selectedFiles.map(file => ({
+    fileName: file.name ?? fileNameFromPath(file.uri),
+    ...(file.isVirtual && file.convertibleToMimeTypes?.[0]?.mimeType
+      ? {
+          convertVirtualFileToType: file.convertibleToMimeTypes[0].mimeType,
+        }
+      : {}),
+    uri: file.uri,
+  })) as [LocalCopyFile, ...LocalCopyFile[]];
+  const localCopies = await keepLocalCopy({
+    destination: 'cachesDirectory',
+    files: filesToCopy,
+  });
+  const localCopiesBySourceUri = new Map(
+    localCopies.map(localCopy => [localCopy.sourceUri, localCopy]),
+  );
+
+  return selectedFiles.map(file => {
+    const localCopy = localCopiesBySourceUri.get(file.uri);
+    return {
+      ...file,
+      copyError:
+        localCopy?.status === 'error' ? localCopy.copyError : undefined,
+      fileCopyUri:
+        localCopy?.status === 'success' ? localCopy.localUri : undefined,
+    };
+  });
+}
+
+export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
+  return pickDocumentsForShare([documentPickerTypes.allFiles]);
+}
+
 export async function pickDeviceMediaForShare(): Promise<ImportedDeviceFile[]> {
-  if (!nativeInboundSharing?.pickMediaFiles) {
+  const pickMediaFiles = nativeInboundSharing?.pickMediaFiles;
+  if (!pickMediaFiles) {
     throw new Error('当前设备暂不支持直接从图库导入。');
   }
 
-  const files = await nativeInboundSharing.pickMediaFiles();
+  const files = await pickMediaFiles();
   return (files ?? []).map(file =>
     normalizeImportedDeviceFile(file, 'media picker'),
   );
 }
 
 export async function consumePendingSharedItems(): Promise<PendingSharedItems> {
-  if (!nativeInboundSharing?.consumePendingSharedItems) {
-    return {
-      files: [],
-      texts: [],
-    };
-  }
-
-  const payload = await nativeInboundSharing.consumePendingSharedItems();
+  const payload = nativeInboundSharing?.consumePendingSharedItems
+    ? await nativeInboundSharing.consumePendingSharedItems()
+    : isHarmonyPlatform()
+    ? await consumeHarmonyPendingSharedItems()
+    : {
+        files: [],
+        texts: [],
+      };
 
   return {
     files: (payload?.files ?? []).map(file =>
@@ -571,7 +653,7 @@ async function saveToSystemDocumentUri(
   file: SharedFileRecord,
   sourceUri: string,
 ): Promise<ExportResult> {
-  const [destination] = await saveDocuments({
+  const [destination] = await savePickedDocuments({
     fileName: file.displayName,
     mimeType: file.mimeType ?? 'application/octet-stream',
     sourceUris: [sourceUri],

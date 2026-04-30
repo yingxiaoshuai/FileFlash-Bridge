@@ -10,6 +10,7 @@
 		0C80B921A6F3F58F76C31292 /* libPods-FileFlashBridge.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-FileFlashBridge.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
+		761780F32CA45674006654EE /* FPDeviceState.m in Sources */ = {isa = PBXBuildFile; fileRef = 761780F22CA45674006654EE /* FPDeviceState.m */; };
 		761780F12CA45674006654EE /* FPFileReader.m in Sources */ = {isa = PBXBuildFile; fileRef = 761780F02CA45674006654EE /* FPFileReader.m */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		9FEE64E66507F4B1D51A950B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
@@ -51,6 +52,7 @@
 		5709B34CF0A7D63546082F79 /* Pods-FileFlashBridge.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-FileFlashBridge.release.xcconfig"; path = "Target Support Files/Pods-FileFlashBridge/Pods-FileFlashBridge.release.xcconfig"; sourceTree = "<group>"; };
 		5DCACB8F33CDC322A6C60F78 /* libPods-FileFlashBridge.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-FileFlashBridge.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = FileFlashBridge/AppDelegate.swift; sourceTree = "<group>"; };
+		761780F22CA45674006654EE /* FPDeviceState.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FPDeviceState.m; path = FileFlashBridge/FPDeviceState.m; sourceTree = "<group>"; };
 		761780F02CA45674006654EE /* FPFileReader.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FPFileReader.m; path = FileFlashBridge/FPFileReader.m; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = FileFlashBridge/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		A1B2C3010000000000000011 /* FPInboundSharing.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = FPInboundSharing.m; path = FileFlashBridge/FPInboundSharing.m; sourceTree = "<group>"; };
@@ -88,6 +90,7 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
 				A1B2C3010000000000000012 /* FileFlashBridge.entitlements */,
+				761780F22CA45674006654EE /* FPDeviceState.m */,
 				761780F02CA45674006654EE /* FPFileReader.m */,
 				A1B2C3010000000000000011 /* FPInboundSharing.m */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -339,6 +342,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				761780F32CA45674006654EE /* FPDeviceState.m in Sources */,
 				A1B2C3010000000000000001 /* FPInboundSharing.m in Sources */,
 				761780F12CA45674006654EE /* FPFileReader.m in Sources */,
 			);

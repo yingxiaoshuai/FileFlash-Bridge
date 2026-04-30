@@ -6,6 +6,41 @@ function getAddressFamily(address: string) {
   return address.includes(':') ? 'IPv6' : 'IPv4';
 }
 
+function createInterfaceDescriptor(
+  stateType: NetInfoStateType,
+  address: string,
+): NetworkInterfaceDescriptor {
+  if (stateType === NetInfoStateType.cellular) {
+    return {
+      address,
+      family: getAddressFamily(address),
+      internal: false,
+      modeHint: 'hotspot',
+      name: 'Cellular Hotspot',
+    };
+  }
+
+  if (
+    stateType === NetInfoStateType.wifi ||
+    stateType === NetInfoStateType.ethernet
+  ) {
+    return {
+      address,
+      family: getAddressFamily(address),
+      internal: false,
+      modeHint: 'wifi',
+      name: stateType === NetInfoStateType.wifi ? 'Wi-Fi' : 'Ethernet',
+    };
+  }
+
+  return {
+    address,
+    family: getAddressFamily(address),
+    internal: false,
+    name: stateType,
+  };
+}
+
 export function resolveInterfacesFromNetInfoState(
   state: NetInfoState,
 ): NetworkInterfaceDescriptor[] {
@@ -13,44 +48,13 @@ export function resolveInterfacesFromNetInfoState(
     return [];
   }
 
-  if (
-    state.type === NetInfoStateType.wifi ||
-    state.type === NetInfoStateType.ethernet
-  ) {
-    const address = state.details.ipAddress;
-    if (!address) {
-      return [];
-    }
-
-    return [
-      {
-        address,
-        family: getAddressFamily(address),
-        internal: false,
-        modeHint: 'wifi',
-        name: state.type === NetInfoStateType.wifi ? 'Wi-Fi' : 'Ethernet',
-      },
-    ];
+  const details = state.details as {ipAddress?: string | null};
+  const address = details.ipAddress?.trim();
+  if (!address) {
+    return [];
   }
 
-  if (state.type === NetInfoStateType.cellular) {
-    const details = state.details as {ipAddress?: string | null};
-    if (!details.ipAddress) {
-      return [];
-    }
-
-    return [
-      {
-        address: details.ipAddress,
-        family: getAddressFamily(details.ipAddress),
-        internal: false,
-        modeHint: 'hotspot',
-        name: 'Cellular Hotspot',
-      },
-    ];
-  }
-
-  return [];
+  return [createInterfaceDescriptor(state.type, address)];
 }
 
 export async function fetchNetworkInterfacesFromNetInfo() {

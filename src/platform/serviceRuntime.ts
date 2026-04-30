@@ -1,32 +1,14 @@
 import { createReactNativeHttpRuntime } from '../modules/service/reactNativeHttpRuntime';
+import { createReactNativeTcpHttpRuntime } from '../modules/service/reactNativeTcpHttpRuntime';
 import type {
   ServiceRuntime,
-  ServiceRuntimeHandle,
-  TransferRequest,
-  TransferResponse,
 } from '../modules/service/transferServiceController';
 
-import {
-  createUnsupportedHarmonyFeatureError,
-  isHarmonyPlatform,
-} from './platform';
-
-class UnsupportedHarmonyServiceRuntime implements ServiceRuntime {
-  async start(_options: {
-    handler: (request: TransferRequest) => Promise<TransferResponse>;
-    port: number;
-  }): Promise<ServiceRuntimeHandle> {
-    throw createUnsupportedHarmonyFeatureError('the local transfer service');
-  }
-
-  async isRunning() {
-    return false;
-  }
-}
+import { isHarmonyPlatform } from './platform';
 
 export function createPlatformServiceRuntime(): ServiceRuntime {
   if (isHarmonyPlatform()) {
-    return new UnsupportedHarmonyServiceRuntime();
+    return createReactNativeTcpHttpRuntime();
   }
 
   return createReactNativeHttpRuntime();

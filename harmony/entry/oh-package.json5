@@ -1,0 +1,9 @@
+{
+  "license": "ISC",
+  "devDependencies": {},
+  "name": "entry",
+  "description": "Entry module for the FileFlash Bridge Harmony app shell.",
+  "version": "0.0.1",
+  "dependencies": {
+  }
+}

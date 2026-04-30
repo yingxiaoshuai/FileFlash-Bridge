@@ -9,9 +9,9 @@ import {
   View,
 } from 'react-native';
 import { Drawer, Menu } from 'react-native-paper';
-import QRCode from 'react-native-qrcode-svg';
 
 import { styles } from '../appShellStyles';
+import { PlatformQrCode } from '../components/PlatformQrCode';
 import {
   WorkspaceConnectionsIcon,
   WorkspaceSecurityIcon,
@@ -496,7 +496,7 @@ export function HomeScreen({
 
                 {model.serviceState.qrValue && hasReachableAddress ? (
                   <View style={styles.qrPanel}>
-                    <QRCode
+                    <PlatformQrCode
                       backgroundColor={theme.colors.surface}
                       color={theme.colors.ink}
                       size={serviceQrSize}

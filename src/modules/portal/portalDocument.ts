@@ -1107,8 +1107,19 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
       }
 
-      async function fetchChunk(fileId, start, end, signal) {
+      function combineUint8Arrays(parts, totalBytes) {
+        const combined = new Uint8Array(totalBytes);
+        let offset = 0;
+        for (const part of parts) {
+          combined.set(part, offset);
+          offset += part.byteLength;
+        }
+        return combined;
+      }
+
+      async function fetchChunk(fileId, start, end, signal, onChunkProgress) {
         let lastError = new Error(text.requestFailed);
+        const expectedBytes = Math.max(0, end - start);
         for (let attempt = 1; attempt <= maxChunkAttempts; attempt += 1) {
           if (signal && signal.aborted) {
             throw signal.reason || lastError;
@@ -1130,7 +1141,37 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               throw new Error(responseText || text.requestFailed);
             }
 
-            return new Uint8Array(await response.arrayBuffer());
+            const reader = response.body?.getReader?.();
+            if (!reader) {
+              const chunk = new Uint8Array(await response.arrayBuffer());
+              onChunkProgress?.(chunk.byteLength || expectedBytes, expectedBytes);
+              return chunk;
+            }
+
+            const parts = [];
+            let receivedBytes = 0;
+            while (true) {
+              const result = await reader.read();
+              if (result.done) {
+                break;
+              }
+
+              const value = result.value instanceof Uint8Array
+                ? result.value
+                : new Uint8Array(result.value || 0);
+              parts.push(value);
+              receivedBytes += value.byteLength;
+              onChunkProgress?.(
+                Math.min(expectedBytes || receivedBytes, receivedBytes),
+                expectedBytes,
+              );
+            }
+
+            onChunkProgress?.(
+              Math.max(receivedBytes, expectedBytes),
+              expectedBytes,
+            );
+            return combineUint8Arrays(parts, receivedBytes);
           } catch (error) {
             lastError = error;
             if (signal && signal.aborted) {
@@ -1177,9 +1218,19 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         const abortController =
           typeof AbortController === 'function' ? new AbortController() : null;
         const downloadedChunks = new Array(chunkPlan.length);
+        const chunkProgressByIndex = new Array(chunkPlan.length).fill(0);
         const workerCount = Math.min(chunkPlan.length, maxConcurrentDownloadChunks);
-        let completedBytes = 0;
         let nextChunkIndex = 0;
+
+        const reportProgress = () => {
+          const downloadedBytes = chunkProgressByIndex.reduce(
+            (sum, value) => sum + value,
+            0,
+          );
+          onProgress(totalBytes > 0 ? downloadedBytes / totalBytes : 1);
+        };
+
+        onProgress(0);
 
         const downloadNextChunk = async () => {
           while (true) {
@@ -1199,6 +1250,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               descriptor.start,
               descriptor.end,
               abortController?.signal,
+              loadedBytes => {
+                chunkProgressByIndex[descriptor.index] = Math.min(
+                  descriptor.length,
+                  Math.max(0, loadedBytes || 0),
+                );
+                reportProgress();
+              },
             );
 
             if (abortController?.signal.aborted) {
@@ -1206,8 +1264,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             }
 
             downloadedChunks[descriptor.index] = chunk;
-            completedBytes += descriptor.length;
-            onProgress(totalBytes > 0 ? completedBytes / totalBytes : 1);
+            chunkProgressByIndex[descriptor.index] = descriptor.length;
+            reportProgress();
           }
         };
 

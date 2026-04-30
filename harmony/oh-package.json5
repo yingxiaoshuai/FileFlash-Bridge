@@ -1,0 +1,56 @@
+{
+  "name": "fileflashbridge-harmony",
+  "description": "HarmonyOS host project for FileFlash Bridge.",
+  "version": "0.0.1",
+  "modelVersion": "5.0.0",
+  "license": "MIT",
+  "repository": {},
+  "dependencies": {
+    "@rnoh/react-native-openharmony": "file:../node_modules/@react-native-oh/react-native-harmony/react_native_openharmony.har",
+    "@react-native-oh-tpl/clipboard": "file:../node_modules/@react-native-oh-tpl/clipboard/harmony/clipboard.har",
+    "@react-native-oh-tpl/netinfo": "file:../node_modules/@react-native-oh-tpl/netinfo/harmony/netinfo.har",
+    "@react-native-oh-tpl/react-native-fs": "file:../node_modules/@react-native-oh-tpl/react-native-fs/harmony/fs.har",
+    "@react-native-oh-tpl/react-native-safe-area-context": "file:../node_modules/@react-native-oh-tpl/react-native-safe-area-context/harmony/safe_area.har",
+    "@react-native-oh-tpl/react-native-share": "file:../node_modules/@react-native-oh-tpl/react-native-share/harmony/react_native_share.har",
+    "@react-native-oh-tpl/react-native-svg": "file:../node_modules/@react-native-oh-tpl/react-native-svg/harmony/svg.har",
+    "@react-native-oh-tpl/react-native-tcp-socket": "file:../node_modules/@react-native-oh-tpl/react-native-tcp-socket/harmony/tcp_socket.har",
+    "@react-native-ohos/react-native-document-picker": "file:../node_modules/@react-native-ohos/react-native-document-picker/harmony/document_picker.har"
+  },
+  "devDependencies": {
+    "@ohos/hypium": "1.0.6",
+  },
+  "overrides": {
+    "@rnoh/react-native-openharmony": "file:../node_modules/@react-native-oh/react-native-harmony/react_native_openharmony.har",
+  },
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

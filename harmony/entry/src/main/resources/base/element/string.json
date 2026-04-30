@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "HarmonyOS entry module for FileFlash Bridge."
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "Launches the FileFlash Bridge Harmony workspace."
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "FileFlash Bridge"
+    }
+  ]
+}

@@ -45,6 +45,7 @@ import {
 } from '../platform/fileAccess';
 import { fetchPlatformNetworkInterfaces } from '../platform/networkProvider';
 import { createPlatformServiceRuntime } from '../platform/serviceRuntime';
+import { setPlatformIdleTimerDisabled } from '../platform/deviceState';
 
 type NoticeTone = 'info' | 'success' | 'error';
 
@@ -352,6 +353,15 @@ export function useAppModel() {
       subscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    const shouldKeepScreenAwake = state.serviceState.phase === 'running';
+    setPlatformIdleTimerDisabled(shouldKeepScreenAwake);
+
+    return () => {
+      setPlatformIdleTimerDisabled(false);
+    };
+  }, [state.serviceState.phase]);
 
   const securityCopy = useMemo(
     () => describeSecurityMode(state.serviceState.config.securityMode),

@@ -189,4 +189,97 @@ describe('ReactNativeFileSystemAdapter', () => {
       'base64',
     );
   });
+
+  test('reads pending shared items from the Harmony inbox manifest when the native bridge is unavailable', async () => {
+    jest.resetModules();
+
+    const exists = jest.fn().mockResolvedValue(true);
+    const readFile = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        files: [
+          {
+            byteLength: 12,
+            createdAt: '2026-04-29T12:00:00.000Z',
+            mimeType: 'text/plain',
+            name: 'notes.txt',
+            relativePath: 'notes.txt',
+            sourcePath: '/sandbox/cache/ffb-inbound/notes.txt',
+          },
+        ],
+        texts: [
+          {
+            content: 'Shared note',
+            createdAt: '2026-04-29T12:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    const unlink = jest.fn().mockResolvedValue(undefined);
+
+    jest.doMock('react-native', () => ({
+      NativeModules: {},
+      Platform: {
+        OS: 'harmony',
+      },
+    }));
+    jest.doMock('../src/platform/documentPicker', () => ({
+      documentPickerErrorCodes: {
+        OPERATION_CANCELED: 'DOCUMENT_PICKER_CANCELED',
+      },
+      documentPickerTypes: {
+        allFiles: '*/*',
+      },
+      isDocumentPickerErrorWithCode: jest.fn(),
+      pickDocuments: jest.fn(),
+      savePickedDocuments: jest.fn(),
+    }));
+    jest.doMock('react-native-share', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native-fs', () => ({
+      __esModule: true,
+      default: {
+        DocumentDirectoryPath: '/sandbox/files',
+        exists,
+        mkdir: jest.fn(),
+        readFile,
+        unlink,
+      },
+    }));
+    jest.doMock('pako', () => ({
+      gzip: jest.fn(),
+      ungzip: jest.fn(),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const {consumePendingSharedItems} = require('../src/modules/file-access/reactNativeAdapters');
+
+    await expect(consumePendingSharedItems()).resolves.toEqual({
+      files: [
+        {
+          byteLength: 12,
+          cleanupPath: '/sandbox/cache/ffb-inbound/notes.txt',
+          createdAt: '2026-04-29T12:00:00.000Z',
+          mimeType: 'text/plain',
+          name: 'notes.txt',
+          relativePath: 'notes.txt',
+          sourcePath: '/sandbox/cache/ffb-inbound/notes.txt',
+        },
+      ],
+      texts: [
+        {
+          content: 'Shared note',
+          createdAt: '2026-04-29T12:00:00.000Z',
+        },
+      ],
+    });
+
+    expect(exists).toHaveBeenCalledWith('/sandbox/files/ffb-inbound/pending.json');
+    expect(readFile).toHaveBeenCalledWith(
+      '/sandbox/files/ffb-inbound/pending.json',
+      'utf8',
+    );
+    expect(unlink).toHaveBeenCalledWith('/sandbox/files/ffb-inbound/pending.json');
+  });
 });
