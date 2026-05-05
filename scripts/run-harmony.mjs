@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { ensureDevEcoSdkHome } from './harmonySdk.mjs';
+
 const harmonyEntryBuildProfilePath = path.join(
   process.cwd(),
   'harmony',
@@ -18,6 +20,8 @@ const harmonyBuildLogPath = path.join(
   'build.log',
 );
 const hdcExecutableName = process.platform === 'win32' ? 'hdc.exe' : 'hdc';
+
+ensureDevEcoSdkHome();
 
 function parsePositiveInt(value) {
   const parsed = Number.parseInt(String(value ?? ''), 10);

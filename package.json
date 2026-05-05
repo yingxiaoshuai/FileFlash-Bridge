@@ -7,9 +7,11 @@
     "ios": "react-native run-ios",
     "harmony:bundle": "react-native bundle-harmony --config metro.config.js",
     "harmony:clean": "react-native clean-harmony --harmony-project-path ./harmony",
+    "harmony:configure": "node scripts/ensure-harmony-build-profile.mjs && node scripts/configure-harmony-project.mjs",
     "harmony:codegen": "react-native codegen-harmony --project-root-path . --ets-output-path ./harmony/entry/src/main/ets/codegen",
     "harmony:doctor": "node scripts/harmony-doctor.mjs",
     "harmony:link": "react-native link-harmony --harmony-project-path ./harmony --node-modules-path ./node_modules",
+    "harmony:release-hap": "node scripts/ensure-harmony-build-profile.mjs && node scripts/release-harmony-local.mjs",
     "harmony:run": "node scripts/ensure-harmony-build-profile.mjs && node scripts/run-harmony.mjs",
     "lint": "eslint .",
     "start": "react-native start",
@@ -19,6 +21,7 @@
     "android:apk": "node scripts/build-android-release-artifacts.mjs",
     "android:aab": "node scripts/build-android-release-artifacts.mjs --aab-only",
     "android:release": "node scripts/build-android-release-artifacts.mjs --with-aab",
+    "icons:harmony": "node scripts/generate-harmony-icon.mjs",
     "icons:generate": "node scripts/generate-app-icons.mjs"
   },
   "dependencies": {

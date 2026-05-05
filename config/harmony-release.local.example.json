@@ -1,0 +1,16 @@
+{
+  "releaseConfig": {
+    "bundleName": "FileFlash.bridge.huawei",
+    "storePassword": "your-p12-password",
+    "keyAlias": "your-key-alias",
+    "keyPassword": "your-key-password",
+    "vendor": "fileflash",
+    "signingName": "default",
+    "signAlg": "SHA256withECDSA"
+  },
+  "signing": {
+    "certPath": "D:\\sign\\distribution.cer",
+    "profilePath": "D:\\sign\\distribution.p7b",
+    "storeFilePath": "D:\\sign\\distribution.p12"
+  }
+}

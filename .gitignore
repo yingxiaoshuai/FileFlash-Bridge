@@ -77,3 +77,4 @@ yarn-error.log
 !.yarn/sdks
 !.yarn/versions
 /.cursor
+/config/harmony-release.local.json
