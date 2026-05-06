@@ -1,6 +1,6 @@
 # HarmonyOS Porting Notes
 
-Last updated: 2026-04-29
+Last updated: 2026-05-06
 
 ## Current conclusion
 
@@ -23,12 +23,11 @@ Verified Harmony template packages were found for:
 - `react-native-fs`
 - `react-native-safe-area-context`
 - `react-native-share`
-- `react-native-svg`
 - `react-native-tcp-socket`
 
 Additional notes:
 
-- `react-native-qrcode-svg` depends on `react-native-svg`, so it is only safe after `react-native-svg` is wired up.
+- `react-native-svg` and `react-native-qrcode-svg` remain in the root app for Android/iOS, but Harmony does not wire the SVG native package. Harmony resolves `src/app/icons/AppIcons.harmony.tsx` and `src/app/components/PlatformQrCode.harmony.tsx` instead, both implemented with React Native primitives.
 - The repo now includes a Harmony JS HTTP runtime built on top of `react-native-tcp-socket`, so Harmony no longer needs to port `@fileflash/react-native-static-server` directly.
 - Direct inbound share-sheet support still needs a Harmony-native bridge for `FPInboundSharing`.
 

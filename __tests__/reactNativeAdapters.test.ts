@@ -79,7 +79,8 @@ describe('ReactNativeFileSystemAdapter', () => {
   });
 
   test('uses native chunk reads on iOS when the module is available', async () => {
-    const {adapter, read, readChunkBase64, readFile} = loadAdapterForPlatform('ios');
+    const {adapter, read, readChunkBase64, readFile} =
+      loadAdapterForPlatform('ios');
     readChunkBase64.mockResolvedValue('native-chunk-base64');
 
     await expect(
@@ -92,7 +93,7 @@ describe('ReactNativeFileSystemAdapter', () => {
   });
 
   test('falls back to full-file slicing for chunk reads on iOS when the native module is unavailable', async () => {
-    const {adapter, read, readChunkBase64, readFile} = loadAdapterForPlatform('ios');
+    const {read, readChunkBase64, readFile} = loadAdapterForPlatform('ios');
     readChunkBase64.mockReset();
     // Simulate the JS bundle running before the native module is compiled in.
     jest.resetModules();
@@ -144,7 +145,8 @@ describe('ReactNativeFileSystemAdapter', () => {
   });
 
   test('falls back to a JS chunk read on iOS when the native reader rejects', async () => {
-    const {adapter, read, readChunkBase64, readFile} = loadAdapterForPlatform('ios');
+    const {adapter, read, readChunkBase64, readFile} =
+      loadAdapterForPlatform('ios');
     readChunkBase64.mockRejectedValue(new Error('native read failed'));
     readFile.mockResolvedValue(Buffer.from('abcdefghij', 'utf8').toString('base64'));
 

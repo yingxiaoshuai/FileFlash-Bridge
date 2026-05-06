@@ -1,5 +1,5 @@
 import { AppState } from 'react-native';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   WORKSPACE_ONBOARDING_VERSION,
@@ -78,10 +78,12 @@ function createInitialConfig(): ServiceConfig {
   };
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildNextProjectTitle(projects: ProjectRecord[]) {
   return `项目 ${projects.length + 1}`;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function asErrorMessage(error: unknown) {
   if (error instanceof Error) {
     return error.message;
@@ -94,6 +96,7 @@ function isDefined<T>(value: T | null | undefined): value is T {
   return value != null;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildImportedContentNotice(summary: {
   fileCount: number;
   textCount: number;
@@ -237,6 +240,60 @@ export function useAppModel() {
     return snapshot;
   };
 
+  const persistImportedContent = useCallback(
+    async (content: {
+      files: ImportedDeviceFile[];
+      texts: ImportedDeviceText[];
+    }) => {
+      const gateway = gatewayRef.current!;
+      let fileCount = 0;
+      let textCount = 0;
+
+      for (const text of content.texts) {
+        await gateway.appendTextMessage(text.content, undefined, {
+          createdAt: text.createdAt,
+          source: 'app',
+        });
+        textCount += 1;
+      }
+
+      for (const file of content.files) {
+        const savedFile = await gateway.saveInboundFile({
+          byteLength: file.byteLength,
+          createdAt: file.createdAt,
+          mimeType: file.mimeType,
+          name: file.name,
+          relativePath: file.relativePath,
+          sourcePath: file.sourcePath,
+        });
+        await gateway.addSharedFile(savedFile.id);
+        fileCount += 1;
+      }
+
+      return {
+        fileCount,
+        textCount,
+      };
+    },
+    [],
+  );
+
+  const importPendingSystemSharedItems = useCallback(async () => {
+    const content = await consumePendingSharedItems();
+    if (content.files.length === 0 && content.texts.length === 0) {
+      return {
+        fileCount: 0,
+        textCount: 0,
+      };
+    }
+
+    try {
+      return await persistImportedContent(content);
+    } finally {
+      await cleanupImportedDeviceFiles(content.files);
+    }
+  }, [persistImportedContent]);
+
   useEffect(() => {
     let active = true;
 
@@ -297,7 +354,7 @@ export function useAppModel() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [importPendingSystemSharedItems]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
@@ -352,7 +409,7 @@ export function useAppModel() {
     return () => {
       subscription.remove();
     };
-  }, []);
+  }, [importPendingSystemSharedItems]);
 
   useEffect(() => {
     const shouldKeepScreenAwake = state.serviceState.phase === 'running';
@@ -408,57 +465,6 @@ export function useAppModel() {
           tone: 'error',
         },
       }));
-    }
-  };
-
-  const persistImportedContent = async (content: {
-    files: ImportedDeviceFile[];
-    texts: ImportedDeviceText[];
-  }) => {
-    const gateway = gatewayRef.current!;
-    let fileCount = 0;
-    let textCount = 0;
-
-    for (const text of content.texts) {
-      await gateway.appendTextMessage(text.content, undefined, {
-        createdAt: text.createdAt,
-        source: 'app',
-      });
-      textCount += 1;
-    }
-
-    for (const file of content.files) {
-      const savedFile = await gateway.saveInboundFile({
-        byteLength: file.byteLength,
-        createdAt: file.createdAt,
-        mimeType: file.mimeType,
-        name: file.name,
-        relativePath: file.relativePath,
-        sourcePath: file.sourcePath,
-      });
-      await gateway.addSharedFile(savedFile.id);
-      fileCount += 1;
-    }
-
-    return {
-      fileCount,
-      textCount,
-    };
-  };
-
-  const importPendingSystemSharedItems = async () => {
-    const content = await consumePendingSharedItems();
-    if (content.files.length === 0 && content.texts.length === 0) {
-      return {
-        fileCount: 0,
-        textCount: 0,
-      };
-    }
-
-    try {
-      return await persistImportedContent(content);
-    } finally {
-      await cleanupImportedDeviceFiles(content.files);
     }
   };
 

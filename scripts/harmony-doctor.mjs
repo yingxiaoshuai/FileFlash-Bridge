@@ -80,13 +80,6 @@ const knownSupportMatrix = {
       'Keep this package wired into the Harmony host project and Metro alias path.',
     status: 'supported',
   },
-  '@react-native-oh-tpl/react-native-svg': {
-    evidence:
-      'Harmony template react-native-svg package is installed in the current workspace.',
-    recommendation:
-      'Keep this package wired into the Harmony host project and Metro alias path.',
-    status: 'supported',
-  },
   '@react-native-oh-tpl/react-native-tcp-socket': {
     evidence:
       'Harmony template react-native-tcp-socket package is installed in the current workspace.',
@@ -110,6 +103,13 @@ const knownSupportMatrix = {
   pako: {
     evidence: 'Pure JavaScript dependency.',
     recommendation: 'No Harmony-specific action is expected.',
+    status: 'js',
+  },
+  qrcode: {
+    evidence:
+      'Pure JavaScript dependency used by the Harmony QR matrix renderer.',
+    recommendation:
+      'Keep as a direct dependency while PlatformQrCode.harmony.tsx uses qrcode core directly.',
     status: 'js',
   },
   react: {
@@ -140,9 +140,9 @@ const knownSupportMatrix = {
   },
   'react-native-qrcode-svg': {
     evidence:
-      'JavaScript package that depends on react-native-svg being available on the target platform.',
+      'Used by Android/iOS only. Harmony resolves src/app/components/PlatformQrCode.harmony.tsx, which renders QR modules with React Native Views and qrcode core.',
     recommendation:
-      'Treat as supported only after react-native-svg is wired up on Harmony.',
+      'Keep the package for Android/iOS, but do not wire react-native-svg into the Harmony host project just for QR rendering.',
     status: 'conditional',
   },
   'react-native-safe-area-context': {
@@ -168,10 +168,10 @@ const knownSupportMatrix = {
   },
   'react-native-svg': {
     evidence:
-      'Verified Harmony template package exists: @react-native-oh-tpl/react-native-svg@15.0.1-8.',
+      'Used by Android/iOS icon and QR packages. Harmony resolves src/app/icons/AppIcons.harmony.tsx and src/app/components/PlatformQrCode.harmony.tsx instead.',
     recommendation:
-      'Swap to the Harmony template package when creating the Harmony branch/target.',
-    status: 'supported',
+      'Keep react-native-svg for Android/iOS, and keep it out of Harmony oh-package/native wiring unless a future Harmony screen explicitly needs SVG.',
+    status: 'conditional',
   },
 };
 

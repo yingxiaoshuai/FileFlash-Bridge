@@ -35,6 +35,7 @@ type TourTargetNode = React.ElementRef<typeof View>;
 export function AppShell(): React.JSX.Element {
   const model = useAppModel();
   const t = createAppTranslator(model.locale);
+  const skipWorkspaceOnboarding = model.skipWorkspaceOnboarding;
   const [activeTab, setActiveTab] = React.useState<AppTabId>('home');
   const [isLocaleMenuVisible, setLocaleMenuVisible] = React.useState(false);
   const [isSettingsQuickLocaleMenuVisible, setSettingsQuickLocaleMenuVisible] =
@@ -292,7 +293,7 @@ export function AppShell(): React.JSX.Element {
         if (tourStepIndex > 0) {
           setTourStepIndex(currentIndex => Math.max(0, currentIndex - 1));
         } else {
-          void model.skipWorkspaceOnboarding();
+          void skipWorkspaceOnboarding();
         }
 
         return true;
@@ -304,7 +305,7 @@ export function AppShell(): React.JSX.Element {
     };
   }, [
     model.onboarding.isVisible,
-    model.skipWorkspaceOnboarding,
+    skipWorkspaceOnboarding,
     tourStepIndex,
   ]);
 

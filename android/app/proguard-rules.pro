@@ -8,3 +8,10 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# React Native new-architecture release startup still touches the modern
+# devsupport/inspector bridge through JNI. Keep the Java wrapper classes that
+# the native side resolves reflectively so release builds do not crash during
+# initialization after R8 shrinking.
+-keep class com.facebook.react.devsupport.CxxInspectorPackagerConnection { *; }
+-keep class com.facebook.react.devsupport.CxxInspectorPackagerConnection$* { *; }

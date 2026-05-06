@@ -29,7 +29,6 @@ add_subdirectory("${RNOH_CPP_DIR}" ./rn)
 add_subdirectory("${OH_MODULES_DIR}/@react-native-oh-tpl/clipboard/src/main/cpp" ./clipboard)
 add_subdirectory("${OH_MODULES_DIR}/@react-native-oh-tpl/netinfo/src/main/cpp" ./netinfo)
 add_subdirectory("${OH_MODULES_DIR}/@react-native-oh-tpl/react-native-safe-area-context/src/main/cpp" ./safe_area)
-add_subdirectory("${OH_MODULES_DIR}/@react-native-oh-tpl/react-native-svg/src/main/cpp" ./svg)
 
 include("${CMAKE_CURRENT_SOURCE_DIR}/autolinking.cmake")
 
@@ -43,6 +42,5 @@ target_link_libraries(rnoh_app PUBLIC rnoh)
 target_link_libraries(rnoh_app PUBLIC rnoh_clipboard)
 target_link_libraries(rnoh_app PUBLIC rnoh_netinfo)
 target_link_libraries(rnoh_app PUBLIC rnoh_safe_area)
-target_link_libraries(rnoh_app PUBLIC rnoh_svg)
 
 autolink_libraries(rnoh_app)
