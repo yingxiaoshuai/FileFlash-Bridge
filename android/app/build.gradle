@@ -117,7 +117,7 @@ android {
     externalNativeBuild {
         cmake {
             // Route Android native builds through the app-local CMake entrypoint
-            // so we can patch RN 0.82 / react-native-svg warning policy in project space.
+            // so project-space native warning policy applies to autolinked code too.
             path file("src/main/jni/CMakeLists.txt")
         }
     }
