@@ -34,7 +34,6 @@
     "@react-native-oh-tpl/react-native-fs": "2.20.0-0.1.14",
     "@react-native-oh-tpl/react-native-safe-area-context": "4.7.4-0.2.1",
     "@react-native-oh-tpl/react-native-share": "10.2.1-0.0.6",
-    "@react-native-oh-tpl/react-native-svg": "15.0.1-8",
     "@react-native-oh-tpl/react-native-tcp-socket": "6.2.0-0.0.3",
     "@react-native-ohos/react-native-document-picker": "9.2.2",
     "pako": "^2.1.0",
