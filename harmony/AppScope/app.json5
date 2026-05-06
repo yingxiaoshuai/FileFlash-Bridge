@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "com.fileflashbridge.harmony",
+    "bundleName": "FileFlash.bridge.huawei",
     "vendor": "fileflash",
     "versionCode": 1000000,
     "versionName": "0.0.1",

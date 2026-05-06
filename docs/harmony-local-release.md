@@ -24,12 +24,21 @@ Copy-Item .\config\harmony-release.local.example.json .\config\harmony-release.l
     "signAlg": "SHA256withECDSA"
   },
   "signing": {
+    "directory": "D:\\sign",
     "certPath": "D:\\sign\\distribution.cer",
-    "profilePath": "D:\\sign\\distribution.p7b",
     "storeFilePath": "D:\\sign\\distribution.p12"
   }
 }
 ```
+
+如果你把 `.cer`、`.p12`、`.p7b` 都放在同一个目录，推荐直接填 `signing.directory`。
+脚本会自动在这个目录里查找：
+
+- `*.cer`
+- `*.p12`
+- `*.p7b`
+
+其中 `.p7b` 是鸿蒙正式签名必需文件，不能省略。
 
 这个文件已经被 `.gitignore` 忽略，不会上传。
 

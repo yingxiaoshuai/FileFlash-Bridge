@@ -1,6 +1,19 @@
 cmake_minimum_required(VERSION 3.11)
 project(rnapp)
 
+# HarmonyOS arm64 exposes pthread APIs through the system runtime rather than
+# a separate libpthread/libpthreads artifact. Force CMake's thread detection
+# to treat pthread support as built-in so nested third-party CMake logic does
+# not fail during configure.
+set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+set(CMAKE_THREAD_LIBS_INIT "" CACHE STRING "" FORCE)
+set(CMAKE_HAVE_THREADS_LIBRARY 1 CACHE INTERNAL "" FORCE)
+set(CMAKE_HAVE_LIBC_PTHREAD TRUE CACHE INTERNAL "" FORCE)
+set(CMAKE_USE_PTHREADS_INIT 1 CACHE INTERNAL "" FORCE)
+set(CMAKE_USE_WIN32_THREADS_INIT 0 CACHE INTERNAL "" FORCE)
+set(CMAKE_HP_PTHREADS_INIT 0 CACHE INTERNAL "" FORCE)
+set(Threads_FOUND TRUE CACHE INTERNAL "" FORCE)
+
 set(RNOH_APP_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(NODE_MODULES "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../node_modules")
 set(RNOH_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../oh_modules/@rnoh/react-native-openharmony/src/main/cpp")

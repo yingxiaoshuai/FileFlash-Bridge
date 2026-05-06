@@ -2,7 +2,10 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { prepareLocalHarmonyReleaseEnv } from './harmony-local-release-config.mjs';
+import {
+  cleanupLocalHarmonyReleaseArtifacts,
+  prepareLocalHarmonyReleaseEnv,
+} from './harmony-local-release-config.mjs';
 
 const repoRoot = process.cwd();
 const isWindows = process.platform === 'win32';
@@ -11,6 +14,7 @@ const reactNativeCommand = isWindows
   : path.join(repoRoot, 'node_modules', '.bin', 'react-native');
 const trackedConfigPaths = [
   path.join(repoRoot, 'harmony', 'AppScope', 'app.json5'),
+  path.join(repoRoot, 'harmony', 'build-profile.json5'),
   path.join(repoRoot, 'harmony', 'entry', 'src', 'main', 'module.json5'),
 ];
 
@@ -66,6 +70,7 @@ function main() {
     run(process.execPath, ['scripts/build-harmony-release.mjs']);
   } finally {
     restoreFiles(snapshots);
+    cleanupLocalHarmonyReleaseArtifacts();
   }
 }
 

@@ -9,8 +9,8 @@
     "signAlg": "SHA256withECDSA"
   },
   "signing": {
+    "directory": "D:\\sign",
     "certPath": "D:\\sign\\distribution.cer",
-    "profilePath": "D:\\sign\\distribution.p7b",
     "storeFilePath": "D:\\sign\\distribution.p12"
   }
 }

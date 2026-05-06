@@ -113,12 +113,12 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode resolvedVersionCode
         versionName resolvedVersionName
-        externalNativeBuild {
-            cmake {
-                // RN 0.82 marks SharedImageManager as deprecated and react-native-svg 15.0.0
-                // still references it in headers, so keep CI compiling until upstream aligns.
-                cppFlags "-Wno-error=deprecated-declarations"
-            }
+    }
+    externalNativeBuild {
+        cmake {
+            // Route Android native builds through the app-local CMake entrypoint
+            // so we can patch RN 0.82 / react-native-svg warning policy in project space.
+            path file("src/main/jni/CMakeLists.txt")
         }
     }
     signingConfigs {
