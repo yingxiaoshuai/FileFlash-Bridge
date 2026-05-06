@@ -45,5 +45,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>ShareViewController</string>
 	</dict>
+	<key>RCTNewArchEnabled</key>
+	<true/>
 </dict>
 </plist>
