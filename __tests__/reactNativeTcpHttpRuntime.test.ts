@@ -1,6 +1,7 @@
 import {
   encodeHttpResponse,
   parseHttpRequestFrame,
+  resolveTcpServerPort,
 } from '../src/modules/service/reactNativeTcpHttpRuntime';
 
 function decodeAscii(bytes: Uint8Array) {
@@ -82,5 +83,35 @@ describe('encodeHttpResponse', () => {
       'HTTP/1.1 206 Partial Content',
     );
     expect(Buffer.from(bodyBytes).toString('utf8')).toBe('chunk-data');
+  });
+});
+
+describe('resolveTcpServerPort', () => {
+  test('uses the fallback port when the Harmony socket reports port zero', () => {
+    expect(
+      resolveTcpServerPort(
+        {
+          address: () => ({
+            address: '0.0.0.0',
+            port: 0,
+          }),
+        },
+        8668,
+      ),
+    ).toBe(8668);
+  });
+
+  test('uses the runtime port when it is positive', () => {
+    expect(
+      resolveTcpServerPort(
+        {
+          address: () => ({
+            address: '0.0.0.0',
+            port: 8877,
+          }),
+        },
+        8668,
+      ),
+    ).toBe(8877);
   });
 });

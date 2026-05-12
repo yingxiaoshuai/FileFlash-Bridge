@@ -1,8 +1,8 @@
-import { createReactNativeHttpRuntime } from '../modules/service/reactNativeHttpRuntime';
+import { createReactNativeTcpHttpRuntime } from '../modules/service/reactNativeTcpHttpRuntime';
 import type {
   ServiceRuntime,
 } from '../modules/service/transferServiceController';
 
 export function createPlatformServiceRuntime(): ServiceRuntime {
-  return createReactNativeHttpRuntime();
+  return createReactNativeTcpHttpRuntime();
 }

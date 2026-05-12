@@ -68,7 +68,18 @@ const nativeInboundSharing = NativeModules.FPInboundSharing as
   | NativeInboundSharingModule
   | undefined;
 
-function bytesToBase64(bytes: Uint8Array) {
+const BASE64_ENCODE_CHUNK_BYTES = 384 * 1024;
+const HARMONY_FILE_WRITE_CHUNK_BYTES = 128 * 1024;
+
+type Base64BufferCtor = {
+  from(input: Uint8Array): {toString(encoding: 'base64'): string};
+};
+
+function getBase64BufferCtor() {
+  return (globalThis as {Buffer?: Base64BufferCtor}).Buffer;
+}
+
+function encodeBytesToBase64(bytes: Uint8Array) {
   let output = '';
 
   for (let index = 0; index < bytes.length; index += 3) {
@@ -87,6 +98,92 @@ function bytesToBase64(bytes: Uint8Array) {
   }
 
   return output;
+}
+
+function bytesToBase64(bytes: Uint8Array) {
+  const bufferCtor = getBase64BufferCtor();
+  if (bufferCtor) {
+    return bufferCtor.from(bytes).toString('base64');
+  }
+
+  return encodeBytesToBase64(bytes);
+}
+
+function waitForEventLoopTurn() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function getAlignedBase64ChunkEnd(start: number, totalLength: number) {
+  const end = Math.min(totalLength, start + BASE64_ENCODE_CHUNK_BYTES);
+  if (end >= totalLength) {
+    return end;
+  }
+
+  const alignedEnd = end - ((end - start) % 3);
+  return alignedEnd > start ? alignedEnd : end;
+}
+
+async function bytesToBase64Async(bytes: Uint8Array) {
+  const bufferCtor = getBase64BufferCtor();
+  if (
+    bufferCtor &&
+    (!isHarmonyPlatform() || bytes.byteLength <= BASE64_ENCODE_CHUNK_BYTES)
+  ) {
+    return bufferCtor.from(bytes).toString('base64');
+  }
+
+  if (bytes.byteLength <= BASE64_ENCODE_CHUNK_BYTES) {
+    return bufferCtor
+      ? bufferCtor.from(bytes).toString('base64')
+      : encodeBytesToBase64(bytes);
+  }
+
+  const parts: string[] = [];
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    const end = getAlignedBase64ChunkEnd(offset, bytes.byteLength);
+    const chunk = bytes.subarray(offset, end);
+    parts.push(
+      bufferCtor
+        ? bufferCtor.from(chunk).toString('base64')
+        : encodeBytesToBase64(chunk),
+    );
+    offset = end;
+    if (offset < bytes.byteLength) {
+      await waitForEventLoopTurn();
+    }
+  }
+
+  return parts.join('');
+}
+
+async function writeBase64Chunks(
+  content: Uint8Array,
+  writeChunk: (contentBase64: string, isFirstChunk: boolean) => Promise<void>,
+) {
+  if (content.byteLength === 0) {
+    await writeChunk('', true);
+    return;
+  }
+
+  let offset = 0;
+  let isFirstChunk = true;
+
+  while (offset < content.byteLength) {
+    const end = Math.min(
+      content.byteLength,
+      offset + HARMONY_FILE_WRITE_CHUNK_BYTES,
+    );
+    const contentBase64 = await bytesToBase64Async(content.subarray(offset, end));
+    await writeChunk(contentBase64, isFirstChunk);
+
+    offset = end;
+    isFirstChunk = false;
+
+    if (offset < content.byteLength) {
+      await waitForEventLoopTurn();
+    }
+  }
 }
 
 function base64ToBytes(base64: string) {
@@ -153,7 +250,7 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       await RNFS.mkdir(destinationDir);
     }
 
-    if (Platform.OS !== 'ios') {
+    if (Platform.OS !== 'ios' && !isHarmonyPlatform()) {
       await RNFS.copyFile(sourcePath, destinationPath);
       return;
     }
@@ -178,8 +275,8 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       // Fall through to the read/write fallback below.
     }
 
-    // Some iOS RNFS copy flows can report success without leaving a readable
-    // destination file behind. Recreate the destination deterministically.
+    // Some iOS and Harmony RNFS copy flows can report success without leaving
+    // a readable destination file behind. Recreate the destination deterministically.
     const contentBase64 = await RNFS.readFile(sourcePath, 'base64');
     await RNFS.writeFile(destinationPath, contentBase64, 'base64');
     if (!(await RNFS.exists(destinationPath))) {
@@ -253,7 +350,22 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
 
   async writeFile(path: string, content: Uint8Array) {
     await RNFS.mkdir(path.split('/').slice(0, -1).join('/'));
-    await RNFS.writeFile(path, bytesToBase64(content), 'base64');
+
+    if (
+      isHarmonyPlatform() &&
+      content.byteLength > HARMONY_FILE_WRITE_CHUNK_BYTES
+    ) {
+      await writeBase64Chunks(content, async (contentBase64, isFirstChunk) => {
+        if (isFirstChunk) {
+          await RNFS.writeFile(path, contentBase64, 'base64');
+        } else {
+          await RNFS.appendFile(path, contentBase64, 'base64');
+        }
+      });
+      return;
+    }
+
+    await RNFS.writeFile(path, await bytesToBase64Async(content), 'base64');
   }
 
   async appendFile(path: string, content: Uint8Array) {
@@ -262,7 +374,17 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       await RNFS.mkdir(dir);
     }
 
-    await RNFS.appendFile(path, bytesToBase64(content), 'base64');
+    if (
+      isHarmonyPlatform() &&
+      content.byteLength > HARMONY_FILE_WRITE_CHUNK_BYTES
+    ) {
+      await writeBase64Chunks(content, async contentBase64 => {
+        await RNFS.appendFile(path, contentBase64, 'base64');
+      });
+      return;
+    }
+
+    await RNFS.appendFile(path, await bytesToBase64Async(content), 'base64');
   }
 
   async appendFileBase64(path: string, contentBase64: string) {
@@ -457,22 +579,29 @@ async function pickDocumentsForShare(
 
     const importedFiles: ImportedDeviceFile[] = [];
     for (const file of normalizedFiles) {
-      if (!file.fileCopyUri) {
+      if (!file.fileCopyUri && !isHarmonyPlatform()) {
         throw new Error(
           `无法读取 ${file.name ?? '所选文件'}：${file.copyError}`,
         );
       }
 
-      const sourceUri = file.fileCopyUri;
+      const sourceUri =
+        file.fileCopyUri ?? (isHarmonyPlatform() ? file.uri : undefined);
       if (!sourceUri) {
         throw new Error('所选文件缺少可读取的本地路径。');
       }
 
       const normalizedPath = normalizeFileUri(sourceUri);
-      const fileStat = await RNFS.stat(normalizedPath);
+      const fileStat = await RNFS.stat(normalizedPath).catch(() => undefined);
+      const pickerSize = 'size' in file ? file.size : undefined;
+      const byteLength =
+        Number(fileStat?.size) ||
+        (typeof pickerSize === 'number' && Number.isFinite(pickerSize)
+          ? pickerSize
+          : 0);
       importedFiles.push({
-        byteLength: Number(fileStat.size) || 0,
-        cleanupPath: normalizedPath,
+        byteLength,
+        cleanupPath: file.fileCopyUri ? normalizedPath : undefined,
         mimeType: file.type ?? undefined,
         name: file.name ?? fileNameFromPath(normalizedPath),
         relativePath: file.name ?? fileNameFromPath(normalizedPath),

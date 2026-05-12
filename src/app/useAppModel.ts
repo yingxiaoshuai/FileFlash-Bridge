@@ -223,6 +223,19 @@ export function useAppModel() {
     onboarding: createWorkspaceOnboardingViewState(),
     serviceState: createInitialServiceState(configRef.current!),
   }));
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  const resolveCurrentErrorMessage = (error: unknown) =>
+    resolveLocalizedErrorMessage(
+      error,
+      stateRef.current?.locale ?? DEFAULT_APP_LOCALE,
+    );
+
+  const createErrorNotice = (error: unknown): AppNotice => ({
+    message: resolveCurrentErrorMessage(error),
+    tone: 'error',
+  });
 
   const syncSnapshot = async (notice?: AppNotice, busyAction?: string) => {
     const snapshot = await gatewayRef.current!.getSnapshot();
@@ -337,14 +350,12 @@ export function useAppModel() {
           return;
         }
 
+        const errorNotice = createErrorNotice(error);
         setState(currentState => ({
           ...currentState,
           busyAction: undefined,
           isReady: true,
-          notice: {
-            message: resolveLocalizedErrorMessage(error, currentState.locale),
-            tone: 'error',
-          },
+          notice: errorNotice,
         }));
       }
     };
@@ -395,12 +406,10 @@ export function useAppModel() {
             snapshot,
           }));
         } catch (error) {
+          const errorNotice = createErrorNotice(error);
           setState(currentState => ({
             ...currentState,
-            notice: {
-              message: resolveLocalizedErrorMessage(error, currentState.locale),
-              tone: 'error',
-            },
+            notice: errorNotice,
           }));
         }
       })();
@@ -457,13 +466,11 @@ export function useAppModel() {
       await action();
       await syncSnapshot(notice);
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     }
   };
@@ -516,13 +523,11 @@ export function useAppModel() {
         snapshot: nextSnapshot,
       }));
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     }
   };
@@ -558,13 +563,11 @@ export function useAppModel() {
         snapshot: nextSnapshot,
       }));
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     }
   };
@@ -598,13 +601,11 @@ export function useAppModel() {
         snapshot: nextSnapshot,
       }));
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
         serviceState: controllerRef.current!.getState(),
       }));
     }
@@ -661,13 +662,11 @@ export function useAppModel() {
       });
       return true;
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
       return false;
     }
@@ -735,13 +734,11 @@ export function useAppModel() {
         tone: 'success',
       });
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     } finally {
       await cleanupImportedDeviceFiles(importedFiles);
@@ -899,16 +896,15 @@ export function useAppModel() {
         notice: localizedExportNotice,
       }));
     } catch (error) {
+      const locale = stateRef.current?.locale ?? DEFAULT_APP_LOCALE;
+      const errorMessage = resolveCurrentErrorMessage(error);
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
         notice: {
-          message: createAppTranslator(currentState.locale)(
-            'error.exportFailed',
-            {
-              message: resolveLocalizedErrorMessage(error, currentState.locale),
-            },
-          ),
+          message: createAppTranslator(locale)('error.exportFailed', {
+            message: errorMessage,
+          }),
           tone: 'error',
         },
       }));
@@ -936,12 +932,10 @@ export function useAppModel() {
         }),
       }));
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     }
   };
@@ -958,12 +952,10 @@ export function useAppModel() {
         onboarding: createWorkspaceOnboardingViewState(onboarding),
       }));
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     }
   };
@@ -980,12 +972,10 @@ export function useAppModel() {
         onboarding: createWorkspaceOnboardingViewState(onboarding),
       }));
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     }
   };
@@ -1002,12 +992,10 @@ export function useAppModel() {
         locale,
       }));
     } catch (error) {
+      const errorNotice = createErrorNotice(error);
       setState(currentState => ({
         ...currentState,
-        notice: {
-          message: resolveLocalizedErrorMessage(error, currentState.locale),
-          tone: 'error',
-        },
+        notice: errorNotice,
       }));
     }
   };

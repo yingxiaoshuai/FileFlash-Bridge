@@ -566,6 +566,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const text = ${portalTextJson};
       const authKey = new URL(location.href).searchParams.get('key');
       const chunkSize = ${model.chunkSize};
+      const uploadChunkSize = chunkSize;
       const maxConcurrentDownloadChunks = Math.max(
         2,
         Math.min(4, Number(navigator.hardwareConcurrency) || 4),
@@ -603,7 +604,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       function interpolate(template, params) {
-        return String(template).replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key) => {
+        return String(template).replace(/\\{\\{\\s*(\\w+)\\s*\\}\\}/g, (_, key) => {
           return params && params[key] != null ? String(params[key]) : '';
         });
       }
@@ -909,6 +910,10 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
       }
 
+      function waitForBrowserTurn() {
+        return new Promise(resolve => setTimeout(resolve, 0));
+      }
+
       function uploadBinarySingle(file, onProgress) {
         return new Promise((resolve, reject) => {
           const request = new XMLHttpRequest();
@@ -962,7 +967,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         const relativePath = file.webkitRelativePath || file.name;
         const mimeType = file.type || 'application/octet-stream';
 
-        if (file.size <= chunkSize) {
+        if (file.size === 0) {
           return uploadBinarySingle(file, onProgress);
         }
 
@@ -980,16 +985,16 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           }
 
           onProgress(0);
-          const totalChunks = Math.ceil(file.size / chunkSize);
+          const totalChunks = Math.ceil(file.size / uploadChunkSize);
           for (let index = 0; index < totalChunks; index += 1) {
-            const start = index * chunkSize;
-            const end = Math.min(file.size, start + chunkSize);
+            const start = index * uploadChunkSize;
+            const end = Math.min(file.size, start + uploadChunkSize);
             const slice = file.slice(start, end);
-            const buffer = await slice.arrayBuffer();
+            const bytes = new Uint8Array(await slice.arrayBuffer());
             const response = await fetch(
               withKey('/api/upload/part?uploadId=' + encodeURIComponent(uploadId)),
               {
-                body: buffer,
+                body: bytes,
                 headers: getClientHeaders({
                   'content-type': 'application/octet-stream',
                 }),
@@ -1001,6 +1006,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               throw new Error(payload.message || text.requestFailed);
             }
             onProgress(end / file.size);
+            await waitForBrowserTurn();
           }
 
           return await postJson('/api/upload/finish', {uploadId: uploadId});

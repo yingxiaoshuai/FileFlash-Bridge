@@ -1,24 +1,40 @@
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import { ensureDevEcoSdkHome } from './harmonySdk.mjs';
+import {
+  cleanupLocalHarmonyReleaseArtifacts,
+  prepareLocalHarmonyReleaseEnv,
+} from './harmony-local-release-config.mjs';
 
+const repoRoot = process.cwd();
+const harmonyDir = path.join(repoRoot, 'harmony');
 const harmonyEntryBuildProfilePath = path.join(
-  process.cwd(),
-  'harmony',
+  harmonyDir,
   'entry',
   'build-profile.json5',
 );
 const harmonyBuildLogPath = path.join(
-  process.cwd(),
-  'harmony',
+  harmonyDir,
   '.hvigor',
   'outputs',
   'build-logs',
   'build.log',
 );
+const defaultLocalReleaseConfigPath = path.join(
+  repoRoot,
+  'config',
+  'harmony-release.local.json',
+);
+const trackedConfigPaths = [
+  path.join(harmonyDir, 'AppScope', 'app.json5'),
+  path.join(harmonyDir, 'build-profile.json5'),
+  path.join(harmonyDir, 'entry', 'build-profile.json5'),
+  path.join(harmonyDir, 'entry', 'src', 'main', 'module.json5'),
+];
+const nativeAbiNames = new Set(['arm64-v8a', 'x86_64']);
 const hdcExecutableName = process.platform === 'win32' ? 'hdc.exe' : 'hdc';
 
 ensureDevEcoSdkHome();
@@ -34,16 +50,19 @@ function resolveBuildJobs() {
       ? os.availableParallelism()
       : os.cpus().length;
 
-  const defaultBuildJobs = Math.max(
-    4,
-    Math.min(12, Math.floor(logicalCores * 0.6)),
-  );
+  const defaultBuildJobs =
+    process.platform === 'win32'
+      ? Math.max(2, Math.min(4, Math.floor(logicalCores * 0.25) || 2))
+      : Math.max(4, Math.min(12, Math.floor(logicalCores * 0.6)));
   const buildJobs =
     parsePositiveInt(process.env.CMAKE_BUILD_PARALLEL_LEVEL) ??
     parsePositiveInt(process.env.HARMONY_BUILD_JOBS) ??
     defaultBuildJobs;
 
-  const defaultLinkJobs = Math.max(1, Math.min(2, Math.floor(buildJobs / 6)));
+  const defaultLinkJobs =
+    process.platform === 'win32'
+      ? 1
+      : Math.max(1, Math.min(2, Math.floor(buildJobs / 6)));
   const linkJobs =
     parsePositiveInt(process.env.HARMONY_LINK_JOBS) ?? defaultLinkJobs;
 
@@ -130,7 +149,65 @@ function getTargetAbiFilters(hdcPath, target) {
   }
 }
 
+function setupLocalBrowserForwarding() {
+  if (String(process.env.HARMONY_ENABLE_BROWSER_FPORT ?? '1') === '0') {
+    return;
+  }
+
+  const hdcPath = resolveHdcPath();
+  const port = parsePositiveInt(process.env.HARMONY_BROWSER_FORWARD_PORT) ?? 8668;
+  const connectedTargets = getConnectedHdcTargets(hdcPath);
+
+  if (!hdcPath || !fs.existsSync(hdcPath) || connectedTargets.length === 0) {
+    return;
+  }
+
+  for (const target of connectedTargets) {
+    try {
+      execFileSync(
+        hdcPath,
+        ['-t', target, 'fport', 'rm', `tcp:${port}`, `tcp:${port}`],
+        {
+          cwd: repoRoot,
+          stdio: 'ignore',
+        },
+      );
+    } catch {
+      // The rule may not exist yet.
+    }
+
+    try {
+      execFileSync(
+        hdcPath,
+        ['-t', target, 'fport', `tcp:${port}`, `tcp:${port}`],
+        {
+          cwd: repoRoot,
+          stdio: 'ignore',
+        },
+      );
+      console.log(
+        `[harmony-build] browser forward: http://127.0.0.1:${port} -> ${target}:${port}`,
+      );
+    } catch (error) {
+      console.warn(
+        `[harmony-build] browser forward failed for ${target}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+}
+
 function resolveAbiFilters() {
+  const configuredValue = String(process.env.HARMONY_ABI_FILTERS ?? '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+
+  if (configuredValue.length > 0) {
+    return configuredValue;
+  }
+
   const hdcPath = resolveHdcPath();
   const connectedTargets = getConnectedHdcTargets(hdcPath);
 
@@ -141,13 +218,20 @@ function resolveAbiFilters() {
     }
   }
 
-  // If no device is connected yet, keep both ABIs so the CLI can still boot a simulator.
-  return ['arm64-v8a', 'x86_64'];
+  // If no device is connected yet, prefer the local simulator ABI and avoid
+  // building two native trees on Windows, which can exhaust the page file.
+  return ['x86_64'];
 }
 
 function resolveFallbackBuildJobs(buildJobs, linkJobs) {
   const nextBuildJobs =
-    buildJobs > 8 ? 8 : buildJobs > 4 ? Math.max(4, buildJobs - 2) : buildJobs;
+    buildJobs > 8
+      ? 8
+      : buildJobs > 4
+        ? Math.max(4, buildJobs - 2)
+        : buildJobs > 2
+          ? 2
+          : buildJobs;
   const nextLinkJobs = Math.max(1, Math.min(linkJobs, 1));
 
   if (nextBuildJobs === buildJobs && nextLinkJobs === linkJobs) {
@@ -158,6 +242,134 @@ function resolveFallbackBuildJobs(buildJobs, linkJobs) {
     buildJobs: nextBuildJobs,
     linkJobs: nextLinkJobs,
   };
+}
+
+function snapshotFiles(filePaths) {
+  return filePaths.map(filePath => ({
+    content: fs.readFileSync(filePath, 'utf8'),
+    filePath,
+  }));
+}
+
+function restoreFiles(snapshots) {
+  for (const snapshot of snapshots) {
+    fs.writeFileSync(snapshot.filePath, snapshot.content);
+  }
+}
+
+function cleanupInactiveAbiDirs(rootDir, activeAbis) {
+  if (!fs.existsSync(rootDir)) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const entryPath = path.join(rootDir, entry.name);
+    if (nativeAbiNames.has(entry.name)) {
+      if (!activeAbis.has(entry.name)) {
+        try {
+          fs.rmSync(entryPath, {
+            force: true,
+            recursive: true,
+          });
+        } catch {
+          // A locked stale ABI directory will surface during the following build.
+        }
+      }
+      continue;
+    }
+
+    cleanupInactiveAbiDirs(entryPath, activeAbis);
+  }
+}
+
+function cleanupInactiveAbiArtifacts(moduleName, abiFilters) {
+  const activeAbis = new Set(abiFilters);
+  const moduleBuildDir = path.join(harmonyDir, moduleName, 'build', 'default');
+  const nativeOutputRoots = [
+    path.join(harmonyDir, moduleName, '.cxx'),
+    path.join(moduleBuildDir, 'intermediates', 'cmake', 'default', 'obj'),
+    path.join(moduleBuildDir, 'intermediates', 'libs', 'default'),
+    path.join(moduleBuildDir, 'intermediates', 'stripped_native_libs', 'default'),
+  ];
+
+  for (const nativeOutputRoot of nativeOutputRoots) {
+    cleanupInactiveAbiDirs(nativeOutputRoot, activeAbis);
+  }
+}
+
+function stopLingeringHarmonyBuildProcesses() {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  const repoPathForMatch = repoRoot.replace(/'/g, "''");
+  const script = `
+$repoPath = '${repoPathForMatch}'
+$targets = Get-CimInstance Win32_Process | Where-Object {
+  (
+    ($_.Name -ieq 'ninja.exe' -or $_.Name -ieq 'cmake.exe' -or $_.Name -ieq 'clang++.exe')
+    -and $_.CommandLine
+    -and $_.CommandLine -like "*$repoPath*"
+  ) -or (
+    $_.Name -ieq 'node.exe'
+    -and $_.CommandLine
+    -and $_.CommandLine -like "*daemon-process-boot-script.js*"
+  )
+}
+
+foreach ($target in $targets) {
+  Stop-Process -Id $target.ProcessId -Force -ErrorAction SilentlyContinue
+}
+`.trim();
+
+  spawnSync('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', script], {
+    cwd: repoRoot,
+    stdio: 'ignore',
+  });
+}
+
+function shouldUseLocalSigningConfig() {
+  const configuredPath = String(
+    process.env.HARMONY_LOCAL_RELEASE_CONFIG_PATH ?? '',
+  ).trim();
+
+  if (configuredPath) {
+    return true;
+  }
+
+  if (
+    String(process.env.HARMONY_RELEASE_CONFIG_JSON_BASE64 ?? '').trim() ||
+    String(process.env.HARMONY_SIGNING_ARCHIVE_BASE64 ?? '').trim()
+  ) {
+    return true;
+  }
+
+  return fs.existsSync(defaultLocalReleaseConfigPath);
+}
+
+function runConfigureHarmonyProject() {
+  execFileSync(process.execPath, ['scripts/configure-harmony-project.mjs'], {
+    cwd: repoRoot,
+    stdio: 'inherit',
+    env: process.env,
+  });
+}
+
+function runHarmonyDependencyPatches() {
+  for (const patchScript of [
+    'scripts/patch-harmony-react-native-fs.mjs',
+    'scripts/patch-harmony-react-native-tcp-socket.mjs',
+  ]) {
+    execFileSync(process.execPath, [patchScript], {
+      cwd: repoRoot,
+      stdio: 'inherit',
+      env: process.env,
+    });
+  }
 }
 
 function syncHarmonyEntryBuildProfile(buildJobs, linkJobs, abiFilters) {
@@ -219,8 +431,16 @@ function hasEs2abcFailure(logContent) {
   );
 }
 
+function hasNativeNinjaFailure(logContent) {
+  return (
+    logContent.includes('BuildNativeWithNinja') ||
+    logContent.includes('ninja: build stopped: subcommand failed') ||
+    logContent.includes('Exceptions happened while executing')
+  );
+}
+
 function printRecoveryHint(buildJobs, linkJobs) {
-  console.error('[harmony-build] ArkTS compiler still failed after retry.');
+  console.error('[harmony-build] Harmony build still failed after retry.');
   console.error('[harmony-build] Recommended recovery:');
   console.error('  npm run harmony:clean');
   console.error(`  $env:HARMONY_BUILD_JOBS='${buildJobs}'`);
@@ -229,7 +449,10 @@ function printRecoveryHint(buildJobs, linkJobs) {
 }
 
 function runHarmony(buildJobs, linkJobs, abiFilters) {
+  stopLingeringHarmonyBuildProcesses();
+  cleanupInactiveAbiArtifacts('entry', abiFilters);
   syncHarmonyEntryBuildProfile(buildJobs, linkJobs, abiFilters);
+  runHarmonyDependencyPatches();
   console.log(
     `[harmony-build] native parallelism: compile=${buildJobs}, link=${linkJobs}`,
   );
@@ -267,36 +490,67 @@ function runHarmony(buildJobs, linkJobs, abiFilters) {
 }
 
 async function main() {
+  const snapshots = snapshotFiles(trackedConfigPaths);
   const { buildJobs, linkJobs } = resolveBuildJobs();
   const abiFilters = resolveAbiFilters();
-  const firstExitCode = await runHarmony(buildJobs, linkJobs, abiFilters);
+  let exitCode = 0;
 
-  if (firstExitCode === 0) {
-    process.exit(0);
+  try {
+    if (shouldUseLocalSigningConfig()) {
+      const prepared = prepareLocalHarmonyReleaseEnv();
+      console.log(
+        `[harmony-build] signing source=${prepared.source} mode=${prepared.mode}`,
+      );
+      runConfigureHarmonyProject();
+    } else {
+      console.log('[harmony-build] signing source=existing');
+    }
+
+    const firstExitCode = await runHarmony(buildJobs, linkJobs, abiFilters);
+
+    if (firstExitCode === 0) {
+      setupLocalBrowserForwarding();
+      exitCode = 0;
+      return;
+    }
+
+    const buildLog = readHarmonyBuildLog();
+    const fallback = resolveFallbackBuildJobs(buildJobs, linkJobs);
+
+    const isEs2abcFailure = hasEs2abcFailure(buildLog);
+    const isNativeNinjaFailure = hasNativeNinjaFailure(buildLog);
+
+    if (!fallback || (!isEs2abcFailure && !isNativeNinjaFailure)) {
+      exitCode = firstExitCode;
+      return;
+    }
+
+    const failureType = isEs2abcFailure
+      ? 'ArkTS es2abc'
+      : 'native ninja';
+    console.warn(
+      `[harmony-build] Detected a ${failureType} failure. Retrying once with lower parallelism...`,
+    );
+
+    const secondExitCode = await runHarmony(
+      fallback.buildJobs,
+      fallback.linkJobs,
+      abiFilters,
+    );
+
+    if (secondExitCode !== 0) {
+      printRecoveryHint(fallback.buildJobs, fallback.linkJobs);
+    } else {
+      setupLocalBrowserForwarding();
+    }
+
+    exitCode = secondExitCode;
+  } finally {
+    restoreFiles(snapshots);
+    cleanupLocalHarmonyReleaseArtifacts();
   }
 
-  const buildLog = readHarmonyBuildLog();
-  const fallback = resolveFallbackBuildJobs(buildJobs, linkJobs);
-
-  if (!fallback || !hasEs2abcFailure(buildLog)) {
-    process.exit(firstExitCode);
-  }
-
-  console.warn(
-    '[harmony-build] Detected an ArkTS es2abc failure. Retrying once with lower parallelism...',
-  );
-
-  const secondExitCode = await runHarmony(
-    fallback.buildJobs,
-    fallback.linkJobs,
-    abiFilters,
-  );
-
-  if (secondExitCode !== 0) {
-    printRecoveryHint(fallback.buildJobs, fallback.linkJobs);
-  }
-
-  process.exit(secondExitCode);
+  process.exit(exitCode);
 }
 
 await main();

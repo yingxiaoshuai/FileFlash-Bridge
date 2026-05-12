@@ -59,6 +59,14 @@ export function mergeNetworkSnapshotWithRuntimeAddress(
   };
 }
 
+export function resolveBrowserAccessAddress(address: string) {
+  if (/^10\.0\.2\./.test(address)) {
+    return '127.0.0.1';
+  }
+
+  return address;
+}
+
 export interface NetworkInterfaceDescriptor {
   name: string;
   address: string;

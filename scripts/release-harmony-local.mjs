@@ -50,6 +50,12 @@ function restoreFiles(snapshots) {
 }
 
 function main() {
+  if (process.argv.includes('--app')) {
+    process.env.HARMONY_PACKAGE_TYPE = 'app';
+  } else if (process.argv.includes('--hap')) {
+    process.env.HARMONY_PACKAGE_TYPE = 'hap';
+  }
+
   const snapshots = snapshotFiles(trackedConfigPaths);
   const prepared = prepareLocalHarmonyReleaseEnv();
 

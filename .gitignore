@@ -43,6 +43,7 @@ android/app/release/
 node_modules/
 npm-debug.log
 yarn-error.log
+hs_err_pid*.log
 
 # fastlane
 #

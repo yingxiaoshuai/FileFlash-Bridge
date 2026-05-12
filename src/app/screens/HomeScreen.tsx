@@ -1379,12 +1379,16 @@ function formatDateTime(value: string, locale: string) {
     return value;
   }
 
-  return date.toLocaleString(locale, {
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    month: '2-digit',
-  });
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+  const hour = padDatePart(date.getHours());
+  const minute = padDatePart(date.getMinutes());
+
+  if (locale.toLowerCase().startsWith('zh')) {
+    return `${month}/${day} ${hour}:${minute}`;
+  }
+
+  return `${month}/${day} ${hour}:${minute}`;
 }
 
 function formatDate(value: string, locale: string) {
@@ -1393,11 +1397,19 @@ function formatDate(value: string, locale: string) {
     return value;
   }
 
-  return date.toLocaleDateString(locale, {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
+  const year = String(date.getFullYear());
+  const month = padDatePart(date.getMonth() + 1);
+  const day = padDatePart(date.getDate());
+
+  if (locale.toLowerCase().startsWith('zh')) {
+    return `${year}/${month}/${day}`;
+  }
+
+  return `${month}/${day}/${year}`;
+}
+
+function padDatePart(value: number) {
+  return value.toString().padStart(2, '0');
 }
 
 function localizeServiceError(

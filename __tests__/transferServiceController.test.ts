@@ -306,6 +306,61 @@ describe('TransferServiceController', () => {
     }
   });
 
+  test('uses the local browser forward when the runtime is on an emulator-only address', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-emulator-origin-'));
+    const storage = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 128,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'emulator-origin-session',
+    });
+
+    const runtime: ServiceRuntime = {
+      async start({port}) {
+        return {
+          port,
+          stop: async () => {},
+        };
+      },
+      async isRunning() {
+        return true;
+      },
+    };
+
+    const controller = new TransferServiceController({
+      config: {
+        ...DEFAULT_SERVICE_CONFIG,
+        accessKey: 'test-emulator-key',
+        port: 8668,
+        securityMode: 'secure',
+      },
+      networkProvider: async () => [
+        {
+          address: '10.0.2.15',
+          family: 'IPv4',
+          internal: false,
+          name: 'Wi-Fi',
+        },
+      ],
+      runtime,
+      storage,
+    });
+
+    try {
+      const started = await controller.start();
+      const startedUrl = new URL(started.accessUrl ?? '');
+
+      expect(startedUrl.hostname).toBe('127.0.0.1');
+      expect(startedUrl.port).toBe('8668');
+      expect(started.network.address).toBe('10.0.2.15');
+      expect(startedUrl.searchParams.get('key')).toBe('test-emulator-key');
+    } finally {
+      await controller.stop();
+      await rm(rootDir, {force: true, recursive: true});
+    }
+  });
+
   test('accepts base64 bridge uploads and returns base64-backed download chunks for large files', async () => {
     const {controller, rootDir, storage} = await createController();
 

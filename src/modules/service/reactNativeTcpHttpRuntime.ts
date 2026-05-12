@@ -48,6 +48,10 @@ type TcpSocketModule = {
 };
 
 const HEADER_DELIMITER = encodeUtf8('\r\n\r\n');
+const MAX_HTTP_HEADER_BYTES = 64 * 1024;
+const SOCKET_READ_COPY_CHUNK_BYTES = 512 * 1024;
+const SOCKET_WRITE_CHUNK_BYTES = 64 * 1024;
+const SOCKET_WRITE_CALLBACK_FALLBACK_MS = 100;
 
 const STATUS_TEXT_BY_CODE: Record<number, string> = {
   200: 'OK',
@@ -63,6 +67,15 @@ const STATUS_TEXT_BY_CODE: Record<number, string> = {
 };
 
 let cachedTcpSocketModule: TcpSocketModule | null | undefined;
+
+type HttpRequestHeaderInfo = {
+  bodyStartIndex: number;
+  contentLength: number;
+  frameByteLength: number;
+  headerEndIndex: number;
+  headers: Record<string, string>;
+  requestLine: string;
+};
 
 function encodeUtf8(value: string) {
   if (typeof TextEncoder === 'function') {
@@ -123,6 +136,69 @@ function indexOfBytes(value: Uint8Array, needle: Uint8Array) {
   return -1;
 }
 
+function indexOfBytesInParts(parts: Uint8Array[], needle: Uint8Array) {
+  if (needle.byteLength === 0) {
+    return -1;
+  }
+
+  let absoluteIndex = 0;
+  let matchedByteLength = 0;
+
+  for (const part of parts) {
+    for (let index = 0; index < part.byteLength; index += 1) {
+      const byte = part[index];
+      if (byte === needle[matchedByteLength]) {
+        matchedByteLength += 1;
+        if (matchedByteLength === needle.byteLength) {
+          return absoluteIndex - needle.byteLength + 1;
+        }
+      } else {
+        matchedByteLength = byte === needle[0] ? 1 : 0;
+      }
+
+      absoluteIndex += 1;
+    }
+  }
+
+  return -1;
+}
+
+function copyByteRangeFromParts(
+  parts: Uint8Array[],
+  startIndex: number,
+  endIndex: number,
+) {
+  const byteLength = Math.max(0, endIndex - startIndex);
+  const bytes = new Uint8Array(byteLength);
+  let sourceOffset = 0;
+  let targetOffset = 0;
+
+  for (const part of parts) {
+    const partStartIndex = sourceOffset;
+    const partEndIndex = partStartIndex + part.byteLength;
+    const overlapStartIndex = Math.max(startIndex, partStartIndex);
+    const overlapEndIndex = Math.min(endIndex, partEndIndex);
+
+    if (overlapStartIndex < overlapEndIndex) {
+      const partOverlapStartIndex = overlapStartIndex - partStartIndex;
+      const partOverlapEndIndex = overlapEndIndex - partStartIndex;
+      const slice = part.subarray(
+        partOverlapStartIndex,
+        partOverlapEndIndex,
+      );
+      bytes.set(slice, targetOffset);
+      targetOffset += slice.byteLength;
+    }
+
+    sourceOffset = partEndIndex;
+    if (sourceOffset >= endIndex) {
+      break;
+    }
+  }
+
+  return bytes;
+}
+
 function toUint8Array(value: unknown) {
   if (value instanceof Uint8Array) {
     return value;
@@ -179,6 +255,82 @@ function readContentLength(value?: string) {
   return parsed;
 }
 
+function parseHttpRequestHeaderBytes(
+  headerBytes: Uint8Array,
+  headerEndIndex: number,
+): HttpRequestHeaderInfo {
+  const headerText = decodeAscii(headerBytes);
+  const [requestLine, ...headerLines] = headerText.split('\r\n');
+  if (!requestLine) {
+    throw new Error('Missing HTTP request line.');
+  }
+
+  const headers = normalizeHeaders(headerLines);
+  if (headers['transfer-encoding'] && !headers['content-length']) {
+    throw new Error('Chunked request bodies are not supported by this runtime.');
+  }
+
+  const contentLength = readContentLength(headers['content-length']);
+  const bodyStartIndex = headerEndIndex + HEADER_DELIMITER.byteLength;
+
+  return {
+    bodyStartIndex,
+    contentLength,
+    frameByteLength: bodyStartIndex + contentLength,
+    headerEndIndex,
+    headers,
+    requestLine,
+  };
+}
+
+function readHttpRequestHeader(buffer: Uint8Array) {
+  const headerEndIndex = indexOfBytes(buffer, HEADER_DELIMITER);
+  if (headerEndIndex < 0) {
+    return null;
+  }
+
+  if (headerEndIndex > MAX_HTTP_HEADER_BYTES) {
+    throw new Error('HTTP request header is too large.');
+  }
+
+  return parseHttpRequestHeaderBytes(
+    buffer.subarray(0, headerEndIndex),
+    headerEndIndex,
+  );
+}
+
+function readHttpRequestHeaderFromParts(
+  parts: Uint8Array[],
+  bufferedByteLength: number,
+) {
+  const headerEndIndex = indexOfBytesInParts(parts, HEADER_DELIMITER);
+  if (headerEndIndex < 0) {
+    if (bufferedByteLength > MAX_HTTP_HEADER_BYTES) {
+      throw new Error('HTTP request header is too large.');
+    }
+
+    return null;
+  }
+
+  if (headerEndIndex > MAX_HTTP_HEADER_BYTES) {
+    throw new Error('HTTP request header is too large.');
+  }
+
+  return parseHttpRequestHeaderBytes(
+    copyByteRangeFromParts(parts, 0, headerEndIndex),
+    headerEndIndex,
+  );
+}
+
+function readHttpRequestFrameByteLength(buffer: Uint8Array) {
+  const header = readHttpRequestHeader(buffer);
+  if (!header) {
+    return null;
+  }
+
+  return header.frameByteLength;
+}
+
 function base64ToBytes(value: string) {
   const bufferCtor = (
     globalThis as {
@@ -225,46 +377,43 @@ export function parseHttpRequestFrame(buffer: Uint8Array): {
   consumedBytes: number;
   request: Omit<TransferRequest, 'remoteAddress'>;
 } | null {
-  const headerEndIndex = indexOfBytes(buffer, HEADER_DELIMITER);
-  if (headerEndIndex < 0) {
+  const header = readHttpRequestHeader(buffer);
+  if (!header) {
     return null;
   }
 
-  const headerText = decodeAscii(buffer.slice(0, headerEndIndex));
-  const [requestLine, ...headerLines] = headerText.split('\r\n');
-  if (!requestLine) {
-    throw new Error('Missing HTTP request line.');
+  if (buffer.byteLength < header.frameByteLength) {
+    return null;
   }
 
-  const [method, target] = requestLine.split(' ');
+  const bodyBytes = buffer.subarray(
+    header.bodyStartIndex,
+    header.frameByteLength,
+  );
+
+  return {
+    consumedBytes: header.frameByteLength,
+    request: createTransferRequestFromHeader(header, bodyBytes),
+  };
+}
+
+function createTransferRequestFromHeader(
+  header: HttpRequestHeaderInfo,
+  bodyBytes: Uint8Array,
+): Omit<TransferRequest, 'remoteAddress'> {
+  const [method, target] = header.requestLine.split(' ');
   if (!method || !target) {
     throw new Error('Invalid HTTP request line.');
   }
 
-  const headers = normalizeHeaders(headerLines);
-  if (headers['transfer-encoding'] && !headers['content-length']) {
-    throw new Error('Chunked request bodies are not supported by this runtime.');
-  }
-
-  const contentLength = readContentLength(headers['content-length']);
-  const bodyStartIndex = headerEndIndex + HEADER_DELIMITER.byteLength;
-  const bodyEndIndex = bodyStartIndex + contentLength;
-  if (buffer.byteLength < bodyEndIndex) {
-    return null;
-  }
-
   const url = new URL(target, 'http://127.0.0.1');
-  const bodyBytes = buffer.slice(bodyStartIndex, bodyEndIndex);
 
   return {
-    consumedBytes: bodyEndIndex,
-    request: {
-      body: resolveRequestBody(headers, bodyBytes),
-      headers,
-      method: method.toUpperCase(),
-      path: url.pathname,
-      query: url.searchParams,
-    },
+    body: resolveRequestBody(header.headers, bodyBytes),
+    headers: header.headers,
+    method: method.toUpperCase(),
+    path: url.pathname,
+    query: url.searchParams,
   };
 }
 
@@ -337,6 +486,51 @@ export function encodeHttpResponse(response: TransferResponse) {
   return concatBytes([encodeUtf8(headerText), bodyBytes]);
 }
 
+function writeSocketPayload(
+  socket: TcpSocketLike,
+  payload: Uint8Array,
+  onComplete: () => void,
+) {
+  let offset = 0;
+
+  const writeNext = () => {
+    if (offset >= payload.byteLength) {
+      onComplete();
+      return;
+    }
+
+    const end = Math.min(offset + SOCKET_WRITE_CHUNK_BYTES, payload.byteLength);
+    const chunk = payload.slice(offset, end);
+    offset = end;
+    let continued = false;
+
+    const continueOnce = () => {
+      if (continued) {
+        return;
+      }
+
+      continued = true;
+      writeNext();
+    };
+
+    const fallbackTimer = setTimeout(
+      continueOnce,
+      SOCKET_WRITE_CALLBACK_FALLBACK_MS,
+    );
+
+    socket.write(chunk, undefined, () => {
+      clearTimeout(fallbackTimer);
+      continueOnce();
+    });
+  };
+
+  writeNext();
+}
+
+function waitForEventLoopTurn() {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 function loadTcpSocketModule() {
   if (cachedTcpSocketModule !== undefined) {
     return cachedTcpSocketModule;
@@ -384,9 +578,18 @@ async function closeServer(server: TcpServerLike) {
   });
 }
 
-function getServerPort(server: TcpServerLike, fallbackPort: number) {
+export function resolveTcpServerPort(
+  server: Pick<TcpServerLike, 'address'>,
+  fallbackPort: number,
+) {
   const address = server.address?.();
-  if (address && typeof address !== 'string' && typeof address.port === 'number') {
+  if (
+    address &&
+    typeof address !== 'string' &&
+    typeof address.port === 'number' &&
+    Number.isFinite(address.port) &&
+    address.port > 0
+  ) {
     return address.port;
   }
 
@@ -437,7 +640,7 @@ export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
     });
 
     this.server = server;
-    const port = getServerPort(server, options.port);
+    const port = resolveTcpServerPort(server, options.port);
 
     const handle: ServiceRuntimeHandle = {
       port,
@@ -478,7 +681,10 @@ export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
   ) {
     socket.setNoDelay?.(true);
 
-    let buffer = new Uint8Array(0);
+    let bufferParts: Uint8Array[] = [];
+    let bufferedByteLength = 0;
+    let expectedFrameByteLength: number | null = null;
+    let pendingHeader: HttpRequestHeaderInfo | null = null;
     let processing = false;
     let responded = false;
 
@@ -488,9 +694,111 @@ export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
 
     const sendResponse = (response: TransferResponse) => {
       const payload = encodeHttpResponse(response);
-      socket.write(payload, undefined, () => {
+      writeSocketPayload(socket, payload, () => {
         socket.end();
       });
+    };
+
+    const appendBufferPart = (part: Uint8Array) => {
+      if (part.byteLength === 0) {
+        return;
+      }
+
+      bufferParts.push(part);
+      bufferedByteLength += part.byteLength;
+    };
+
+    const readExpectedFrameByteLength = () => {
+      if (expectedFrameByteLength != null) {
+        return expectedFrameByteLength;
+      }
+
+      const header = readHttpRequestHeaderFromParts(
+        bufferParts,
+        bufferedByteLength,
+      );
+      if (!header) {
+        return null;
+      }
+
+      pendingHeader = header;
+      expectedFrameByteLength = header.frameByteLength;
+      return expectedFrameByteLength;
+    };
+
+    const consumeRequestBodyBuffer = async (header: HttpRequestHeaderInfo) => {
+      const bodyBytes = new Uint8Array(header.contentLength);
+      const remainingParts: Uint8Array[] = [];
+      let bodyTargetOffset = 0;
+      let sourceOffset = 0;
+      let copiedSinceYield = 0;
+
+      const copyIntoBodyBuffer = async (source: Uint8Array) => {
+        let sourceSliceOffset = 0;
+        while (sourceSliceOffset < source.byteLength) {
+          const copyLength = Math.min(
+            source.byteLength - sourceSliceOffset,
+            SOCKET_READ_COPY_CHUNK_BYTES - copiedSinceYield,
+          );
+          bodyBytes.set(
+            source.subarray(sourceSliceOffset, sourceSliceOffset + copyLength),
+            bodyTargetOffset,
+          );
+          sourceSliceOffset += copyLength;
+          bodyTargetOffset += copyLength;
+          copiedSinceYield += copyLength;
+
+          if (
+            copiedSinceYield >= SOCKET_READ_COPY_CHUNK_BYTES &&
+            bodyTargetOffset < bodyBytes.byteLength
+          ) {
+            copiedSinceYield = 0;
+            await waitForEventLoopTurn();
+          }
+        }
+      };
+
+      for (const part of bufferParts) {
+        const partStartIndex = sourceOffset;
+        const partEndIndex = partStartIndex + part.byteLength;
+
+        if (partStartIndex >= header.frameByteLength) {
+          remainingParts.push(part);
+        } else {
+          const bodyOverlapStartIndex = Math.max(
+            partStartIndex,
+            header.bodyStartIndex,
+          );
+          const bodyOverlapEndIndex = Math.min(
+            partEndIndex,
+            header.frameByteLength,
+          );
+
+          if (bodyOverlapStartIndex < bodyOverlapEndIndex) {
+            await copyIntoBodyBuffer(
+              part.subarray(
+                bodyOverlapStartIndex - partStartIndex,
+                bodyOverlapEndIndex - partStartIndex,
+              ),
+            );
+          }
+
+          if (partEndIndex > header.frameByteLength) {
+            remainingParts.push(
+              part.subarray(header.frameByteLength - partStartIndex),
+            );
+          }
+        }
+
+        sourceOffset = partEndIndex;
+      }
+
+      bufferParts = remainingParts;
+      bufferedByteLength -= header.frameByteLength;
+      expectedFrameByteLength = null;
+      pendingHeader = null;
+
+      return bodyBytes;
     };
 
     const processBuffer = async () => {
@@ -498,19 +806,24 @@ export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
         return;
       }
 
-      processing = true;
-
       try {
-        const parsedRequest = parseHttpRequestFrame(buffer);
-        if (!parsedRequest) {
+        const frameByteLength = readExpectedFrameByteLength();
+        if (frameByteLength == null || bufferedByteLength < frameByteLength) {
           return;
         }
 
+        processing = true;
         responded = true;
-        buffer = buffer.slice(parsedRequest.consumedBytes);
+        const header = pendingHeader;
+        if (!header) {
+          throw new Error('Missing HTTP request header.');
+        }
+
+        const bodyBytes = await consumeRequestBodyBuffer(header);
+        const request = createTransferRequestFromHeader(header, bodyBytes);
 
         const response = await handler({
-          ...parsedRequest.request,
+          ...request,
           remoteAddress: socket.remoteAddress,
         });
 
@@ -540,7 +853,7 @@ export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
         return;
       }
 
-      buffer = concatBytes([buffer, toUint8Array(chunk)]);
+      appendBufferPart(toUint8Array(chunk));
       void processBuffer();
     });
 

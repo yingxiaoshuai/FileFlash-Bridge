@@ -36,12 +36,8 @@ describe('Harmony platform adapters', () => {
       isRunning: jest.fn(),
       start: jest.fn(),
     };
-    const nativeRuntime = {
-      isRunning: jest.fn(),
-      start: jest.fn(),
-    };
     const createReactNativeTcpHttpRuntime = jest.fn(() => harmonyRuntime);
-    const createReactNativeHttpRuntime = jest.fn(() => nativeRuntime);
+    const createReactNativeHttpRuntime = jest.fn();
 
     jest.doMock('react-native', () => ({
       Platform: {
@@ -56,7 +52,7 @@ describe('Harmony platform adapters', () => {
     }));
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {createPlatformServiceRuntime} = require('../src/platform/serviceRuntime');
+    const {createPlatformServiceRuntime} = require('../src/platform/serviceRuntime.harmony');
 
     expect(createPlatformServiceRuntime()).toBe(harmonyRuntime);
     expect(createReactNativeTcpHttpRuntime).toHaveBeenCalledTimes(1);

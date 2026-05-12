@@ -12,6 +12,13 @@ const harmonyEntryBuildProfilePath = path.join(
   'entry',
   'build-profile.json5',
 );
+const harmonyBuildLogPath = path.join(
+  harmonyDir,
+  '.hvigor',
+  'outputs',
+  'build-logs',
+  'build.log',
+);
 const isWindows = process.platform === 'win32';
 const staleNinjaFileNames = new Set([
   '.ninja_deps',
@@ -20,6 +27,7 @@ const staleNinjaFileNames = new Set([
   '.ninja_log.restat',
   'output.log',
 ]);
+const nativeAbiNames = new Set(['arm64-v8a', 'x86_64']);
 
 function quotePowerShellArg(value) {
   const stringValue = String(value ?? '');
@@ -68,6 +76,15 @@ function run(command, args, options = {}) {
   }
 }
 
+function runHarmonyDependencyPatches() {
+  for (const patchScript of [
+    'scripts/patch-harmony-react-native-fs.mjs',
+    'scripts/patch-harmony-react-native-tcp-socket.mjs',
+  ]) {
+    run(process.execPath, [patchScript]);
+  }
+}
+
 function resolveNativeBuildParallelism() {
   const logicalCores =
     typeof os.availableParallelism === 'function'
@@ -87,6 +104,21 @@ function resolveNativeBuildParallelism() {
   return {
     buildJobs,
     linkJobs,
+  };
+}
+
+function resolveFallbackBuildJobs(buildJobs, linkJobs) {
+  const nextBuildJobs =
+    buildJobs > 4 ? Math.max(4, buildJobs - 2) : buildJobs > 2 ? 2 : buildJobs;
+  const nextLinkJobs = Math.max(1, Math.min(linkJobs, 1));
+
+  if (nextBuildJobs === buildJobs && nextLinkJobs === linkJobs) {
+    return null;
+  }
+
+  return {
+    buildJobs: nextBuildJobs,
+    linkJobs: nextLinkJobs,
   };
 }
 
@@ -166,6 +198,50 @@ function cleanupStaleNinjaFiles(moduleName) {
       // If a file is still locked, the retry after process cleanup will surface it.
     }
   });
+}
+
+function cleanupInactiveAbiDirs(rootDir, activeAbis) {
+  if (!fs.existsSync(rootDir)) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const entryPath = path.join(rootDir, entry.name);
+    if (nativeAbiNames.has(entry.name)) {
+      if (!activeAbis.has(entry.name)) {
+        try {
+          fs.rmSync(entryPath, {
+            force: true,
+            recursive: true,
+          });
+        } catch {
+          // A locked stale ABI directory will surface during the following build.
+        }
+      }
+      continue;
+    }
+
+    cleanupInactiveAbiDirs(entryPath, activeAbis);
+  }
+}
+
+function cleanupInactiveAbiArtifacts(moduleName, abiFilters) {
+  const activeAbis = new Set(abiFilters);
+  const moduleBuildDir = path.join(harmonyDir, moduleName, 'build', 'default');
+  const nativeOutputRoots = [
+    path.join(harmonyDir, moduleName, '.cxx'),
+    path.join(moduleBuildDir, 'intermediates', 'cmake', 'default', 'obj'),
+    path.join(moduleBuildDir, 'intermediates', 'libs', 'default'),
+    path.join(moduleBuildDir, 'intermediates', 'stripped_native_libs', 'default'),
+  ];
+
+  for (const nativeOutputRoot of nativeOutputRoots) {
+    cleanupInactiveAbiDirs(nativeOutputRoot, activeAbis);
+  }
 }
 
 function stopLingeringHarmonyBuildProcesses() {
@@ -269,19 +345,58 @@ function resolveDevEcoPaths() {
   };
 }
 
-function pickBuiltHap(outputDir) {
-  const hapFiles = fs
-    .readdirSync(outputDir)
-    .filter(fileName => fileName.endsWith('.hap'))
-    .sort((left, right) => left.localeCompare(right));
+function resolvePackageType() {
+  const packageType = String(process.env.HARMONY_PACKAGE_TYPE ?? 'hap')
+    .trim()
+    .toLowerCase();
 
-  if (hapFiles.length === 0) {
-    throw new Error(`No HAP artifact was produced under ${outputDir}`);
+  if (packageType === 'app' || packageType === 'hap') {
+    return packageType;
   }
 
-  return (
-    hapFiles.find(fileName => fileName.includes('-signed.hap')) ?? hapFiles[0]
+  throw new Error(
+    `Unsupported HARMONY_PACKAGE_TYPE="${packageType}". Expected "hap" or "app".`,
   );
+}
+
+function findBuiltArtifacts(rootDir, extension) {
+  const artifacts = [];
+
+  walkFilesRecursively(rootDir, filePath => {
+    if (filePath.endsWith(extension)) {
+      const stats = fs.statSync(filePath);
+      artifacts.push({
+        filePath,
+        mtimeMs: stats.mtimeMs,
+      });
+    }
+  });
+
+  return artifacts.sort((left, right) => {
+    if (right.mtimeMs !== left.mtimeMs) {
+      return right.mtimeMs - left.mtimeMs;
+    }
+
+    return left.filePath.localeCompare(right.filePath);
+  });
+}
+
+function pickBuiltArtifact(rootDir, packageType) {
+  const extension = `.${packageType}`;
+  const artifacts = findBuiltArtifacts(rootDir, extension);
+
+  if (artifacts.length === 0) {
+    throw new Error(
+      `No ${packageType.toUpperCase()} artifact was produced under ${rootDir}`,
+    );
+  }
+
+  const signedArtifact =
+    artifacts.find(artifact =>
+      path.basename(artifact.filePath).includes(`-signed${extension}`),
+    ) ?? artifacts[0];
+
+  return signedArtifact.filePath;
 }
 
 function writeGithubOutput(name, value) {
@@ -292,45 +407,80 @@ function writeGithubOutput(name, value) {
   fs.appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
-function main() {
-  const { hvigorPath, nodePath, ohpmPath } = resolveDevEcoPaths();
-  const buildMode = process.env.HARMONY_BUILD_MODE?.trim() || 'release';
-  const moduleName = process.env.HARMONY_MODULE?.trim() || 'entry';
-  const productName = process.env.HARMONY_PRODUCT?.trim() || 'default';
-  const requiredDeviceType =
-    process.env.HARMONY_REQUIRED_DEVICE_TYPE?.trim() || 'phone';
-  const { buildJobs, linkJobs } = resolveNativeBuildParallelism();
-  const abiFilters = resolveAbiFilters();
+function readHarmonyBuildLog() {
+  if (!fs.existsSync(harmonyBuildLogPath)) {
+    return '';
+  }
 
-  stopLingeringHarmonyBuildProcesses();
-  cleanupStaleNinjaFiles(moduleName);
+  try {
+    return fs.readFileSync(harmonyBuildLogPath, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function hasRetryableNativeBuildFailure(logContent) {
+  if (logContent.includes('00303001 Configuration Error')) {
+    return false;
+  }
+
+  return (
+    logContent.includes('BuildNativeWithNinja') ||
+    logContent.includes('ninja: build stopped: subcommand failed') ||
+    logContent.includes('Exceptions happened while executing') ||
+    logContent.includes('Failed to execute es2abc') ||
+    logContent.includes('hvigor ERROR: 10311009 ArkTS: ERROR')
+  );
+}
+
+function runAssembleHarmonyPackage({
+  abiFilters,
+  buildJobs,
+  buildMode,
+  hvigorPath,
+  linkJobs,
+  moduleName,
+  nodePath,
+  packageType,
+  productName,
+  requiredDeviceType,
+}) {
   syncHarmonyEntryBuildProfile(buildJobs, linkJobs, abiFilters);
+  const hvigorTask = packageType === 'app' ? 'assembleApp' : 'assembleHap';
+  const hvigorArgs =
+    packageType === 'app'
+      ? [
+          hvigorPath,
+          '-p',
+          `product=${productName}`,
+          '-p',
+          `buildMode=${buildMode}`,
+          '-p',
+          `requiredDeviceType=${requiredDeviceType}`,
+          hvigorTask,
+        ]
+      : [
+          hvigorPath,
+          '-p',
+          `module=${moduleName}@default`,
+          '-p',
+          `product=${productName}`,
+          '-p',
+          `buildMode=${buildMode}`,
+          '-p',
+          `requiredDeviceType=${requiredDeviceType}`,
+          hvigorTask,
+        ];
 
   console.log(
     `[harmony-build] native parallelism: compile=${buildJobs}, link=${linkJobs}`,
   );
   console.log(`[harmony-build] native abiFilters: ${abiFilters.join(', ')}`);
-
-  run(ohpmPath, ['install', '--all'], {
-    cwd: harmonyDir,
-    shell: false,
-    stdio: 'pipe',
-  });
+  console.log(`[harmony-build] package type: ${packageType}`);
 
   run(
     nodePath,
-    [
-      hvigorPath,
-      '-p',
-      `module=${moduleName}@default`,
-      '-p',
-      `product=${productName}`,
-      '-p',
-      `buildMode=${buildMode}`,
-      '-p',
-      `requiredDeviceType=${requiredDeviceType}`,
-      'assembleHap',
-    ],
+    hvigorArgs,
     {
       cwd: harmonyDir,
       env: {
@@ -342,23 +492,92 @@ function main() {
       shell: false,
     },
   );
+}
 
-  const outputDir = path.join(
-    harmonyDir,
-    moduleName,
-    'build',
-    'default',
-    'outputs',
-    'default',
+function main() {
+  const { hvigorPath, nodePath, ohpmPath } = resolveDevEcoPaths();
+  const buildMode = process.env.HARMONY_BUILD_MODE?.trim() || 'release';
+  const moduleName = process.env.HARMONY_MODULE?.trim() || 'entry';
+  const productName = process.env.HARMONY_PRODUCT?.trim() || 'default';
+  const requiredDeviceType =
+    process.env.HARMONY_REQUIRED_DEVICE_TYPE?.trim() || 'phone';
+  const { buildJobs, linkJobs } = resolveNativeBuildParallelism();
+  const abiFilters = resolveAbiFilters();
+  const packageType = resolvePackageType();
+
+  stopLingeringHarmonyBuildProcesses();
+  cleanupStaleNinjaFiles(moduleName);
+  cleanupInactiveAbiArtifacts(moduleName, abiFilters);
+
+  run(ohpmPath, ['install', '--all'], {
+    cwd: harmonyDir,
+    shell: false,
+    stdio: 'pipe',
+  });
+  runHarmonyDependencyPatches();
+
+  try {
+    runAssembleHarmonyPackage({
+      abiFilters,
+      buildJobs,
+      buildMode,
+      hvigorPath,
+      linkJobs,
+      moduleName,
+      nodePath,
+      packageType,
+      productName,
+      requiredDeviceType,
+    });
+  } catch (error) {
+    const fallback = resolveFallbackBuildJobs(buildJobs, linkJobs);
+    const buildLog = readHarmonyBuildLog();
+
+    if (!fallback || !hasRetryableNativeBuildFailure(buildLog)) {
+      throw error;
+    }
+
+    console.warn(
+      `[harmony-build] Native build failed. Retrying once with lower parallelism: compile=${fallback.buildJobs}, link=${fallback.linkJobs}`,
+    );
+    stopLingeringHarmonyBuildProcesses();
+    cleanupStaleNinjaFiles(moduleName);
+
+    runAssembleHarmonyPackage({
+      abiFilters,
+      buildJobs: fallback.buildJobs,
+      buildMode,
+      hvigorPath,
+      linkJobs: fallback.linkJobs,
+      moduleName,
+      nodePath,
+      packageType,
+      productName,
+      requiredDeviceType,
+    });
+  }
+
+  const outputDir =
+    packageType === 'app'
+      ? harmonyDir
+      : path.join(
+          harmonyDir,
+          moduleName,
+          'build',
+          'default',
+          'outputs',
+          'default',
+        );
+
+  ensurePathExists(outputDir, `Harmony ${packageType.toUpperCase()} output root`);
+
+  const artifactPath = pickBuiltArtifact(outputDir, packageType);
+
+  console.log(
+    `[harmony-build] artifact=${path.relative(repoRoot, artifactPath)}`,
   );
-
-  ensurePathExists(outputDir, 'Harmony HAP output directory');
-
-  const hapName = pickBuiltHap(outputDir);
-  const hapPath = path.join(outputDir, hapName);
-
-  console.log(`[harmony-build] artifact=${path.relative(repoRoot, hapPath)}`);
-  writeGithubOutput('hap_path', hapPath);
+  writeGithubOutput('artifact_path', artifactPath);
+  writeGithubOutput(`${packageType}_path`, artifactPath);
 }
 
 main();

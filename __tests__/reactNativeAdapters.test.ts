@@ -1,6 +1,7 @@
-function loadAdapterForPlatform(platformOs: 'android' | 'ios') {
+function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
   jest.resetModules();
 
+  const appendFile = jest.fn();
   const copyFile = jest.fn();
   const exists = jest.fn();
   const mkdir = jest.fn();
@@ -41,15 +42,16 @@ function loadAdapterForPlatform(platformOs: 'android' | 'ios') {
   jest.doMock('react-native-fs', () => ({
     __esModule: true,
     default: {
+      appendFile,
       copyFile,
       exists,
-        mkdir,
-        read,
-        readFile,
-        stat,
-        writeFile,
-      },
-    }));
+      mkdir,
+      read,
+      readFile,
+      stat,
+      writeFile,
+    },
+  }));
 
   jest.doMock('pako', () => ({
     gzip: jest.fn(),
@@ -61,6 +63,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'ios') {
 
   return {
     adapter: new ReactNativeFileSystemAdapter(),
+    appendFile,
     copyFile,
     exists,
     mkdir,
@@ -168,6 +171,32 @@ describe('ReactNativeFileSystemAdapter', () => {
 
     expect(read).toHaveBeenCalledWith('/tmp/file.bin', 32, 16, 'base64');
     expect(readFile).not.toHaveBeenCalled();
+  });
+
+  test('splits large Harmony appends into small base64 file writes', async () => {
+    const {adapter, appendFile, mkdir} = loadAdapterForPlatform('harmony');
+    appendFile.mockResolvedValue(undefined);
+
+    const content = new Uint8Array(300 * 1024);
+    content.fill(7);
+
+    await expect(adapter.appendFile('/tmp/upload.part', content)).resolves.toBeUndefined();
+
+    expect(mkdir).toHaveBeenCalledWith('/tmp');
+    expect(appendFile.mock.calls.length).toBeGreaterThan(1);
+    expect(
+      appendFile.mock.calls.every(
+        ([path, _contentBase64, encoding]) =>
+          path === '/tmp/upload.part' && encoding === 'base64',
+      ),
+    ).toBe(true);
+
+    const writtenByteLength = appendFile.mock.calls.reduce(
+      (sum, [_path, contentBase64]) =>
+        sum + Buffer.from(String(contentBase64), 'base64').byteLength,
+      0,
+    );
+    expect(writtenByteLength).toBe(content.byteLength);
   });
 
   test('rebuilds the destination file on iOS when native copy leaves it missing', async () => {
@@ -283,5 +312,78 @@ describe('ReactNativeFileSystemAdapter', () => {
       'utf8',
     );
     expect(unlink).toHaveBeenCalledWith('/sandbox/files/ffb-inbound/pending.json');
+  });
+
+  test('uses the original Harmony picker uri when a cache copy is unavailable', async () => {
+    jest.resetModules();
+
+    const pickDocuments = jest.fn().mockResolvedValue([
+      {
+        fileCopyUri: null,
+        name: 'picked.txt',
+        size: 12,
+        type: 'text/plain',
+        uri: '/user/docs/picked.txt',
+      },
+    ]);
+    const stat = jest.fn().mockRejectedValue(new Error('stat unavailable'));
+
+    jest.doMock('react-native', () => ({
+      NativeModules: {},
+      Platform: {
+        OS: 'harmony',
+      },
+    }));
+    jest.doMock('../src/platform/documentPicker', () => ({
+      documentPickerErrorCodes: {
+        OPERATION_CANCELED: 'DOCUMENT_PICKER_CANCELED',
+      },
+      documentPickerTypes: {
+        allFiles: '*/*',
+      },
+      isDocumentPickerErrorWithCode: jest.fn(),
+      pickDocuments,
+      savePickedDocuments: jest.fn(),
+    }));
+    jest.doMock('react-native-share', () => ({
+      __esModule: true,
+      default: {},
+    }));
+    jest.doMock('react-native-fs', () => ({
+      __esModule: true,
+      default: {
+        DocumentDirectoryPath: '/sandbox/files',
+        exists: jest.fn(),
+        mkdir: jest.fn(),
+        readFile: jest.fn(),
+        stat,
+        unlink: jest.fn(),
+      },
+    }));
+    jest.doMock('pako', () => ({
+      gzip: jest.fn(),
+      ungzip: jest.fn(),
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const {pickDeviceFilesForShare} = require('../src/modules/file-access/reactNativeAdapters');
+
+    await expect(pickDeviceFilesForShare()).resolves.toEqual([
+      {
+        byteLength: 12,
+        cleanupPath: undefined,
+        mimeType: 'text/plain',
+        name: 'picked.txt',
+        relativePath: 'picked.txt',
+        sourcePath: '/user/docs/picked.txt',
+      },
+    ]);
+
+    expect(pickDocuments).toHaveBeenCalledWith({
+      allowMultiSelection: true,
+      copyTo: 'cachesDirectory',
+      type: ['*/*'],
+    });
+    expect(stat).toHaveBeenCalledWith('/user/docs/picked.txt');
   });
 });

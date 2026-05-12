@@ -1,4 +1,4 @@
-import {NativeEventEmitter, NativeModules} from 'react-native';
+import {NativeEventEmitter, NativeModules, TurboModuleRegistry} from 'react-native';
 
 import {
   ServiceRuntime,
@@ -32,6 +32,7 @@ type NativeServerModule = {
 
 type NativeServerRequestEvent = {
   bodyBase64?: string;
+  bodyBytes?: ArrayBuffer | ArrayBufferView | number[] | {data?: number[]};
   bodyText?: string;
   headers?: Record<string, string>;
   method: string;
@@ -43,7 +44,14 @@ type NativeServerRequestEvent = {
 
 const REQUEST_EVENT = 'fpStaticServerRequest';
 
-const nativeServer = NativeModules.FPStaticServer as NativeServerModule | undefined;
+const turboModuleRegistry = TurboModuleRegistry as
+  | {get<T>(name: string): T | null}
+  | undefined;
+const nativeServer = (
+  NativeModules?.FPStaticServer ??
+  turboModuleRegistry?.get<NativeServerModule>('FPStaticServer') ??
+  undefined
+) as NativeServerModule | undefined;
 
 function bytesToBase64(bytes: Uint8Array) {
   const alphabet =
@@ -88,6 +96,34 @@ function base64ToBytes(value: string) {
   }
 
   throw new Error('Base64 decode is not available in this runtime.');
+}
+
+function readNativeBodyBytes(value: NativeServerRequestEvent['bodyBytes']) {
+  if (!value) {
+    return undefined;
+  }
+
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+
+  if (Array.isArray(value)) {
+    return new Uint8Array(value);
+  }
+
+  if (Array.isArray(value.data)) {
+    return new Uint8Array(value.data);
+  }
+
+  return undefined;
 }
 
 function bytesToUtf8(bytes: Uint8Array) {
@@ -326,10 +362,15 @@ function resolveRequestBody(
   event: NativeServerRequestEvent,
 ) {
   const contentType = headers['content-type'] ?? '';
+  const bodyBytes = readNativeBodyBytes(event.bodyBytes);
 
   if (contentType.includes('application/json')) {
     if (event.bodyText) {
       return JSON.parse(event.bodyText);
+    }
+
+    if (bodyBytes) {
+      return JSON.parse(bytesToUtf8(bodyBytes));
     }
 
     if (event.bodyBase64) {
@@ -345,6 +386,10 @@ function resolveRequestBody(
     typeof event.bodyText === 'string'
   ) {
     return event.bodyText;
+  }
+
+  if (bodyBytes) {
+    return bodyBytes;
   }
 
   if (!event.bodyBase64) {

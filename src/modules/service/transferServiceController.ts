@@ -15,6 +15,7 @@ import {
 import {
   NetworkInterfaceDescriptor,
   mergeNetworkSnapshotWithRuntimeAddress,
+  resolveBrowserAccessAddress,
   resolveNetworkSnapshot,
 } from './networkResolver';
 import {
@@ -228,9 +229,11 @@ export class TransferServiceController {
         probed,
         runtimeAddress,
       );
+      const browserAddress = resolveBrowserAccessAddress(address);
+      const port = this.runtimeHandle?.port ?? this.state.config.port;
 
       const accessUrl = buildAccessUrl(
-        `http://${address}:${this.runtimeHandle?.port ?? this.state.config.port}`,
+        `http://${browserAddress}:${port}`,
         this.state.config.securityMode,
         this.state.config.accessKey,
       );
@@ -328,15 +331,17 @@ export class TransferServiceController {
       return this.getState();
     }
 
-    const accessUrl = buildAccessUrl(
-      `http://${address}:${this.runtimeHandle?.port ?? this.state.config.port}`,
-      this.state.config.securityMode,
-      this.state.config.accessKey,
-    );
-
     const network = mergeNetworkSnapshotWithRuntimeAddress(
       probed,
       runtimeAddress,
+    );
+    const browserAddress = resolveBrowserAccessAddress(address);
+    const port = this.runtimeHandle?.port ?? this.state.config.port;
+
+    const accessUrl = buildAccessUrl(
+      `http://${browserAddress}:${port}`,
+      this.state.config.securityMode,
+      this.state.config.accessKey,
     );
 
     this.state = {

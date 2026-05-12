@@ -1,5 +1,6 @@
 import {
   mergeNetworkSnapshotWithRuntimeAddress,
+  resolveBrowserAccessAddress,
   resolveNetworkSnapshot,
 } from '../src/modules/service/networkResolver';
 
@@ -10,6 +11,16 @@ describe('resolveNetworkSnapshot', () => {
       label: '无可用局域网',
       reachable: false,
     });
+  });
+});
+
+describe('resolveBrowserAccessAddress', () => {
+  test('maps emulator-only addresses to the local browser forward', () => {
+    expect(resolveBrowserAccessAddress('10.0.2.15')).toBe('127.0.0.1');
+  });
+
+  test('keeps normal LAN addresses unchanged', () => {
+    expect(resolveBrowserAccessAddress('192.168.1.88')).toBe('192.168.1.88');
   });
 });
 
