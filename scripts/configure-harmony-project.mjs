@@ -20,7 +20,16 @@ function readJson5(filePath) {
 }
 
 function writeJson5(filePath, value) {
-  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+  const nextContent = `${JSON.stringify(value, null, 2)}\n`;
+
+  if (
+    fs.existsSync(filePath) &&
+    fs.readFileSync(filePath, 'utf8') === nextContent
+  ) {
+    return;
+  }
+
+  fs.writeFileSync(filePath, nextContent);
 }
 
 function normalizeList(value, fallback) {
@@ -93,10 +102,9 @@ function main() {
   const nextVersionCode = parsePositiveInteger(
     process.env.HARMONY_APP_VERSION_CODE,
   );
-  const nextDeviceTypes = normalizeList(
-    process.env.HARMONY_DEVICE_TYPES,
-    ['phone'],
-  );
+  const nextDeviceTypes = normalizeList(process.env.HARMONY_DEVICE_TYPES, [
+    'phone',
+  ]);
   const nextSigningConfigs = resolveSigningConfig();
 
   if (nextBundleName) {
@@ -127,7 +135,9 @@ function main() {
 
   const signingMode = nextSigningConfigs ? 'env' : 'existing';
   console.log(
-    `[harmony-config] deviceTypes=${nextDeviceTypes.join(', ')} signing=${signingMode}`,
+    `[harmony-config] deviceTypes=${nextDeviceTypes.join(
+      ', ',
+    )} signing=${signingMode}`,
   );
 }
 

@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { ensureDevEcoSdkHome } from './harmonySdk.mjs';
+import { ensureHarmonyBundleFresh } from './ensure-harmony-bundle-fresh.mjs';
 import {
   cleanupLocalHarmonyReleaseArtifacts,
   prepareLocalHarmonyReleaseEnv,
@@ -35,6 +36,15 @@ const trackedConfigPaths = [
   path.join(harmonyDir, 'entry', 'src', 'main', 'module.json5'),
 ];
 const nativeAbiNames = new Set(['arm64-v8a', 'x86_64']);
+const normalNinjaFileNames = new Set(['.ninja_lock']);
+const recoveryNinjaFileNames = new Set([
+  '.ninja_deps',
+  '.ninja_lock',
+  '.ninja_log',
+  '.ninja_log.restat',
+  'output.log',
+]);
+const internalCliFlags = new Set(['--clean-inactive-abi']);
 const hdcExecutableName = process.platform === 'win32' ? 'hdc.exe' : 'hdc';
 
 ensureDevEcoSdkHome();
@@ -52,7 +62,7 @@ function resolveBuildJobs() {
 
   const defaultBuildJobs =
     process.platform === 'win32'
-      ? Math.max(2, Math.min(4, Math.floor(logicalCores * 0.25) || 2))
+      ? 2
       : Math.max(4, Math.min(12, Math.floor(logicalCores * 0.6)));
   const buildJobs =
     parsePositiveInt(process.env.CMAKE_BUILD_PARALLEL_LEVEL) ??
@@ -88,7 +98,9 @@ function resolveHdcPath() {
 }
 
 function normalizeAbiToken(value) {
-  const normalized = String(value ?? '').trim().toLowerCase();
+  const normalized = String(value ?? '')
+    .trim()
+    .toLowerCase();
 
   if (!normalized) {
     return null;
@@ -155,7 +167,8 @@ function setupLocalBrowserForwarding() {
   }
 
   const hdcPath = resolveHdcPath();
-  const port = parsePositiveInt(process.env.HARMONY_BROWSER_FORWARD_PORT) ?? 8668;
+  const port =
+    parsePositiveInt(process.env.HARMONY_BROWSER_FORWARD_PORT) ?? 8668;
   const connectedTargets = getConnectedHdcTargets(hdcPath);
 
   if (!hdcPath || !fs.existsSync(hdcPath) || connectedTargets.length === 0) {
@@ -224,14 +237,7 @@ function resolveAbiFilters() {
 }
 
 function resolveFallbackBuildJobs(buildJobs, linkJobs) {
-  const nextBuildJobs =
-    buildJobs > 8
-      ? 8
-      : buildJobs > 4
-        ? Math.max(4, buildJobs - 2)
-        : buildJobs > 2
-          ? 2
-          : buildJobs;
+  const nextBuildJobs = buildJobs > 1 ? 1 : buildJobs;
   const nextLinkJobs = Math.max(1, Math.min(linkJobs, 1));
 
   if (nextBuildJobs === buildJobs && nextLinkJobs === linkJobs) {
@@ -242,6 +248,15 @@ function resolveFallbackBuildJobs(buildJobs, linkJobs) {
     buildJobs: nextBuildJobs,
     linkJobs: nextLinkJobs,
   };
+}
+
+function resolveJavaToolOptions() {
+  const existing = String(process.env.JAVA_TOOL_OPTIONS ?? '').trim();
+  if (existing) {
+    return existing;
+  }
+
+  return '-Xmx512m -XX:ReservedCodeCacheSize=64m';
 }
 
 function snapshotFiles(filePaths) {
@@ -255,6 +270,57 @@ function restoreFiles(snapshots) {
   for (const snapshot of snapshots) {
     fs.writeFileSync(snapshot.filePath, snapshot.content);
   }
+}
+
+function walkFilesRecursively(rootDir, visitor) {
+  if (!fs.existsSync(rootDir)) {
+    return;
+  }
+
+  for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+    const absolutePath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      walkFilesRecursively(absolutePath, visitor);
+      continue;
+    }
+
+    visitor(absolutePath, entry);
+  }
+}
+
+function cleanupNinjaFiles(moduleName, mode = 'normal') {
+  const cxxRoot = path.join(harmonyDir, moduleName, '.cxx');
+  const fileNames =
+    mode === 'recovery' ? recoveryNinjaFileNames : normalNinjaFileNames;
+
+  walkFilesRecursively(cxxRoot, filePath => {
+    if (!fileNames.has(path.basename(filePath))) {
+      return;
+    }
+
+    try {
+      fs.rmSync(filePath, { force: true });
+    } catch {
+      // If a file is still locked, the retry after process cleanup will surface it.
+    }
+  });
+}
+
+function shouldCleanupInactiveAbiArtifacts() {
+  const envValue = String(process.env.HARMONY_CLEAN_INACTIVE_ABI ?? '')
+    .trim()
+    .toLowerCase();
+
+  return (
+    process.argv.includes('--clean-inactive-abi') ||
+    envValue === '1' ||
+    envValue === 'true' ||
+    envValue === 'yes'
+  );
+}
+
+function getForwardedReactNativeArgs() {
+  return process.argv.slice(2).filter(arg => !internalCliFlags.has(arg));
 }
 
 function cleanupInactiveAbiDirs(rootDir, activeAbis) {
@@ -293,7 +359,12 @@ function cleanupInactiveAbiArtifacts(moduleName, abiFilters) {
     path.join(harmonyDir, moduleName, '.cxx'),
     path.join(moduleBuildDir, 'intermediates', 'cmake', 'default', 'obj'),
     path.join(moduleBuildDir, 'intermediates', 'libs', 'default'),
-    path.join(moduleBuildDir, 'intermediates', 'stripped_native_libs', 'default'),
+    path.join(
+      moduleBuildDir,
+      'intermediates',
+      'stripped_native_libs',
+      'default',
+    ),
   ];
 
   for (const nativeOutputRoot of nativeOutputRoots) {
@@ -311,13 +382,23 @@ function stopLingeringHarmonyBuildProcesses() {
 $repoPath = '${repoPathForMatch}'
 $targets = Get-CimInstance Win32_Process | Where-Object {
   (
-    ($_.Name -ieq 'ninja.exe' -or $_.Name -ieq 'cmake.exe' -or $_.Name -ieq 'clang++.exe')
+    (
+      $_.Name -ieq 'ninja.exe'
+      -or $_.Name -ieq 'cmake.exe'
+      -or $_.Name -ieq 'clang.exe'
+      -or $_.Name -ieq 'clang++.exe'
+      -or $_.Name -ieq 'ld.lld.exe'
+    )
     -and $_.CommandLine
     -and $_.CommandLine -like "*$repoPath*"
   ) -or (
     $_.Name -ieq 'node.exe'
     -and $_.CommandLine
     -and $_.CommandLine -like "*daemon-process-boot-script.js*"
+  ) -or (
+    $_.Name -ieq 'java.exe'
+    -and $_.CommandLine
+    -and $_.CommandLine -like "*hvigor-java-daemon.jar*"
   )
 }
 
@@ -379,6 +460,8 @@ function syncHarmonyEntryBuildProfile(buildJobs, linkJobs, abiFilters) {
 
   const nextArguments =
     '-DENABLE_COMPILE_OPTIMIZATIONS=OFF ' +
+    `-DHARMONY_NATIVE_COMPILE_JOBS=${buildJobs} ` +
+    `-DHARMONY_NATIVE_LINK_JOBS=${linkJobs} ` +
     `-DCMAKE_JOB_POOLS=compile_pool=${buildJobs};link_pool=${linkJobs} ` +
     '-DCMAKE_JOB_POOL_COMPILE=compile_pool ' +
     '-DCMAKE_JOB_POOL_LINK=link_pool';
@@ -435,6 +518,10 @@ function hasNativeNinjaFailure(logContent) {
   return (
     logContent.includes('BuildNativeWithNinja') ||
     logContent.includes('ninja: build stopped: subcommand failed') ||
+    logContent.includes('clang frontend command failed due to signal') ||
+    logContent.includes('Exception Code: 0x80000004') ||
+    logContent.includes('Native memory allocation (mmap) failed') ||
+    logContent.includes('DOS error/errno=1455') ||
     logContent.includes('Exceptions happened while executing')
   );
 }
@@ -450,7 +537,10 @@ function printRecoveryHint(buildJobs, linkJobs) {
 
 function runHarmony(buildJobs, linkJobs, abiFilters) {
   stopLingeringHarmonyBuildProcesses();
-  cleanupInactiveAbiArtifacts('entry', abiFilters);
+  cleanupNinjaFiles('entry');
+  if (shouldCleanupInactiveAbiArtifacts()) {
+    cleanupInactiveAbiArtifacts('entry', abiFilters);
+  }
   syncHarmonyEntryBuildProfile(buildJobs, linkJobs, abiFilters);
   runHarmonyDependencyPatches();
   console.log(
@@ -462,7 +552,7 @@ function runHarmony(buildJobs, linkJobs, abiFilters) {
     'run-harmony',
     '--harmony-project-path',
     './harmony',
-    ...process.argv.slice(2),
+    ...getForwardedReactNativeArgs(),
   ];
 
   return new Promise(resolve => {
@@ -473,6 +563,7 @@ function runHarmony(buildJobs, linkJobs, abiFilters) {
         CMAKE_BUILD_PARALLEL_LEVEL: String(buildJobs),
         HARMONY_BUILD_JOBS: String(buildJobs),
         HARMONY_LINK_JOBS: String(linkJobs),
+        JAVA_TOOL_OPTIONS: resolveJavaToolOptions(),
       },
       shell: process.platform === 'win32',
       stdio: 'inherit',
@@ -506,6 +597,8 @@ async function main() {
       console.log('[harmony-build] signing source=existing');
     }
 
+    ensureHarmonyBundleFresh();
+
     const firstExitCode = await runHarmony(buildJobs, linkJobs, abiFilters);
 
     if (firstExitCode === 0) {
@@ -525,12 +618,11 @@ async function main() {
       return;
     }
 
-    const failureType = isEs2abcFailure
-      ? 'ArkTS es2abc'
-      : 'native ninja';
+    const failureType = isEs2abcFailure ? 'ArkTS es2abc' : 'native ninja';
     console.warn(
       `[harmony-build] Detected a ${failureType} failure. Retrying once with lower parallelism...`,
     );
+    cleanupNinjaFiles('entry', 'recovery');
 
     const secondExitCode = await runHarmony(
       fallback.buildJobs,

@@ -20,25 +20,24 @@ import {
 } from '../localization/i18n';
 
 export const SESSION_DELETION_WARNING =
-  '删除将清除该会话的数据及关联文件。如需保留文件，请先进入该会话执行“保存到…”或导出。';
+  'Deleting will clear this session data and related files. Export files first if you need to keep them.';
 
 export interface FileSystemAdapter {
   appendFile?(path: string, content: Uint8Array): Promise<void>;
-  appendFileBase64?(path: string, contentBase64: string): Promise<void>;
+  appendFileFromPath?(path: string, sourcePath: string): Promise<void>;
   copyFile?(sourcePath: string, destinationPath: string): Promise<void>;
   deletePath(path: string): Promise<void>;
   ensureDir(path: string): Promise<void>;
   exists(path: string): Promise<boolean>;
   getFileSize?(path: string): Promise<number>;
   listFiles(path: string): Promise<string[]>;
-  readFileChunkBase64?(
+  readFileChunk?(
     path: string,
     offset: number,
     length: number,
-  ): Promise<string>;
+  ): Promise<Uint8Array>;
   readFile(path: string): Promise<Uint8Array>;
   readText(path: string): Promise<string>;
-  writeFileBase64?(path: string, contentBase64: string): Promise<void>;
   writeFile(path: string, content: Uint8Array): Promise<void>;
   writeText(path: string, content: string): Promise<void>;
 }
@@ -56,13 +55,9 @@ interface SaveInboundFileInputBase {
   relativePath?: string;
 }
 
-interface SaveInboundBytesInput extends Omit<SaveInboundFileInputBase, 'bytes'> {
+interface SaveInboundBytesInput
+  extends Omit<SaveInboundFileInputBase, 'bytes'> {
   bytes: Uint8Array;
-}
-
-interface SaveInboundBase64Input extends Omit<SaveInboundFileInputBase, 'bytes'> {
-  base64: string;
-  byteLength: number;
 }
 
 interface SaveInboundPathInput extends Omit<SaveInboundFileInputBase, 'bytes'> {
@@ -70,10 +65,14 @@ interface SaveInboundPathInput extends Omit<SaveInboundFileInputBase, 'bytes'> {
   sourcePath: string;
 }
 
-export type SaveInboundFileInput =
-  | SaveInboundBytesInput
-  | SaveInboundBase64Input
-  | SaveInboundPathInput;
+export type SaveInboundFileInput = SaveInboundBytesInput | SaveInboundPathInput;
+
+export type InboundUploadBody =
+  | Uint8Array
+  | {
+      byteLength: number;
+      sourcePath: string;
+    };
 
 export interface InboundStorageGatewayOptions {
   compression: CompressionAdapter;
@@ -87,7 +86,7 @@ const SNAPSHOT_FILE_NAME = 'session-state.json';
 const TEMP_DIR_NAME = 'temp';
 const UI_METADATA_FILE_NAME = 'ui-state.json';
 
-/** 单次 HTTP 分块体上限，避免原生 NanoHTTPD 将整段读入内存时 OOM。 */
+/** 单次 HTTP 分块体上限，避免原生服务将整段读入内存时 OOM。 */
 const MAX_INBOUND_UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 /** 单次会话声明的总大小上限。 */
 const MAX_INBOUND_UPLOAD_TOTAL_BYTES = 12 * 1024 * 1024 * 1024;
@@ -101,30 +100,35 @@ type PendingInboundUpload = {
   totalBytes: number;
 };
 
-type StoredFileChunk =
-  | {
-      base64: string;
-      bytes?: never;
-      contentLength: number;
-      file: SharedFileRecord;
-      totalSize: number;
-    }
-  | {
-      base64?: never;
-      bytes: Uint8Array;
-      contentLength: number;
-      file: SharedFileRecord;
-      totalSize: number;
-    };
+type StoredFileChunk = {
+  bytes: Uint8Array;
+  contentLength: number;
+  file: SharedFileRecord;
+  sourceFile?: {
+    length: number;
+    offset: number;
+    path: string;
+  };
+  totalSize: number;
+};
 
 export type PreparedFileChunk = StoredFileChunk;
+
+type PrepareFileChunkOptions = {
+  length: number;
+  offset: number;
+  preferSourceFile?: boolean;
+};
 
 export class InboundStorageGateway {
   private snapshot?: StorageSnapshot;
 
   private uiMetadata: AppUiMetadata = {};
 
-  private readonly pendingInboundUploads = new Map<string, PendingInboundUpload>();
+  private readonly pendingInboundUploads = new Map<
+    string,
+    PendingInboundUpload
+  >();
 
   constructor(private readonly options: InboundStorageGatewayOptions) {}
 
@@ -226,7 +230,9 @@ export class InboundStorageGateway {
       status:
         currentRecord?.version === version ? currentRecord.status : undefined,
       updatedAt:
-        currentRecord?.version === version ? currentRecord.updatedAt : undefined,
+        currentRecord?.version === version
+          ? currentRecord.updatedAt
+          : undefined,
       version,
     };
 
@@ -306,7 +312,7 @@ export class InboundStorageGateway {
     const project = this.resolveProject(snapshot, projectId);
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
-      throw new Error('项目名称不能为空。');
+      throw new Error('Project name cannot be empty.');
     }
 
     if (project.title === trimmedTitle) {
@@ -322,7 +328,7 @@ export class InboundStorageGateway {
   async appendTextMessage(
     content: string,
     projectId?: string,
-    options?: {createdAt?: string; source?: 'browser' | 'app'},
+    options?: { createdAt?: string; source?: 'browser' | 'app' },
   ) {
     const snapshot = await this.requireSnapshot();
     const project = this.resolveProject(snapshot, projectId);
@@ -344,7 +350,9 @@ export class InboundStorageGateway {
   async deleteMessage(projectId: string, messageId: string) {
     const snapshot = await this.requireSnapshot();
     const project = this.resolveProject(snapshot, projectId);
-    project.messages = project.messages.filter(message => message.id !== messageId);
+    project.messages = project.messages.filter(
+      message => message.id !== messageId,
+    );
     project.updatedAt = new Date().toISOString();
     await this.persist();
   }
@@ -392,10 +400,9 @@ export class InboundStorageGateway {
     const compression: CompressionMode = shouldCompress ? 'gzip' : 'none';
     const fileId = createId('file');
     const createdAt = input.createdAt ?? new Date().toISOString();
-    const storagePath = `${this.options.rootDir}/projects/${project.id}/${fileId}${resolveStorageExtension(
-      normalizedRelativePath,
-      compression,
-    )}`;
+    const storagePath = `${this.options.rootDir}/projects/${
+      project.id
+    }/${fileId}${resolveStorageExtension(normalizedRelativePath, compression)}`;
 
     await this.options.fileSystem.ensureDir(
       `${this.options.rootDir}/projects/${project.id}`,
@@ -416,7 +423,8 @@ export class InboundStorageGateway {
       throw error;
     }
 
-    const logicalSize = compression === 'none' ? storedSize : declaredOriginalSize;
+    const logicalSize =
+      compression === 'none' ? storedSize : declaredOriginalSize;
     const fileRecord: SharedFileRecord = {
       id: fileId,
       projectId: project.id,
@@ -500,7 +508,9 @@ export class InboundStorageGateway {
       throw new Error(`Unknown file: ${fileId}`);
     }
 
-    const storedBytes = await this.options.fileSystem.readFile(file.storagePath);
+    const storedBytes = await this.options.fileSystem.readFile(
+      file.storagePath,
+    );
     const restoredBytes =
       file.compression === 'gzip'
         ? await this.options.compression.decompress(storedBytes)
@@ -514,8 +524,8 @@ export class InboundStorageGateway {
 
   async prepareFileChunk(
     fileId: string,
-    offset: number,
-    length: number,
+    offsetOrOptions: number | PrepareFileChunkOptions,
+    maybeLength?: number,
   ): Promise<PreparedFileChunk> {
     const snapshot = await this.requireSnapshot();
     const file = snapshot.files[fileId];
@@ -523,8 +533,19 @@ export class InboundStorageGateway {
       throw new Error(`Unknown file: ${fileId}`);
     }
 
-    const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
-    const safeLength = Number.isFinite(length) ? Math.max(0, length) : 0;
+    const options =
+      typeof offsetOrOptions === 'number'
+        ? {
+            length: maybeLength ?? 0,
+            offset: offsetOrOptions,
+          }
+        : offsetOrOptions;
+    const start = Number.isFinite(options.offset)
+      ? Math.max(0, options.offset)
+      : 0;
+    const safeLength = Number.isFinite(options.length)
+      ? Math.max(0, options.length)
+      : 0;
     const end = Math.min(file.size, start + safeLength);
     const contentLength = Math.max(0, end - start);
 
@@ -537,18 +558,32 @@ export class InboundStorageGateway {
       } satisfies StoredFileChunk;
     }
 
-    if (
-      file.compression === 'none' &&
-      this.options.fileSystem.readFileChunkBase64
-    ) {
-      const base64 = await this.options.fileSystem.readFileChunkBase64(
+    if (file.compression === 'none' && options.preferSourceFile) {
+      const sourceFile = {
+        length: contentLength,
+        offset: start,
+        path: file.storagePath,
+      };
+
+      return {
+        bytes: new Uint8Array(0),
+        contentLength,
+        file,
+        sourceFile,
+        totalSize: file.size,
+      } satisfies StoredFileChunk;
+    }
+
+    if (file.compression === 'none' && this.options.fileSystem.readFileChunk) {
+      const bytes = await this.options.fileSystem.readFileChunk(
         file.storagePath,
         start,
         contentLength,
       );
+
       return {
-        base64,
-        contentLength: inboundBase64ByteLength(base64),
+        bytes,
+        contentLength: bytes.byteLength,
         file,
         totalSize: file.size,
       } satisfies StoredFileChunk;
@@ -582,28 +617,31 @@ export class InboundStorageGateway {
     name: string;
     relativePath: string;
     totalBytes: number;
-  }): Promise<{uploadId: string}> {
+  }): Promise<{ uploadId: string }> {
     const name = options.name.trim();
     if (!name) {
-      throw new Error('文件名不能为空。');
+      throw new Error('File name cannot be empty.');
     }
 
     const totalBytes = options.totalBytes;
     if (!Number.isFinite(totalBytes) || totalBytes <= 0) {
-      throw new Error('无效的文件大小。');
+      throw new Error('Invalid file size.');
     }
 
     if (totalBytes > MAX_INBOUND_UPLOAD_TOTAL_BYTES) {
-      throw new Error('文件超过当前会话允许的最大大小。');
+      throw new Error('File exceeds the maximum size allowed for this session.');
     }
 
     await this.requireSnapshot();
     const uploadId = createId('up');
     const tempPath = `${this.tempDirPath()}/upload-${uploadId}.part`;
     await this.options.fileSystem.ensureDir(this.tempDirPath());
-    await this.options.fileSystem.writeFile(tempPath, new Uint8Array(0));
+    await this.options.fileSystem.deletePath(tempPath).catch(() => {});
 
-    const relativePath = (options.relativePath?.trim() || name).replace(/\\/g, '/');
+    const relativePath = (options.relativePath?.trim() || name).replace(
+      /\\/g,
+      '/',
+    );
     this.pendingInboundUploads.set(uploadId, {
       mimeType: options.mimeType,
       name,
@@ -613,67 +651,97 @@ export class InboundStorageGateway {
       totalBytes,
     });
 
-    return {uploadId};
+    return { uploadId };
   }
 
-  async appendInboundUpload(uploadId: string, body: unknown): Promise<void> {
+  async appendInboundUpload(
+    uploadId: string,
+    body: InboundUploadBody,
+    options?: {offset?: number},
+  ): Promise<void> {
     const pending = this.pendingInboundUploads.get(uploadId);
     if (!pending) {
-      throw new Error('无效或已过期的上传会话。');
+      throw new Error('Invalid or expired upload session.');
     }
 
-    let chunkBytes = 0;
-
-    if (isInboundBase64Chunk(body)) {
-      chunkBytes =
-        body.byteLength ?? inboundBase64ByteLength(body.base64);
-      if (chunkBytes > MAX_INBOUND_UPLOAD_CHUNK_BYTES) {
-        throw new Error('单个分块过大，请刷新页面后重试。');
-      }
-
-      if (!this.options.fileSystem.appendFileBase64) {
-        throw new Error('当前环境不支持分块上传。');
-      }
-
-      await this.options.fileSystem.appendFileBase64(
-        pending.tempPath,
-        body.base64,
-      );
-    } else if (body instanceof Uint8Array) {
-      chunkBytes = body.byteLength;
-      if (chunkBytes > MAX_INBOUND_UPLOAD_CHUNK_BYTES) {
-        throw new Error('单个分块过大，请刷新页面后重试。');
-      }
-
-      if (!this.options.fileSystem.appendFile) {
-        throw new Error('当前环境不支持分块上传。');
-      }
-
-      await this.options.fileSystem.appendFile(pending.tempPath, body);
-    } else {
-      throw new Error('无效的分块数据。');
+    const isBytesBody = body instanceof Uint8Array;
+    const isPathBody =
+      !isBytesBody &&
+      body !== null &&
+      typeof body === 'object' &&
+      typeof body.sourcePath === 'string' &&
+      typeof body.byteLength === 'number';
+    if (!isBytesBody && !isPathBody) {
+      throw new Error('Invalid upload chunk data.');
     }
 
+    const chunkBytes = isBytesBody
+      ? body.byteLength
+      : Math.max(0, Math.trunc(body.byteLength));
     if (chunkBytes === 0) {
       return;
     }
 
+    if (chunkBytes > MAX_INBOUND_UPLOAD_CHUNK_BYTES) {
+      throw new Error('Upload chunk is too large. Refresh the page and retry.');
+    }
+
+    const expectedOffset =
+      typeof options?.offset === 'number' && Number.isFinite(options.offset)
+        ? Math.trunc(options.offset)
+        : undefined;
+    if (expectedOffset != null) {
+      if (expectedOffset < 0) {
+        throw new Error('Invalid upload chunk offset.');
+      }
+
+      if (expectedOffset < pending.receivedBytes) {
+        if (expectedOffset + chunkBytes <= pending.receivedBytes) {
+          return;
+        }
+
+        throw new Error('Upload chunk overlaps already received data.');
+      }
+
+      if (expectedOffset > pending.receivedBytes) {
+        throw new Error('Upload chunk offset is not contiguous.');
+      }
+    }
+
     if (pending.receivedBytes + chunkBytes > pending.totalBytes) {
-      throw new Error('已超出声明的文件总大小，上传已中止。');
+      throw new Error('Upload exceeds the declared file size.');
+    }
+
+    if (isBytesBody) {
+      if (!this.options.fileSystem.appendFile) {
+        throw new Error('Chunked uploads are not supported in this environment.');
+      }
+
+      await this.options.fileSystem.appendFile(pending.tempPath, body);
+    } else {
+      if (!this.options.fileSystem.appendFileFromPath) {
+        throw new Error('Path-based chunked uploads are not supported in this environment.');
+      }
+
+      await this.options.fileSystem.appendFileFromPath(
+        pending.tempPath,
+        body.sourcePath,
+      );
     }
 
     pending.receivedBytes += chunkBytes;
   }
 
+
   async finalizeInboundUpload(uploadId: string): Promise<SharedFileRecord> {
     const pending = this.pendingInboundUploads.get(uploadId);
     if (!pending) {
-      throw new Error('无效或已过期的上传会话。');
+      throw new Error('Invalid or expired upload session.');
     }
 
     if (pending.receivedBytes !== pending.totalBytes) {
       throw new Error(
-        `上传未完成：已接收 ${pending.receivedBytes} / ${pending.totalBytes} 字节。`,
+        `Upload is incomplete: received ${pending.receivedBytes} / ${pending.totalBytes} bytes.`,
       );
     }
 
@@ -688,7 +756,9 @@ export class InboundStorageGateway {
         sourcePath: pending.tempPath,
       });
     } finally {
-      await this.options.fileSystem.deletePath(pending.tempPath).catch(() => {});
+      await this.options.fileSystem
+        .deletePath(pending.tempPath)
+        .catch(() => {});
     }
   }
 
@@ -725,7 +795,9 @@ export class InboundStorageGateway {
 
   private resolveProject(snapshot: StorageSnapshot, projectId?: string) {
     const resolvedProjectId = projectId ?? snapshot.activeProjectId;
-    const project = snapshot.projects.find(item => item.id === resolvedProjectId);
+    const project = snapshot.projects.find(
+      item => item.id === resolvedProjectId,
+    );
     if (!project) {
       throw new Error(`Unknown project: ${resolvedProjectId}`);
     }
@@ -851,7 +923,9 @@ export class InboundStorageGateway {
     for (const file of Object.values(this.snapshot.files)) {
       let actualStoredSize: number;
       try {
-        actualStoredSize = await this.options.fileSystem.getFileSize(file.storagePath);
+        actualStoredSize = await this.options.fileSystem.getFileSize(
+          file.storagePath,
+        );
       } catch {
         continue;
       }
@@ -948,13 +1022,10 @@ export class InboundStorageGateway {
       return input.byteLength;
     }
 
-    if ('base64' in input && this.options.fileSystem.writeFileBase64) {
-      await this.options.fileSystem.writeFileBase64(storagePath, input.base64);
-      return input.byteLength;
-    }
-
     const storedBytes =
-      compression === 'none' ? await this.resolveInputBytes(input) : new Uint8Array(0);
+      compression === 'none'
+        ? await this.resolveInputBytes(input)
+        : new Uint8Array(0);
     await this.options.fileSystem.writeFile(storagePath, storedBytes);
     return storedBytes.byteLength;
   }
@@ -967,7 +1038,9 @@ export class InboundStorageGateway {
     return input.byteLength;
   }
 
-  private async resolveInputBytes(input: SaveInboundFileInput) {
+  private async resolveInputBytes(
+    input: SaveInboundFileInput,
+  ): Promise<Uint8Array> {
     if ('bytes' in input) {
       return input.bytes;
     }
@@ -976,7 +1049,7 @@ export class InboundStorageGateway {
       return this.options.fileSystem.readFile(input.sourcePath);
     }
 
-    return decodeBase64(input.base64);
+    throw new Error('Invalid inbound file payload.');
   }
 }
 
@@ -984,54 +1057,6 @@ function resolveSecurityModePreference(value: unknown): SecurityMode {
   return value === 'simple' || value === 'secure'
     ? value
     : DEFAULT_SERVICE_CONFIG.securityMode;
-}
-
-function decodeBase64(value: string) {
-  const bufferCtor = (
-    globalThis as {
-      Buffer?: {
-        from(input: string, encoding: 'base64'): Uint8Array;
-      };
-    }
-  ).Buffer;
-
-  if (bufferCtor) {
-    return new Uint8Array(bufferCtor.from(value, 'base64'));
-  }
-
-  if (typeof globalThis.atob === 'function') {
-    const binary = globalThis.atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  }
-
-  throw new Error('Base64 decode is not available in this runtime.');
-}
-
-function isInboundBase64Chunk(
-  value: unknown,
-): value is {base64: string; byteLength?: number; kind: 'base64'} {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const candidate = value as {base64?: unknown; kind?: unknown};
-  return (
-    candidate.kind === 'base64' && typeof candidate.base64 === 'string'
-  );
-}
-
-function inboundBase64ByteLength(value: string) {
-  const sanitized = value.replace(/[^A-Za-z0-9+/=]/g, '');
-  if (!sanitized) {
-    return 0;
-  }
-
-  const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
-  return (sanitized.length / 4) * 3 - padding;
 }
 
 function shouldCompressInboundPayload(

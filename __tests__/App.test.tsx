@@ -311,6 +311,7 @@ function createModel(overrides: Record<string, unknown> = {}) {
     deleteProject: jest.fn().mockResolvedValue(true),
     deletionWarning: '删除将清除该会话的数据及关联文件。',
     exportFile: jest.fn().mockResolvedValue(undefined),
+    exportFiles: jest.fn().mockResolvedValue(undefined),
     importFilesForShare: jest.fn().mockResolvedValue(undefined),
     importMediaForShare: jest.fn().mockResolvedValue(undefined),
     isFileShared: jest.fn().mockReturnValue(false),
@@ -492,6 +493,30 @@ describe('App sidebar history', () => {
     expect(() => tree!.root.findByProps({testID: 'sidebar-import-files'})).toThrow();
   });
 
+  test('supports selecting shared files for batch download from the workspace', async () => {
+    const model = createModel();
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'home-shared-select-downloads'}).props.onPress();
+    });
+
+    act(() => {
+      tree!.root.findByProps({testID: 'shared-file-select-file-b'}).props.onPress();
+    });
+
+    await act(async () => {
+      tree!.root.findByProps({testID: 'home-shared-download-selected'}).props.onPress();
+    });
+
+    expect(model.exportFiles).toHaveBeenCalledWith([model.sharedFiles[0]]);
+  });
+
   test('renders compact workspace summary and contextual address actions when service is reachable', () => {
     const model = createModel();
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
@@ -571,8 +596,8 @@ describe('App sidebar history', () => {
           children === noticeMessage ||
           (Array.isArray(children) && children.includes(noticeMessage))
         );
-      }),
-    ).toHaveLength(0);
+      }).length,
+    ).toBeGreaterThan(0);
   });
 
   test('opens the project history drawer from the toolbar on narrow screens', () => {

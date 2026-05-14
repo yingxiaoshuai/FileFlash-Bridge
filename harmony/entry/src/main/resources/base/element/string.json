@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "HarmonyOS entry module for FileFlash Bridge."
+      "value": "文件闪传桥 HarmonyOS 入口模块。"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "Launches the FileFlash Bridge Harmony workspace."
+      "value": "启动文件闪传桥工作台。"
     },
     {
       "name": "EntryAbility_label",
-      "value": "FileFlash Bridge"
+      "value": "文件闪传桥"
     }
   ]
 }

@@ -1,4 +1,4 @@
-import {NativeModules, Platform} from 'react-native';
+import { NativeModules, Platform, TurboModuleRegistry } from 'react-native';
 import {
   documentPickerErrorCodes,
   documentPickerTypes,
@@ -8,25 +8,48 @@ import {
 } from '../../platform/documentPicker';
 import Share from 'react-native-share';
 import RNFS from 'react-native-fs';
-import {gzip, ungzip} from 'pako';
+import { gzip, ungzip } from 'pako';
 
-import {isHarmonyPlatform} from '../../platform/platform';
+import { isHarmonyPlatform } from '../../platform/platform';
 import {
   CompressionAdapter,
   FileSystemAdapter,
   InboundStorageGateway,
 } from './inboundStorageGateway';
-import {DEFAULT_SERVICE_CONFIG, SharedFileRecord} from '../service/models';
+import { DEFAULT_SERVICE_CONFIG, SharedFileRecord } from '../service/models';
 
 const BASE64_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
-type NativeFileReaderModule = {
-  readChunkBase64?: (
-    filepath: string,
+type NativeBytesLike =
+  | Uint8Array
+  | ArrayBuffer
+  | ArrayBufferView
+  | number[]
+  | {
+      buffer?: ArrayBuffer;
+      byteLength?: number;
+      byteOffset?: number;
+      data?: number[];
+      length?: number;
+      [key: string]: unknown;
+    };
+
+type NativeFileAccessModule = {
+  appendFile?: (path: string, content: Uint8Array | number[]) => Promise<void>;
+  appendFileFromPath?: (path: string, sourcePath: string) => Promise<void>;
+  copyFile?: (sourcePath: string, destinationPath: string) => Promise<void>;
+  readFile?: (path: string) => Promise<NativeBytesLike>;
+  readFileChunk?: (
+    path: string,
     offset: number,
     length: number,
+  ) => Promise<NativeBytesLike>;
+  saveFileToDocuments?: (
+    sourcePath: string,
+    displayName?: string,
   ) => Promise<string>;
+  writeFile?: (path: string, content: Uint8Array | number[]) => Promise<void>;
 };
 
 type NativeImportedDeviceFile = {
@@ -44,6 +67,7 @@ type NativeImportedDeviceText = {
 };
 
 type NativePendingSharedItems = {
+  error?: string;
   files?: NativeImportedDeviceFile[];
   texts?: NativeImportedDeviceText[];
 };
@@ -60,23 +84,90 @@ type NativeInboundSharingModule = {
 };
 
 const HARMONY_PENDING_SHARE_MANIFEST_PATH = `${RNFS.DocumentDirectoryPath}/ffb-inbound/pending.json`;
+const HARMONY_PENDING_SHARE_COPYING_PATH = `${RNFS.DocumentDirectoryPath}/ffb-inbound/copying.json`;
+const HARMONY_PENDING_SHARE_CAPTURE_TIMEOUT_MS = 30 * 1000;
+const HARMONY_PENDING_SHARE_CAPTURE_POLL_MS = 250;
 
-const nativeFileReader = NativeModules.FPFileReader as
-  | NativeFileReaderModule
+const turboModuleRegistry = TurboModuleRegistry as
+  | { get<T>(name: string): T | null }
   | undefined;
-const nativeInboundSharing = NativeModules.FPInboundSharing as
-  | NativeInboundSharingModule
-  | undefined;
+
+function isHarmonyFileAccessDiagnosticsEnabled() {
+  return (
+    isHarmonyPlatform() &&
+    (globalThis as { __FILEFLASH_DIAGNOSTICS__?: boolean })
+      .__FILEFLASH_DIAGNOSTICS__ === true
+  );
+}
+
+function logHarmonyFileAccessDiagnostic(message: string, detail?: unknown) {
+  if (!isHarmonyFileAccessDiagnosticsEnabled()) {
+    return;
+  }
+
+  const suffix =
+    detail instanceof Error ? ` ${detail.message}` : detail ? ` ${String(detail)}` : '';
+  console.info(`[FPFileAccess] ${message}${suffix}`);
+}
+
+function getOptionalNativeModule<T>(name: string) {
+  try {
+    const nativeModule = (NativeModules as Record<string, T | undefined>)[name];
+    if (nativeModule) {
+      logHarmonyFileAccessDiagnostic(`${name} resolved from NativeModules`);
+      return nativeModule;
+    }
+  } catch (error) {
+    // Harmony throws from NativeModules when the ArkTS package is not present.
+    logHarmonyFileAccessDiagnostic(`${name} NativeModules lookup failed`, error);
+  }
+
+  try {
+    const turboModule = turboModuleRegistry?.get<T>(name) ?? undefined;
+    if (turboModule) {
+      logHarmonyFileAccessDiagnostic(`${name} resolved from TurboModuleRegistry`);
+    } else {
+      logHarmonyFileAccessDiagnostic(`${name} not found in TurboModuleRegistry`);
+    }
+    return turboModule;
+  } catch (error) {
+    logHarmonyFileAccessDiagnostic(
+      `${name} TurboModuleRegistry lookup failed`,
+      error,
+    );
+    return undefined;
+  }
+}
+
+let cachedNativeFileAccess: NativeFileAccessModule | undefined;
+let cachedNativeInboundSharing: NativeInboundSharingModule | undefined;
+
+function getNativeFileAccess() {
+  if (!cachedNativeFileAccess) {
+    cachedNativeFileAccess =
+      getOptionalNativeModule<NativeFileAccessModule>('FPFileAccess');
+  }
+
+  return cachedNativeFileAccess;
+}
+
+function getNativeInboundSharing() {
+  if (!cachedNativeInboundSharing) {
+    cachedNativeInboundSharing =
+      getOptionalNativeModule<NativeInboundSharingModule>('FPInboundSharing');
+  }
+
+  return cachedNativeInboundSharing;
+}
 
 const BASE64_ENCODE_CHUNK_BYTES = 384 * 1024;
-const HARMONY_FILE_WRITE_CHUNK_BYTES = 128 * 1024;
 
 type Base64BufferCtor = {
-  from(input: Uint8Array): {toString(encoding: 'base64'): string};
+  from(input: Uint8Array): { toString(encoding: 'base64'): string };
 };
 
 function getBase64BufferCtor() {
-  return (globalThis as {Buffer?: Base64BufferCtor}).Buffer;
+  return (globalThis as { Buffer?: Base64BufferCtor }).Buffer;
 }
 
 function encodeBytesToBase64(bytes: Uint8Array) {
@@ -91,9 +182,7 @@ function encodeBytesToBase64(bytes: Uint8Array) {
     output += BASE64_ALPHABET[(triple >> 18) & 0x3f];
     output += BASE64_ALPHABET[(triple >> 12) & 0x3f];
     output +=
-      index + 1 < bytes.length
-        ? BASE64_ALPHABET[(triple >> 6) & 0x3f]
-        : '=';
+      index + 1 < bytes.length ? BASE64_ALPHABET[(triple >> 6) & 0x3f] : '=';
     output += index + 2 < bytes.length ? BASE64_ALPHABET[triple & 0x3f] : '=';
   }
 
@@ -107,6 +196,57 @@ function bytesToBase64(bytes: Uint8Array) {
   }
 
   return encodeBytesToBase64(bytes);
+}
+
+function normalizeNativeBytes(value: NativeBytesLike) {
+  if (value instanceof Uint8Array) {
+    return value;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  }
+
+  if (Array.isArray(value)) {
+    return new Uint8Array(value);
+  }
+
+  if (Array.isArray(value.data)) {
+    return new Uint8Array(value.data);
+  }
+
+  if (value.buffer instanceof ArrayBuffer) {
+    const byteOffset =
+      typeof value.byteOffset === 'number' && Number.isFinite(value.byteOffset)
+        ? value.byteOffset
+        : 0;
+    const byteLength =
+      typeof value.byteLength === 'number' && Number.isFinite(value.byteLength)
+        ? value.byteLength
+        : value.buffer.byteLength - byteOffset;
+    return new Uint8Array(value.buffer, byteOffset, byteLength);
+  }
+
+  if (typeof value.length === 'number' && Number.isFinite(value.length)) {
+    const bytes = new Uint8Array(Math.max(0, value.length));
+    for (let index = 0; index < bytes.byteLength; index += 1) {
+      bytes[index] =
+        Number((value as Record<string, unknown>)[String(index)]) || 0;
+    }
+    return bytes;
+  }
+
+  throw new Error('Native file access returned an invalid binary payload.');
+}
+
+function createMissingHarmonyFileAccessError() {
+  return new Error(
+    '当前鸿蒙安装包缺少 FPFileAccess 原生文件模块，请重新打包安装后再保存大文件。',
+  );
 }
 
 function waitForEventLoopTurn() {
@@ -157,42 +297,17 @@ async function bytesToBase64Async(bytes: Uint8Array) {
   return parts.join('');
 }
 
-async function writeBase64Chunks(
-  content: Uint8Array,
-  writeChunk: (contentBase64: string, isFirstChunk: boolean) => Promise<void>,
-) {
-  if (content.byteLength === 0) {
-    await writeChunk('', true);
-    return;
-  }
-
-  let offset = 0;
-  let isFirstChunk = true;
-
-  while (offset < content.byteLength) {
-    const end = Math.min(
-      content.byteLength,
-      offset + HARMONY_FILE_WRITE_CHUNK_BYTES,
-    );
-    const contentBase64 = await bytesToBase64Async(content.subarray(offset, end));
-    await writeChunk(contentBase64, isFirstChunk);
-
-    offset = end;
-    isFirstChunk = false;
-
-    if (offset < content.byteLength) {
-      await waitForEventLoopTurn();
-    }
-  }
-}
-
 function base64ToBytes(base64: string) {
   const sanitized = base64.replace(/[^A-Za-z0-9+/=]/g, '');
   if (sanitized.length % 4 !== 0) {
     throw new Error('Invalid base64 payload.');
   }
 
-  const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
+  const padding = sanitized.endsWith('==')
+    ? 2
+    : sanitized.endsWith('=')
+    ? 1
+    : 0;
   const byteLength = (sanitized.length / 4) * 3 - padding;
   const bytes = new Uint8Array(byteLength);
   let byteIndex = 0;
@@ -239,6 +354,14 @@ function base64ToBytes(base64: string) {
   return bytes;
 }
 
+function bytesToNumberArray(bytes: Uint8Array) {
+  const output = new Array<number>(bytes.byteLength);
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    output[index] = bytes[index];
+  }
+  return output;
+}
+
 function sanitizeFileName(fileName: string) {
   return fileName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
 }
@@ -250,13 +373,47 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       await RNFS.mkdir(destinationDir);
     }
 
+    if (isHarmonyPlatform()) {
+      const copyFile = getNativeFileAccess()?.copyFile;
+      if (!copyFile) {
+        throw createMissingHarmonyFileAccessError();
+      }
+
+      const sourceSize = await this.getFileSize(sourcePath).catch(
+        () => undefined,
+      );
+      await copyFile(sourcePath, destinationPath);
+      if (!(await RNFS.exists(destinationPath))) {
+        throw new Error(
+          `Stored file is missing after copy: ${destinationPath}`,
+        );
+      }
+
+      const destinationSize = await this.getFileSize(destinationPath).catch(
+        () => undefined,
+      );
+      if (
+        sourceSize != null &&
+        destinationSize != null &&
+        destinationSize !== sourceSize
+      ) {
+        throw new Error(
+          `Native file copy produced an incomplete file: ${destinationPath}`,
+        );
+      }
+      return;
+    }
+
     if (Platform.OS !== 'ios' && !isHarmonyPlatform()) {
       await RNFS.copyFile(sourcePath, destinationPath);
       return;
     }
 
-    const sourceSize = await this.getFileSize(sourcePath).catch(() => undefined);
+    const sourceSize = await this.getFileSize(sourcePath).catch(
+      () => undefined,
+    );
 
+    let copyError: unknown;
     try {
       await RNFS.copyFile(sourcePath, destinationPath);
       if (await RNFS.exists(destinationPath)) {
@@ -271,17 +428,14 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
           return;
         }
       }
-    } catch {
-      // Fall through to the read/write fallback below.
+    } catch (error) {
+      copyError = error;
     }
 
-    // Some iOS and Harmony RNFS copy flows can report success without leaving
-    // a readable destination file behind. Recreate the destination deterministically.
-    const contentBase64 = await RNFS.readFile(sourcePath, 'base64');
-    await RNFS.writeFile(destinationPath, contentBase64, 'base64');
-    if (!(await RNFS.exists(destinationPath))) {
-      throw new Error(`Stored file is missing after copy: ${destinationPath}`);
-    }
+    const detail = copyError instanceof Error ? ` ${copyError.message}` : '';
+    throw new Error(
+      `Native file copy failed or produced an incomplete file:${detail}`,
+    );
   }
 
   async deletePath(path: string) {
@@ -311,35 +465,30 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
     return items.map(item => item.name);
   }
 
-  async readFileChunkBase64(path: string, offset: number, length: number) {
-    if (Platform.OS === 'ios') {
-      const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
-      const safeLength = Number.isFinite(length) ? Math.max(0, length) : 0;
-      if (safeLength === 0) {
-        return '';
+  async readFileChunk(path: string, offset: number, length: number) {
+    if (isHarmonyPlatform()) {
+      const readFileChunk = getNativeFileAccess()?.readFileChunk;
+      if (!readFileChunk) {
+        throw createMissingHarmonyFileAccessError();
       }
 
-      if (nativeFileReader?.readChunkBase64) {
-        try {
-          return await nativeFileReader.readChunkBase64(path, start, safeLength);
-        } catch {
-          // Fall back to a JS read so browser downloads still work if the
-          // native reader rejects for a platform-specific file path.
-        }
-      }
-
-      // Fallback only when the native module is unavailable, e.g. before the
-      // app is rebuilt after adding the iOS chunk reader, or when a specific
-      // native read path rejects and we can still recover in JS.
-      const bytes = await this.readFile(path);
-      const end = Math.min(bytes.byteLength, start + safeLength);
-      return bytesToBase64(bytes.slice(start, end));
+      return normalizeNativeBytes(await readFileChunk(path, offset, length));
     }
 
-    return RNFS.read(path, length, offset, 'base64');
+    const base64 = await RNFS.read(path, length, offset, 'base64');
+    return base64ToBytes(base64);
   }
 
   async readFile(path: string) {
+    if (isHarmonyPlatform()) {
+      const readFile = getNativeFileAccess()?.readFile;
+      if (!readFile) {
+        throw createMissingHarmonyFileAccessError();
+      }
+
+      return normalizeNativeBytes(await readFile(path));
+    }
+
     const base64 = await RNFS.readFile(path, 'base64');
     return base64ToBytes(base64);
   }
@@ -351,17 +500,13 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
   async writeFile(path: string, content: Uint8Array) {
     await RNFS.mkdir(path.split('/').slice(0, -1).join('/'));
 
-    if (
-      isHarmonyPlatform() &&
-      content.byteLength > HARMONY_FILE_WRITE_CHUNK_BYTES
-    ) {
-      await writeBase64Chunks(content, async (contentBase64, isFirstChunk) => {
-        if (isFirstChunk) {
-          await RNFS.writeFile(path, contentBase64, 'base64');
-        } else {
-          await RNFS.appendFile(path, contentBase64, 'base64');
-        }
-      });
+    if (isHarmonyPlatform()) {
+      const writeFile = getNativeFileAccess()?.writeFile;
+      if (!writeFile) {
+        throw createMissingHarmonyFileAccessError();
+      }
+
+      await writeFile(path, bytesToNumberArray(content));
       return;
     }
 
@@ -374,31 +519,37 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       await RNFS.mkdir(dir);
     }
 
-    if (
-      isHarmonyPlatform() &&
-      content.byteLength > HARMONY_FILE_WRITE_CHUNK_BYTES
-    ) {
-      await writeBase64Chunks(content, async contentBase64 => {
-        await RNFS.appendFile(path, contentBase64, 'base64');
-      });
+    if (isHarmonyPlatform()) {
+      const appendFile = getNativeFileAccess()?.appendFile;
+      if (!appendFile) {
+        throw createMissingHarmonyFileAccessError();
+      }
+
+      await appendFile(path, bytesToNumberArray(content));
       return;
     }
 
     await RNFS.appendFile(path, await bytesToBase64Async(content), 'base64');
   }
 
-  async appendFileBase64(path: string, contentBase64: string) {
+  async appendFileFromPath(path: string, sourcePath: string) {
     const dir = path.split('/').slice(0, -1).join('/');
     if (dir) {
       await RNFS.mkdir(dir);
     }
 
-    await RNFS.appendFile(path, contentBase64, 'base64');
-  }
+    if (isHarmonyPlatform()) {
+      const appendFileFromPath = getNativeFileAccess()?.appendFileFromPath;
+      if (!appendFileFromPath) {
+        throw createMissingHarmonyFileAccessError();
+      }
 
-  async writeFileBase64(path: string, contentBase64: string) {
-    await RNFS.mkdir(path.split('/').slice(0, -1).join('/'));
-    await RNFS.writeFile(path, contentBase64, 'base64');
+      await appendFileFromPath(path, sourcePath);
+      return;
+    }
+
+    const bytes = await this.readFile(sourcePath);
+    await this.appendFile(path, bytes);
   }
 
   async writeText(path: string, content: string) {
@@ -423,7 +574,9 @@ export function createReactNativeInboundStorageGateway(
 
   return new InboundStorageGateway({
     compression: reactNativeGzipCompression,
-    compressionThreshold: DEFAULT_SERVICE_CONFIG.compressionThreshold,
+    compressionThreshold: isHarmonyPlatform()
+      ? 0
+      : DEFAULT_SERVICE_CONFIG.compressionThreshold,
     fileSystem: new ReactNativeFileSystemAdapter(),
     rootDir,
     sessionId,
@@ -432,7 +585,7 @@ export function createReactNativeInboundStorageGateway(
 
 export interface ExportResult {
   destinationUri?: string;
-  method: 'android-saf' | 'ios-files' | 'share';
+  method: 'android-saf' | 'harmony-files' | 'ios-files' | 'share';
 }
 
 export interface ImportedDeviceFile {
@@ -460,7 +613,7 @@ function isUserCancellation(error: unknown) {
     return false;
   }
 
-  const candidate = error as {code?: string; message?: string};
+  const candidate = error as { code?: string; message?: string };
   return (
     (isDocumentPickerErrorWithCode(error) &&
       candidate.code === documentPickerErrorCodes.OPERATION_CANCELED) ||
@@ -471,7 +624,9 @@ function isUserCancellation(error: unknown) {
 }
 
 function normalizeFileUri(uri: string) {
-  return uri.startsWith('file://') ? decodeURI(uri.slice('file://'.length)) : uri;
+  return uri.startsWith('file://')
+    ? decodeURI(uri.slice('file://'.length))
+    : uri;
 }
 
 function fileNameFromPath(path: string) {
@@ -531,8 +686,45 @@ function normalizeImportedDeviceText(
   };
 }
 
+async function delay(ms: number) {
+  await new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function safePathExists(path: string) {
+  try {
+    return await RNFS.exists(path);
+  } catch {
+    return false;
+  }
+}
+
+async function waitForHarmonyPendingShareCapture() {
+  if (await safePathExists(HARMONY_PENDING_SHARE_MANIFEST_PATH)) {
+    return;
+  }
+
+  if (!(await safePathExists(HARMONY_PENDING_SHARE_COPYING_PATH))) {
+    return;
+  }
+
+  const deadline = Date.now() + HARMONY_PENDING_SHARE_CAPTURE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await delay(HARMONY_PENDING_SHARE_CAPTURE_POLL_MS);
+
+    if (await safePathExists(HARMONY_PENDING_SHARE_MANIFEST_PATH)) {
+      return;
+    }
+
+    if (!(await safePathExists(HARMONY_PENDING_SHARE_COPYING_PATH))) {
+      return;
+    }
+  }
+}
+
 async function consumeHarmonyPendingSharedItems(): Promise<NativePendingSharedItems> {
-  const exists = await RNFS.exists(HARMONY_PENDING_SHARE_MANIFEST_PATH);
+  await waitForHarmonyPendingShareCapture();
+
+  const exists = await safePathExists(HARMONY_PENDING_SHARE_MANIFEST_PATH);
   if (!exists) {
     return {
       files: [],
@@ -540,21 +732,27 @@ async function consumeHarmonyPendingSharedItems(): Promise<NativePendingSharedIt
     };
   }
 
+  let parsed: NativePendingSharedItems | null = null;
   try {
     const rawManifest = await RNFS.readFile(
       HARMONY_PENDING_SHARE_MANIFEST_PATH,
       'utf8',
     );
-    const parsed = JSON.parse(rawManifest) as NativePendingSharedItems | null;
-    return {
-      files: Array.isArray(parsed?.files) ? parsed.files : [],
-      texts: Array.isArray(parsed?.texts) ? parsed.texts : [],
-    };
+    parsed = JSON.parse(rawManifest) as NativePendingSharedItems | null;
   } catch {
     throw new Error('Failed to read pending Harmony shared items.');
   } finally {
     await safeDeletePath(HARMONY_PENDING_SHARE_MANIFEST_PATH);
   }
+
+  if (parsed?.error) {
+    throw new Error(parsed.error);
+  }
+
+  return {
+    files: Array.isArray(parsed?.files) ? parsed.files : [],
+    texts: Array.isArray(parsed?.texts) ? parsed.texts : [],
+  };
 }
 
 async function pickDocumentsForShare(
@@ -565,7 +763,6 @@ async function pickDocumentsForShare(
       isHarmonyPlatform()
         ? {
             allowMultiSelection: true,
-            copyTo: 'cachesDirectory',
             type: requestedTypes,
           }
         : {
@@ -621,7 +818,7 @@ async function pickDocumentsForShare(
 
 async function copyPickedDocumentsToCache(
   selectedFiles: Array<{
-    convertibleToMimeTypes?: Array<{mimeType: string}>;
+    convertibleToMimeTypes?: Array<{ mimeType: string }>;
     isVirtual?: boolean;
     name: string | null;
     type?: string | null;
@@ -629,7 +826,7 @@ async function copyPickedDocumentsToCache(
   }>,
 ) {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const {keepLocalCopy} = require('@react-native-documents/picker') as {
+  const { keepLocalCopy } = require('@react-native-documents/picker') as {
     keepLocalCopy: (options: {
       destination: 'cachesDirectory' | 'documentDirectory';
       files: [LocalCopyFile, ...LocalCopyFile[]];
@@ -683,7 +880,7 @@ export async function pickDeviceFilesForShare(): Promise<ImportedDeviceFile[]> {
 }
 
 export async function pickDeviceMediaForShare(): Promise<ImportedDeviceFile[]> {
-  const pickMediaFiles = nativeInboundSharing?.pickMediaFiles;
+  const pickMediaFiles = getNativeInboundSharing()?.pickMediaFiles;
   if (!pickMediaFiles) {
     throw new Error('当前设备暂不支持直接从图库导入。');
   }
@@ -695,8 +892,10 @@ export async function pickDeviceMediaForShare(): Promise<ImportedDeviceFile[]> {
 }
 
 export async function consumePendingSharedItems(): Promise<PendingSharedItems> {
-  const payload = nativeInboundSharing?.consumePendingSharedItems
-    ? await nativeInboundSharing.consumePendingSharedItems()
+  const consumeNativePendingSharedItems =
+    getNativeInboundSharing()?.consumePendingSharedItems;
+  const payload = consumeNativePendingSharedItems
+    ? await consumeNativePendingSharedItems()
     : isHarmonyPlatform()
     ? await consumeHarmonyPendingSharedItems()
     : {
@@ -736,10 +935,14 @@ async function shareFromTemporaryFile(
     file.displayName,
   )}`;
 
-  await RNFS.writeFile(tempFilePath, bytesToBase64(bytes), 'base64');
+  await new ReactNativeFileSystemAdapter().writeFile(tempFilePath, bytes);
 
   try {
-    await Share.open({
+    if (isHarmonyPlatform()) {
+      return await saveHarmonyFileToDocuments(file, tempFilePath);
+    }
+
+    await openShareSheet({
       failOnCancel: false,
       filename: file.displayName,
       saveToFiles: Platform.OS === 'ios',
@@ -761,9 +964,9 @@ async function shareExistingFile(
   file: SharedFileRecord,
   sourcePath: string,
 ): Promise<ExportResult> {
-  await Share.open({
+  await openShareSheet({
     failOnCancel: false,
-    filename: file.displayName,
+    ...(isHarmonyPlatform() ? {} : { filename: file.displayName }),
     saveToFiles: Platform.OS === 'ios',
     type: file.mimeType,
     url: encodeURI(`file://${sourcePath}`),
@@ -771,6 +974,52 @@ async function shareExistingFile(
 
   return {
     method: Platform.OS === 'ios' ? 'ios-files' : 'share',
+  };
+}
+
+type ShareOpenResultLike = {
+  dismissedAction?: boolean;
+  message?: string;
+  success?: boolean;
+};
+
+async function openShareSheet(options: Parameters<typeof Share.open>[0]) {
+  const result = (await Share.open(options)) as ShareOpenResultLike;
+
+  if (result?.success === false) {
+    const message = result.message?.trim();
+    const isCancel =
+      /cancel|cancelled|canceled|取消/i.test(message ?? '') ||
+      (result.dismissedAction === true && !message);
+
+    throw new Error(
+      isCancel ? '已取消导出。' : message || '未能打开系统导出面板。',
+    );
+  }
+
+  return result;
+}
+
+async function saveHarmonyFileToDocuments(
+  file: SharedFileRecord,
+  sourcePath: string,
+): Promise<ExportResult> {
+  const saveFileToDocuments = getNativeFileAccess()?.saveFileToDocuments;
+  if (!saveFileToDocuments) {
+    throw createMissingHarmonyFileAccessError();
+  }
+
+  const destinationUri = await saveFileToDocuments(
+    sourcePath,
+    file.displayName,
+  );
+  if (!destinationUri) {
+    throw new Error('未能保存到本地文件。');
+  }
+
+  return {
+    destinationUri,
+    method: 'harmony-files',
   };
 }
 
@@ -803,6 +1052,10 @@ export async function exportPreparedFile(
   file: SharedFileRecord,
   bytes: Uint8Array,
 ) {
+  if (isHarmonyPlatform()) {
+    return shareFromTemporaryFile(file, bytes);
+  }
+
   if (Platform.OS === 'android') {
     const temporaryDirectory =
       RNFS.TemporaryDirectoryPath || RNFS.CachesDirectoryPath;
@@ -813,10 +1066,13 @@ export async function exportPreparedFile(
     const tempFilePath = `${temporaryDirectory}/ffb-export-${Date.now()}-${sanitizeFileName(
       file.displayName,
     )}`;
-    await RNFS.writeFile(tempFilePath, bytesToBase64(bytes), 'base64');
+    await new ReactNativeFileSystemAdapter().writeFile(tempFilePath, bytes);
 
     try {
-      return await saveToSystemDocumentUri(file, toEncodedFileUri(tempFilePath));
+      return await saveToSystemDocumentUri(
+        file,
+        toEncodedFileUri(tempFilePath),
+      );
     } catch (error) {
       if (isUserCancellation(error)) {
         throw new Error('已取消导出。');
@@ -832,6 +1088,10 @@ export async function exportPreparedFile(
 }
 
 export async function exportStoredFile(file: SharedFileRecord) {
+  if (isHarmonyPlatform()) {
+    return saveHarmonyFileToDocuments(file, file.storagePath);
+  }
+
   if (Platform.OS === 'android') {
     try {
       return await saveToSystemDocumentUri(

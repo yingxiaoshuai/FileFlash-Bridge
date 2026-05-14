@@ -1,14 +1,20 @@
 import { TurboModule, TurboModuleContext } from '@rnoh/react-native-openharmony/ts';
 import { connection, socket } from '@kit.NetworkKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import common from '@ohos.app.ability.common';
+import fs, { WriteOptions } from '@ohos.file.fs';
 import { util } from '@kit.ArkTS';
 
 const EVENT_REQUEST = 'fpStaticServerRequest';
 const HEADER_DELIMITER = new util.TextEncoder().encodeInto('\r\n\r\n');
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
+const MAX_BRIDGE_BODY_BYTES = 128 * 1024;
+const MAX_UPLOAD_BODY_BYTES = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
 const RESPONSE_WRITE_CHUNK_BYTES = 256 * 1024;
+const SOCKET_CLOSE_GRACE_MS = 30;
 const DEFAULT_PORT = 8668;
+const UPLOAD_TEMP_DIR_NAME = 'fileflash-http-upload';
 
 const STATUS_TEXT_BY_CODE: Record<number, string> = {
   200: 'OK',
@@ -25,11 +31,6 @@ const STATUS_TEXT_BY_CODE: Record<number, string> = {
   504: 'Gateway Timeout',
 };
 
-interface SocketLinger {
-  on: boolean;
-  linger: number;
-}
-
 interface HttpRequestHeaderInfo {
   bodyStartIndex: number;
   contentLength: number;
@@ -40,9 +41,14 @@ interface HttpRequestHeaderInfo {
   target: string;
 }
 
+interface NativeRequestBodyFile {
+  byteLength: number;
+  path: string;
+}
+
 interface NativeRequestPayload {
-  bodyBase64?: string;
-  bodyBytes?: Uint8Array;
+  bodyFile?: NativeRequestBodyFile;
+  bodyBytes?: number[];
   bodyText?: string;
   headers: Record<string, string>;
   method: string;
@@ -54,8 +60,15 @@ interface NativeRequestPayload {
 
 interface NativeResponse {
   bodyBytes: Uint8Array;
+  bodyFile?: NativeResponseBodyFile;
   headers: Record<string, string>;
   status: number;
+}
+
+interface NativeResponseBodyFile {
+  length: number;
+  offset: number;
+  path: string;
 }
 
 interface ParsedTarget {
@@ -201,6 +214,10 @@ function readContentLength(value?: string): number {
   }
 
   return parsed;
+}
+
+function isByteBridgeBodyPath(path: string): boolean {
+  return path === '/api/upload' || path === '/api/upload/part';
 }
 
 function parseHttpRequestHeaderBytes(
@@ -403,6 +420,49 @@ async function closeClient(client: socket.TCPSocketConnection): Promise<void> {
   }
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise<void>(resolve => setTimeout(resolve, ms));
+}
+
+function toByteArray(bytes: Uint8Array): number[] {
+  const output: number[] = new Array<number>(bytes.byteLength);
+  for (let index = 0; index < bytes.byteLength; index++) {
+    output[index] = bytes[index];
+  }
+  return output;
+}
+
+function parentDir(path: string): string {
+  const index = path.lastIndexOf('/');
+  return index > 0 ? path.substring(0, index) : '';
+}
+
+async function writeBufferFully(
+  fd: number,
+  buffer: ArrayBuffer,
+  byteLength: number,
+  offset: number,
+): Promise<void> {
+  let written = 0;
+
+  while (written < byteLength) {
+    const chunk =
+      written === 0 && byteLength === buffer.byteLength
+        ? buffer
+        : buffer.slice(written, byteLength);
+    const writeLength = await fs.write(fd, chunk, {
+      length: byteLength - written,
+      offset: offset + written,
+    } as WriteOptions);
+
+    if (writeLength <= 0) {
+      throw new Error('Unable to write HTTP upload chunk.');
+    }
+
+    written += writeLength;
+  }
+}
+
 async function sendBytes(
   client: socket.TCPSocketConnection,
   bytes: Uint8Array,
@@ -422,7 +482,45 @@ async function writeHttpResponse(
   response: NativeResponse,
 ): Promise<void> {
   await sendBytes(client, buildResponseHeaderBytes(response));
+  if (response.bodyFile) {
+    await sendFileRange(client, response.bodyFile);
+    return;
+  }
   await sendBytes(client, response.bodyBytes);
+}
+
+async function sendFileRange(
+  client: socket.TCPSocketConnection,
+  source: NativeResponseBodyFile,
+): Promise<void> {
+  let remaining = Math.max(0, Math.trunc(Number(source.length)));
+  let offset = Math.max(0, Math.trunc(Number(source.offset)));
+  if (remaining === 0) {
+    return;
+  }
+
+  const file = fs.openSync(source.path, fs.OpenMode.READ_ONLY);
+  try {
+    while (remaining > 0) {
+      const length = Math.min(RESPONSE_WRITE_CHUNK_BYTES, remaining);
+      const buffer = new ArrayBuffer(length);
+      const readLength = await fs.read(file.fd, buffer, {
+        length,
+        offset,
+      });
+      if (readLength <= 0) {
+        throw new Error('Unable to read HTTP response file.');
+      }
+
+      await client.send({
+        data: readLength === buffer.byteLength ? buffer : buffer.slice(0, readLength),
+      });
+      offset += readLength;
+      remaining -= readLength;
+    }
+  } finally {
+    fs.closeSync(file);
+  }
 }
 
 function createJsonErrorResponse(status: number, message: string): NativeResponse {
@@ -439,11 +537,11 @@ function createJsonErrorResponse(status: number, message: string): NativeRespons
 }
 
 export class FPStaticServerTurboModule extends TurboModule {
-  private readonly base64Helper: util.Base64Helper = new util.Base64Helper();
   private readonly activeConnections: Map<number, socket.TCPSocketConnection> =
     new Map<number, socket.TCPSocketConnection>();
   private readonly pendingResponses: Map<string, PendingResponse> =
     new Map<string, PendingResponse>();
+  private readonly context: common.UIAbilityContext;
 
   private keepAlive: boolean = false;
   private localhostOnly: boolean = false;
@@ -454,6 +552,7 @@ export class FPStaticServerTurboModule extends TurboModule {
 
   constructor(ctx: TurboModuleContext) {
     super(ctx);
+    this.context = ctx.uiAbilityContext;
   }
 
   async start(
@@ -575,6 +674,55 @@ export class FPStaticServerTurboModule extends TurboModule {
     });
   }
 
+  respondBytes(
+    requestId: string,
+    status: number,
+    headers: Record<string, string>,
+    body: Uint8Array,
+  ): void {
+    const pending = this.pendingResponses.get(requestId);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timeoutId);
+    this.pendingResponses.delete(requestId);
+
+    pending.resolve({
+      bodyBytes: body ?? new Uint8Array(0),
+      headers: headers ?? {},
+      status: Math.trunc(Number(status)) || 500,
+    });
+  }
+
+  respondFile(
+    requestId: string,
+    status: number,
+    headers: Record<string, string>,
+    path: string,
+    offset: number,
+    length: number,
+  ): void {
+    const pending = this.pendingResponses.get(requestId);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timeoutId);
+    this.pendingResponses.delete(requestId);
+
+    pending.resolve({
+      bodyBytes: new Uint8Array(0),
+      bodyFile: {
+        length: Math.max(0, Math.trunc(Number(length))),
+        offset: Math.max(0, Math.trunc(Number(offset))),
+        path,
+      },
+      headers: headers ?? {},
+      status: Math.trunc(Number(status)) || 500,
+    });
+  }
+
   addListener(_eventName: string): void {
     // Required by NativeEventEmitter.
   }
@@ -604,10 +752,6 @@ export class FPStaticServerTurboModule extends TurboModule {
       receiveBufferSize: 1024 * 1024,
       reuseAddress: true,
       sendBufferSize: 1024 * 1024,
-      socketLinger: {
-        linger: 1,
-        on: true,
-      } as SocketLinger,
       socketTimeout: 120000,
     } as socket.TCPExtraOptions);
   }
@@ -679,6 +823,7 @@ export class FPStaticServerTurboModule extends TurboModule {
 
     let bufferParts: Uint8Array[] = [];
     let bufferedByteLength = 0;
+    let needsProcess = false;
     let processing = false;
     let responded = false;
     let remoteAddress: string | undefined = undefined;
@@ -703,34 +848,92 @@ export class FPStaticServerTurboModule extends TurboModule {
       bufferedByteLength += part.byteLength;
     };
 
+    const cleanupBodyFile = async (payload: NativeRequestPayload) => {
+      const path = payload.bodyFile?.path;
+      if (!path) {
+        return;
+      }
+
+      try {
+        await fs.unlink(path);
+      } catch (_) {
+        // The request handler may have already moved or deleted it.
+      }
+    };
+
     const processBuffer = async () => {
       if (processing || responded) {
         return;
       }
 
+      processing = true;
       try {
         const header = readHttpRequestHeaderFromParts(
           bufferParts,
           bufferedByteLength,
         );
-        if (!header || bufferedByteLength < header.frameByteLength) {
+        if (!header) {
           return;
         }
 
-        processing = true;
+        const target = parseTarget(header.target);
+        if (
+          isByteBridgeBodyPath(target.path) &&
+          header.contentLength > MAX_UPLOAD_BODY_BYTES
+        ) {
+          responded = true;
+          bufferParts = [];
+          bufferedByteLength = 0;
+          await writeHttpResponse(
+            client,
+            createJsonErrorResponse(
+              413,
+              'Upload chunk is too large. Refresh the page and retry.',
+            ),
+          );
+          return;
+        }
+
+        if (bufferedByteLength < header.frameByteLength) {
+          return;
+        }
+
         responded = true;
 
-        const bodyBytes = copyByteRangeFromParts(
-          bufferParts,
-          header.bodyStartIndex,
-          header.frameByteLength,
-        );
+        let bodyBytes = new Uint8Array(0);
+        let bodyFile: NativeRequestBodyFile | undefined = undefined;
+        if (
+          isByteBridgeBodyPath(target.path) &&
+          header.contentLength > MAX_BRIDGE_BODY_BYTES
+        ) {
+          bodyFile = await this.writeRequestBodyToTempFile(
+            bufferParts,
+            header.bodyStartIndex,
+            header.frameByteLength,
+            header.contentLength,
+          );
+        } else {
+          bodyBytes = copyByteRangeFromParts(
+            bufferParts,
+            header.bodyStartIndex,
+            header.frameByteLength,
+          );
+        }
         bufferParts = [];
         bufferedByteLength = 0;
 
-        const payload = this.createRequestPayload(header, bodyBytes, remoteAddress);
-        const response = await this.waitForResponse(payload);
-        await writeHttpResponse(client, response);
+        const payload = this.createRequestPayload(
+          header,
+          bodyBytes,
+          remoteAddress,
+          bodyFile,
+        );
+        try {
+          const response = await this.waitForResponse(payload);
+          await writeHttpResponse(client, response);
+        } finally {
+          await cleanupBodyFile(payload);
+        }
       } catch (error) {
         responded = true;
         const message =
@@ -738,8 +941,14 @@ export class FPStaticServerTurboModule extends TurboModule {
         await writeHttpResponse(client, createJsonErrorResponse(500, message));
       } finally {
         processing = false;
-        await closeClient(client);
-        cleanup();
+        if (responded) {
+          await delay(SOCKET_CLOSE_GRACE_MS);
+          await closeClient(client);
+          cleanup();
+        } else if (needsProcess) {
+          needsProcess = false;
+          void processBuffer();
+        }
       }
     };
 
@@ -750,6 +959,11 @@ export class FPStaticServerTurboModule extends TurboModule {
       }
 
       appendBufferPart(toUint8Array(info.message));
+      if (processing) {
+        needsProcess = true;
+        return;
+      }
+
       void processBuffer();
     });
     client.on('close', cleanup);
@@ -762,6 +976,7 @@ export class FPStaticServerTurboModule extends TurboModule {
     header: HttpRequestHeaderInfo,
     bodyBytes: Uint8Array,
     remoteAddress?: string,
+    bodyFile?: NativeRequestBodyFile,
   ): NativeRequestPayload {
     const target = parseTarget(header.target);
     const requestId = this.createRequestId();
@@ -777,14 +992,86 @@ export class FPStaticServerTurboModule extends TurboModule {
       payload.remoteAddress = remoteAddress;
     }
 
-    if (bodyBytes.byteLength > 0) {
-      payload.bodyBytes = bodyBytes;
+    if (bodyFile) {
+      payload.bodyFile = bodyFile;
+    } else if (bodyBytes.byteLength > 0) {
+      payload.bodyBytes = toByteArray(bodyBytes);
       if (isUtf8TextRequest(header.headers)) {
         payload.bodyText = decodeUtf8(bodyBytes);
       }
     }
 
     return payload;
+  }
+
+  private uploadTempDir(): string {
+    return `${this.context.cacheDir}/${UPLOAD_TEMP_DIR_NAME}`;
+  }
+
+  private createUploadTempPath(): string {
+    this.nextRequestNumber++;
+    return `${this.uploadTempDir()}/request-${Date.now()}-${this.nextRequestNumber}.part`;
+  }
+
+  private async writeRequestBodyToTempFile(
+    parts: Uint8Array[],
+    startIndex: number,
+    endIndex: number,
+    contentLength: number,
+  ): Promise<NativeRequestBodyFile> {
+    const path = this.createUploadTempPath();
+    const dir = parentDir(path);
+    if (dir) {
+      await fs.mkdir(dir, true).catch(() => {});
+    }
+
+    const file = fs.openSync(
+      path,
+      fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC,
+    );
+    let sourceOffset = 0;
+    let writeOffset = 0;
+
+    try {
+      for (const part of parts) {
+        const partStartIndex = sourceOffset;
+        const partEndIndex = partStartIndex + part.byteLength;
+        const overlapStartIndex = Math.max(startIndex, partStartIndex);
+        const overlapEndIndex = Math.min(endIndex, partEndIndex);
+
+        if (overlapStartIndex < overlapEndIndex) {
+          const partOverlapStartIndex = overlapStartIndex - partStartIndex;
+          const partOverlapEndIndex = overlapEndIndex - partStartIndex;
+          const slice = part.subarray(partOverlapStartIndex, partOverlapEndIndex);
+          await writeBufferFully(
+            file.fd,
+            toArrayBuffer(slice),
+            slice.byteLength,
+            writeOffset,
+          );
+          writeOffset += slice.byteLength;
+        }
+
+        sourceOffset = partEndIndex;
+        if (sourceOffset >= endIndex) {
+          break;
+        }
+      }
+
+      await fs.fsync(file.fd);
+    } finally {
+      fs.closeSync(file);
+    }
+
+    if (writeOffset !== contentLength) {
+      await fs.unlink(path).catch(() => {});
+      throw new Error('Incomplete HTTP upload body.');
+    }
+
+    return {
+      byteLength: writeOffset,
+      path,
+    };
   }
 
   private createRequestId(): string {
@@ -818,10 +1105,6 @@ export class FPStaticServerTurboModule extends TurboModule {
   private decodeResponseBody(bodyEncoding: string, body?: string): Uint8Array {
     if (!body || bodyEncoding === 'empty') {
       return new Uint8Array(0);
-    }
-
-    if (bodyEncoding === 'base64') {
-      return this.base64Helper.decodeSync(body);
     }
 
     return encodeUtf8(body);

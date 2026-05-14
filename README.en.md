@@ -1,4 +1,4 @@
-# FileFlash-Bridge Mobile / 文件闪送桥
+# FileFlash-Bridge Mobile / 文件闪传桥
 
 中文版: [README.md](./README.md)
 
@@ -14,7 +14,7 @@ Send files and text from your browser straight to your phone.
 
 ## Download
 
-- iOS: open the App Store and search for **文件闪送桥**
+- iOS: open the App Store and search for **文件闪传桥**
 - [Download the latest Android APK](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases/latest/download/app-release.apk)
 - [See all releases and update notes](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases)
 - [Privacy Policy](./docs/privacy-policy-zh.md)
@@ -74,7 +74,7 @@ No. Open the address shown in the app and use it directly in a browser.
 
 ### Which platforms are supported?
 
-Both **iOS** and **Android** are supported. On iOS, search for **文件闪送桥** in the App Store. On Android, install the `APK` from this repository's GitHub Releases.
+Both **iOS** and **Android** are supported. On iOS, search for **文件闪传桥** in the App Store. On Android, install the `APK` from this repository's GitHub Releases.
 
 ### Can it still work offline?
 

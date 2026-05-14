@@ -7,7 +7,7 @@
     // "analyze": "default",                    /* Define the build analyze mode. Value: [ "default" | "verbose" | false ]. Default: "default" */
     // "daemon": true,                          /* Enable daemon compilation. Value: [ true | false ]. Default: true */
     // "incremental": true,                     /* Enable incremental compilation. Value: [ true | false ]. Default: true */
-    // "parallel": true,                        /* Enable parallel compilation. Value: [ true | false ]. Default: true */
+    "parallel": false,                          /* Keep ArkTS/es2abc on one worker to avoid intermittent Windows OOM/crash failures. */
     // "typeCheck": false,                      /* Enable typeCheck. Value: [ true | false ]. Default: false */
   },
   logging: {
@@ -17,6 +17,6 @@
     // "stacktrace": false                      /* Disable stacktrace compilation. Value: [ true | false ]. Default: false */
   },
   nodeOptions: {
-    // "maxOldSpaceSize": 4096                  /* Enable nodeOptions maxOldSpaceSize compilation. Unit M. Used for the daemon process */
+    "maxOldSpaceSize": 8192                     /* Enable nodeOptions maxOldSpaceSize compilation. Unit M. Used for the daemon process */
   },
 }

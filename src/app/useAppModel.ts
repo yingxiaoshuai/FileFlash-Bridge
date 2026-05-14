@@ -16,6 +16,9 @@ import {
   consumePendingSharedItems,
   exportStoredFile,
   exportPreparedFile,
+} from '../platform/fileAccess';
+import type {
+  ExportResult,
   ImportedDeviceFile,
   ImportedDeviceText,
 } from '../platform/fileAccess';
@@ -46,6 +49,7 @@ import {
 import { fetchPlatformNetworkInterfaces } from '../platform/networkProvider';
 import { createPlatformServiceRuntime } from '../platform/serviceRuntime';
 import { setPlatformIdleTimerDisabled } from '../platform/deviceState';
+import { getPlatformBinaryBridgeChunkSize } from '../platform/transferLimits';
 
 type NoticeTone = 'info' | 'success' | 'error';
 
@@ -74,6 +78,7 @@ function createInitialConfig(): ServiceConfig {
   return {
     ...DEFAULT_SERVICE_CONFIG,
     accessKey: generateAccessKey(),
+    binaryBridgeChunkSize: getPlatformBinaryBridgeChunkSize(),
     sessionId: 'local-session',
   };
 }
@@ -155,6 +160,31 @@ function buildLocalizedImportedContentNotice(
   }
 
   return '';
+}
+
+function buildLocalizedExportNotice(
+  file: SharedFileRecord,
+  result: ExportResult,
+  locale: AppLocale,
+): AppNotice {
+  const t = createAppTranslator(locale);
+  const message =
+    result.method === 'android-saf' || result.method === 'harmony-files'
+      ? t('notice.export.saved', {
+          name: file.displayName,
+        })
+      : result.method === 'ios-files'
+      ? t('notice.export.ios', {
+          name: file.displayName,
+        })
+      : t('notice.export.share', {
+          name: file.displayName,
+        });
+
+  return {
+    message,
+    tone: 'success',
+  };
 }
 
 function createWorkspaceOnboardingViewState(
@@ -847,6 +877,17 @@ export function useAppModel() {
     }));
   };
 
+  const exportSharedFileToDevice = async (file: SharedFileRecord) => {
+    return file.compression === 'none'
+      ? exportStoredFile(file)
+      : await (async () => {
+          const preparedFile = await gatewayRef.current!.prepareFileBytes(
+            file.id,
+          );
+          return exportPreparedFile(preparedFile.file, preparedFile.bytes);
+        })();
+  };
+
   const exportFile = async (file: SharedFileRecord) => {
     setState(currentState => ({
       ...currentState,
@@ -854,45 +895,15 @@ export function useAppModel() {
     }));
 
     try {
-      const result =
-        file.compression === 'none'
-          ? await exportStoredFile(file)
-          : await (async () => {
-              const preparedFile = await gatewayRef.current!.prepareFileBytes(
-                file.id,
-              );
-              return exportPreparedFile(preparedFile.file, preparedFile.bytes);
-            })();
-      const localizedExportNotice = {
-        message:
-          result.method === 'android-saf'
-            ? createAppTranslator(state.locale)('notice.export.saved', {
-                name: file.displayName,
-              })
-            : result.method === 'ios-files'
-            ? createAppTranslator(state.locale)('notice.export.ios', {
-                name: file.displayName,
-              })
-            : createAppTranslator(state.locale)('notice.export.share', {
-                name: file.displayName,
-              }),
-        tone: 'success' as const,
-      };
+      const result = await exportSharedFileToDevice(file);
+      const localizedExportNotice = buildLocalizedExportNotice(
+        file,
+        result,
+        stateRef.current?.locale ?? DEFAULT_APP_LOCALE,
+      );
       setState(currentState => ({
         ...currentState,
         busyAction: undefined,
-        notice: {
-          message:
-            result.method === 'android-saf'
-              ? `已保存到你选择的位置：${file.displayName}`
-              : result.method === 'ios-files'
-              ? `已打开“存储到文件”流程：${file.displayName}`
-              : `已打开系统分享流程：${file.displayName}`,
-          tone: 'success',
-        },
-      }));
-      setState(currentState => ({
-        ...currentState,
         notice: localizedExportNotice,
       }));
     } catch (error) {
@@ -909,6 +920,68 @@ export function useAppModel() {
         },
       }));
     }
+  };
+
+  const exportFiles = async (filesToExport: SharedFileRecord[]) => {
+    const t = createAppTranslator(stateRef.current?.locale ?? DEFAULT_APP_LOCALE);
+    if (filesToExport.length === 0) {
+      setState(currentState => ({
+        ...currentState,
+        notice: {
+          message: t('home.shared.noSelection'),
+          tone: 'info',
+        },
+      }));
+      return;
+    }
+
+    setState(currentState => ({
+      ...currentState,
+      busyAction: 'export:batch',
+    }));
+
+    const failures: string[] = [];
+    let successCount = 0;
+
+    for (const file of filesToExport) {
+      try {
+        await exportSharedFileToDevice(file);
+        successCount += 1;
+      } catch (error) {
+        failures.push(`${file.displayName}: ${resolveCurrentErrorMessage(error)}`);
+      }
+    }
+
+    const locale = stateRef.current?.locale ?? DEFAULT_APP_LOCALE;
+    const nextTranslator = createAppTranslator(locale);
+    const firstFailure = failures[0] ?? nextTranslator('error.unknown');
+    const notice: AppNotice =
+      failures.length > 0
+        ? {
+            message:
+              successCount > 0
+                ? nextTranslator('notice.export.batchPartial', {
+                    count: successCount,
+                    failureCount: failures.length,
+                    message: firstFailure,
+                  })
+                : nextTranslator('error.exportFailed', {
+                    message: firstFailure,
+                  }),
+            tone: 'error',
+          }
+        : {
+            message: nextTranslator('notice.export.batchSaved', {
+              count: successCount,
+            }),
+            tone: 'success',
+          };
+
+    setState(currentState => ({
+      ...currentState,
+      busyAction: undefined,
+      notice,
+    }));
   };
 
   const clearNotice = () => {
@@ -1014,6 +1087,7 @@ export function useAppModel() {
       'home.project.deleteBody',
     ),
     exportFile,
+    exportFiles,
     importFilesForShare,
     importMediaForShare,
     isFileShared: (fileId: string) => sharedFileIds.has(fileId),

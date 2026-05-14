@@ -21,13 +21,16 @@ import {
 import {
   ServiceRuntime,
   ServiceRuntimeHandle,
-  isTransferBase64Body,
   TransferRequest,
   TransferResponse,
 } from '../modules/service/transferServiceController';
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
+
+function shouldPreserveRawBody(path: string) {
+  return path === '/api/upload' || path === '/api/upload/part';
+}
 
 export class NodeFileSystemAdapter implements FileSystemAdapter {
   async copyFile(sourcePath: string, destinationPath: string) {
@@ -65,12 +68,12 @@ export class NodeFileSystemAdapter implements FileSystemAdapter {
     return readdir(path);
   }
 
-  async readFileChunkBase64(path: string, offset: number, length: number) {
+  async readFileChunk(path: string, offset: number, length: number) {
     const fileHandle = await open(path, 'r');
     try {
       const buffer = Buffer.alloc(length);
       const {bytesRead} = await fileHandle.read(buffer, 0, length, offset);
-      return buffer.subarray(0, bytesRead).toString('base64');
+      return new Uint8Array(buffer.subarray(0, bytesRead));
     } finally {
       await fileHandle.close();
     }
@@ -93,13 +96,9 @@ export class NodeFileSystemAdapter implements FileSystemAdapter {
     await fsAppendFile(path, Buffer.from(content));
   }
 
-  async appendFileBase64(path: string, contentBase64: string) {
-    await fsAppendFile(path, Buffer.from(contentBase64, 'base64'));
-  }
-
-  async writeFileBase64(path: string, contentBase64: string) {
+  async appendFileFromPath(path: string, sourcePath: string) {
     await mkdir(dirname(path), {recursive: true});
-    await writeFile(path, Buffer.from(contentBase64, 'base64'));
+    await fsAppendFile(path, await readFile(sourcePath));
   }
 
   async writeText(path: string, content: string) {
@@ -118,6 +117,8 @@ export const nodeGzipCompression: CompressionAdapter = {
 };
 
 export class NodeHttpRuntime implements ServiceRuntime {
+  supportsFileResponses?: boolean;
+
   private server?: ReturnType<typeof createServer>;
 
   async start(options: {
@@ -188,15 +189,21 @@ export class NodeHttpRuntime implements ServiceRuntime {
 
     const rawBuffer = Buffer.concat(chunks);
     const rawBody = rawBuffer.toString('utf8');
-    const contentType = request.headers['content-type'] ?? '';
-    const body =
-      rawBody && contentType.includes('application/json')
-        ? JSON.parse(rawBody)
-        : rawBody && contentType.startsWith('text/')
-          ? rawBody
-        : rawBuffer.length > 0
-          ? new Uint8Array(rawBuffer)
-          : undefined;
+    const rawContentType = request.headers['content-type'];
+    const contentType = Array.isArray(rawContentType)
+      ? rawContentType.join(', ')
+      : rawContentType ?? '';
+    let body: unknown;
+
+    if (shouldPreserveRawBody(url.pathname)) {
+      body = new Uint8Array(rawBuffer);
+    } else if (rawBody && contentType.includes('application/json')) {
+      body = JSON.parse(rawBody);
+    } else if (rawBody && contentType.startsWith('text/')) {
+      body = rawBody;
+    } else if (rawBuffer.length > 0) {
+      body = new Uint8Array(rawBuffer);
+    }
 
     return {
       body,
@@ -218,11 +225,6 @@ export class NodeHttpRuntime implements ServiceRuntime {
 
     for (const [key, value] of Object.entries(transferResponse.headers ?? {})) {
       response.setHeader(key, value);
-    }
-
-    if (isTransferBase64Body(transferResponse.body)) {
-      response.end(Buffer.from(transferResponse.body.base64, 'base64'));
-      return;
     }
 
     if (transferResponse.body instanceof Uint8Array) {

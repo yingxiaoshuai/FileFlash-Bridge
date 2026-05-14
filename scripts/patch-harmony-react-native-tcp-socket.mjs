@@ -148,6 +148,27 @@ function patchTcpSocketTurboModule(source) {
   return nextSource;
 }
 
+function toPortableWindowsPath(filePath) {
+  return filePath.replace(/\\/g, '/');
+}
+
+function toGitBashPath(winPath) {
+  const normalized = toPortableWindowsPath(winPath);
+  return normalized.replace(/^([A-Z]):/i, (_, drive) => `/${drive.toLowerCase()}`);
+}
+
+function buildTarArgCandidates(filePath) {
+  if (process.platform !== 'win32') {
+    return [filePath];
+  }
+
+  return [
+    toPortableWindowsPath(filePath),
+    filePath,
+    toGitBashPath(filePath),
+  ];
+}
+
 function runTar(args, cwd) {
   const result = spawnSync('tar', args, {
     cwd,
@@ -162,6 +183,35 @@ function runTar(args, cwd) {
   }
 }
 
+function runTarWithPathFallback(createArgs, inputPaths, cwd) {
+  const candidateGroups = inputPaths.map(buildTarArgCandidates);
+  const maxAttempts = Math.max(
+    ...candidateGroups.map(candidates => candidates.length),
+  );
+  const errors = [];
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const resolvedPaths = candidateGroups.map(candidates => {
+      return candidates[Math.min(attempt, candidates.length - 1)];
+    });
+
+    const args = createArgs(...resolvedPaths);
+    const result = spawnSync('tar', args, {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    if (result.status === 0) {
+      return;
+    }
+
+    errors.push(`tar ${args.join(' ')} failed: ${result.stderr || result.stdout}`);
+  }
+
+  throw new Error(errors.join('\n'));
+}
+
 function patchHar(harPath) {
   if (!fs.existsSync(harPath)) {
     return false;
@@ -169,7 +219,10 @@ function patchHar(harPath) {
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ffb-tcp-har-'));
   try {
-    runTar(['-xf', harPath, '-C', tempDir], repoRoot);
+    runTarWithPathFallback(
+      (archivePath, outputDir) => ['-xf', archivePath, '-C', outputDir],
+      [harPath, tempDir],
+    );
 
     const packageRoot = path.join(tempDir, 'package', 'src', 'main', 'ets');
     const patchedServer = patchFile(
@@ -190,7 +243,10 @@ function patchHar(harPath) {
       fs.rmSync(tempHarPath, {force: true});
     }
 
-    runTar(['-cf', tempHarPath, '-C', tempDir, 'package'], repoRoot);
+    runTarWithPathFallback(
+      (archivePath, outputDir) => ['-cf', archivePath, '-C', outputDir, 'package'],
+      [tempHarPath, tempDir],
+    );
     fs.renameSync(tempHarPath, harPath);
     return true;
   } finally {

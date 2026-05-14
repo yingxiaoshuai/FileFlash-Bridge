@@ -25,6 +25,7 @@ export interface ServiceError {
 export interface ServiceConfig {
   port: number;
   chunkSize: number;
+  binaryBridgeChunkSize: number;
   largeFileThreshold: number;
   compressionThreshold: number;
   securityMode: SecurityMode;
@@ -101,15 +102,19 @@ export interface StorageSnapshot {
   files: Record<string, SharedFileRecord>;
 }
 
+export const DEFAULT_TRANSFER_CHUNK_BYTES = 5 * 1024 * 1024;
+export const HARMONY_BINARY_BRIDGE_CHUNK_BYTES = DEFAULT_TRANSFER_CHUNK_BYTES;
+
 export const DEFAULT_SERVICE_CONFIG: ServiceConfig = {
   port: 8668,
-  chunkSize: 5 * 1024 * 1024,
+  chunkSize: DEFAULT_TRANSFER_CHUNK_BYTES,
+  binaryBridgeChunkSize: DEFAULT_TRANSFER_CHUNK_BYTES,
   largeFileThreshold: 8 * 1024 * 1024,
   compressionThreshold: 2 * 1024 * 1024,
   securityMode: 'secure',
   accessKey: 'replace-me',
   maxActiveConnections: 3,
-  deviceName: 'FileFlash Bridge',
+  deviceName: '文件闪传桥',
   maxTextLength: 200_000,
   sessionId: 'default-session',
 };

@@ -1,6 +1,4 @@
 import {
-  AnyJSBundleProvider,
-  MetroJSBundleProvider,
   RNApp,
   RNOHCoreContext,
   RNOHErrorDialog,
@@ -28,18 +26,10 @@ struct Index {
             enableDebugger: this.rnohCoreContext?.isDebugModeEnabled,
           },
           appKey: 'FileFlashBridge',
-          jsBundleProvider: this.rnohCoreContext?.isDebugModeEnabled
-            ? new AnyJSBundleProvider([
-                new MetroJSBundleProvider(),
-                new ResourceJSBundleProvider(
-                  this.rnohCoreContext.uiAbilityContext.resourceManager,
-                  'bundle.harmony.js',
-                ),
-              ])
-            : new ResourceJSBundleProvider(
-                this.rnohCoreContext.uiAbilityContext.resourceManager,
-                'bundle.harmony.js',
-              ),
+          jsBundleProvider: new ResourceJSBundleProvider(
+            this.rnohCoreContext.uiAbilityContext.resourceManager,
+            'bundle.harmony.js',
+          ),
         });
       }
     }

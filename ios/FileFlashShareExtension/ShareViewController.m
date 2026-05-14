@@ -47,7 +47,7 @@ static NSString *FFBShareSanitizeFileName(NSString *candidate)
   self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
   self.statusLabel.numberOfLines = 0;
   self.statusLabel.textAlignment = NSTextAlignmentCenter;
-  self.statusLabel.text = @"正在导入到 FileFlash Bridge…";
+  self.statusLabel.text = @"正在导入到文件闪传桥…";
 
   [self.view addSubview:self.spinner];
   [self.view addSubview:self.statusLabel];
@@ -159,7 +159,7 @@ static NSString *FFBShareSanitizeFileName(NSString *candidate)
       return;
     }
 
-    [self finishWithStatus:@"已保存到 FileFlash Bridge。" openApp:YES];
+    [self finishWithStatus:@"已保存到文件闪传桥。" openApp:YES];
   });
 }
 

@@ -3,6 +3,7 @@ import { SecurityMode } from '../service/models';
 import { portalTheme } from './portalTheme';
 
 export interface PortalDocumentModel {
+  binaryBridgeChunkSize: number;
   chunkSize: number;
   deviceName: string;
   locale: AppLocale;
@@ -21,7 +22,7 @@ function escapeHtml(value: string) {
 export function buildPortalDocument(model: PortalDocumentModel) {
   const t = createAppTranslator(model.locale);
   const portalText = {
-    badge: 'FileFlash Bridge',
+    badge: '文件闪传桥',
     browserUnavailable: t('portal.browserUnavailable'),
     chooseFiles: t('portal.chooseFiles'),
     chooseFolders: t('portal.chooseFolders'),
@@ -30,11 +31,19 @@ export function buildPortalDocument(model: PortalDocumentModel) {
     downloadButton: t('portal.download.button'),
     downloadButtonAgain: t('portal.download.buttonAgain'),
     downloadButtonBusy: t('portal.download.buttonBusy'),
+    downloadBatchComplete: t('portal.download.batchComplete'),
     downloadChunked: t('portal.download.chunked'),
+    downloadClearSelection: t('portal.download.clearSelection'),
     downloadComplete: t('portal.download.complete'),
     downloadFailed: t('portal.download.failed'),
     downloadInProgress: t('portal.download.inProgress'),
+    downloadNoneSelected: t('portal.download.noneSelected'),
     downloadPending: t('portal.download.pending'),
+    downloadSaveUnsupported: t('portal.download.saveUnsupported'),
+    downloadSelect: t('portal.download.select'),
+    downloadSelectAll: t('portal.download.selectAll'),
+    downloadSelectedButton: t('portal.download.selectedButton'),
+    downloadSelectedCount: t('portal.download.selectedCount'),
     emptyShared: t('portal.emptyShared'),
     emptyUpload: t('portal.emptyUpload'),
     eyebrowShared: t('portal.eyebrowShared'),
@@ -376,6 +385,21 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         margin-top: 12px;
       }
 
+      .download-toolbar {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: space-between;
+        margin: 12px 0 4px;
+      }
+
+      .download-toolbar-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
       .item {
         background: var(--panel-strong);
         border: 1px solid var(--line);
@@ -389,6 +413,37 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         display: flex;
         gap: 12px;
         justify-content: space-between;
+      }
+
+      .item-main {
+        align-items: flex-start;
+        display: flex;
+        flex: 1;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .select-box {
+        align-items: center;
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        color: #ffffff;
+        cursor: pointer;
+        display: inline-flex;
+        flex: 0 0 auto;
+        font-size: 12px;
+        font-weight: 900;
+        height: 24px;
+        justify-content: center;
+        margin-top: 2px;
+        padding: 0;
+        width: 24px;
+      }
+
+      .select-box.selected {
+        background: var(--accent-strong);
+        border-color: var(--accent-strong);
       }
 
       .item-title {
@@ -486,6 +541,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         .status-actions {
           flex-direction: column;
         }
+
       }
     </style>
   </head>
@@ -566,15 +622,23 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const text = ${portalTextJson};
       const authKey = new URL(location.href).searchParams.get('key');
       const chunkSize = ${model.chunkSize};
+      const binaryBridgeChunkSize = ${model.binaryBridgeChunkSize};
+      const downloadChunkSize = Math.max(
+        1,
+        Math.min(chunkSize, binaryBridgeChunkSize || chunkSize),
+      );
       const uploadChunkSize = chunkSize;
+      const blobDownloadFallbackMaxBytes = 32 * 1024 * 1024;
+      const transferRequestTimeoutMs = 60000;
       const maxConcurrentDownloadChunks = Math.max(
-        2,
-        Math.min(4, Number(navigator.hardwareConcurrency) || 4),
+        1,
+        Math.min(2, Number(navigator.hardwareConcurrency) || 2),
       );
       const maxChunkAttempts = 4;
       const activeDownloads = new Map();
       const downloadStateById = new Map();
       const fileQueue = [];
+      const selectedDownloadIds = new Set();
       const sharedFilesById = new Map();
 
       const dropzone = document.getElementById('dropzone');
@@ -585,7 +649,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const serviceState = document.getElementById('service-state');
       const textFeedback = document.getElementById('text-feedback');
       const textInput = document.getElementById('text-input');
-
       function withKey(path) {
         const url = new URL(path, location.origin);
         if (authKey) {
@@ -770,6 +833,11 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         for (const file of files) {
           sharedFilesById.set(file.id, file);
         }
+        for (const fileId of Array.from(selectedDownloadIds)) {
+          if (!sharedFilesById.has(fileId)) {
+            selectedDownloadIds.delete(fileId);
+          }
+        }
 
         if (!files.length) {
           pruneDownloadStates([]);
@@ -779,17 +847,39 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
 
         pruneDownloadStates(files);
-        downloadList.innerHTML = files
+        const selectedCount = selectedDownloadIds.size;
+        const toolbarHtml =
+          '<div class="download-toolbar"><div class="muted">' +
+          escapeHtmlText(
+            interpolate(text.downloadSelectedCount, { count: selectedCount }),
+          ) +
+          '</div><div class="download-toolbar-actions"><button class="ghost" data-select-all-downloads type="button">' +
+          escapeHtmlText(text.downloadSelectAll) +
+          '</button><button class="ghost" data-clear-download-selection type="button">' +
+          escapeHtmlText(text.downloadClearSelection) +
+          '</button><button class="primary" data-download-selected type="button">' +
+          escapeHtmlText(text.downloadSelectedButton) +
+          '</button></div></div>';
+        const fileHtml = files
           .map(file => {
             const state = getDownloadState(file.id);
+            const selected = selectedDownloadIds.has(file.id);
             return '<div id="download-item-' +
               escapeHtmlText(file.id) +
-              '" class="item"><div class="item-head"><div><div class="item-title">' +
+              '" class="item"><div class="item-head"><div class="item-main"><button class="select-box' +
+              (selected ? ' selected' : '') +
+              '" data-select-download="' +
+              escapeHtmlText(file.id) +
+              '" type="button" aria-label="' +
+              escapeHtmlText(text.downloadSelect) +
+              '">' +
+              (selected ? '✓' : '') +
+              '</button><div><div class="item-title">' +
               escapeHtmlText(file.displayName) +
               '</div><div class="item-meta">' +
               formatBytes(file.size) +
               (file.isLargeFile ? ' · ' + escapeHtmlText(text.downloadChunked) : '') +
-              '</div></div><button class="primary" data-download="' +
+              '</div></div></div><button class="primary" data-download="' +
               escapeHtmlText(file.id) +
               '"' +
               (state.phase === 'downloading' ? ' disabled' : '') +
@@ -818,11 +908,12 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               '%"></div></div></div>';
           })
           .join('');
+        downloadList.innerHTML = toolbarHtml + fileHtml;
       }
 
       async function loadStatus() {
         try {
-          const response = await fetch(withKey('/api/status'), {
+          const response = await fetchWithTimeout(withKey('/api/status'), {
             headers: getClientHeaders(),
           });
 
@@ -841,7 +932,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       async function loadSharedFiles() {
-        const response = await fetch(withKey('/api/shared'), {
+        const response = await fetchWithTimeout(withKey('/api/shared'), {
           headers: getClientHeaders(),
         });
 
@@ -857,7 +948,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       }
 
       async function postJson(path, body) {
-        const response = await fetch(withKey(path), {
+        const response = await fetchWithTimeout(withKey(path), {
           method: 'POST',
           headers: getClientHeaders({
             'content-type': 'application/json',
@@ -914,6 +1005,43 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         return new Promise(resolve => setTimeout(resolve, 0));
       }
 
+      async function fetchWithTimeout(url, options = {}, timeoutMs = transferRequestTimeoutMs) {
+        if (typeof AbortController !== 'function') {
+          return fetch(url, options);
+        }
+
+        const controller = new AbortController();
+        const timerId = setTimeout(() => {
+          controller.abort(new Error(text.requestFailed));
+        }, timeoutMs);
+        const externalSignal = options.signal;
+        const abortFromExternalSignal = () => {
+          controller.abort(externalSignal.reason || new Error(text.requestFailed));
+        };
+
+        if (externalSignal) {
+          if (externalSignal.aborted) {
+            abortFromExternalSignal();
+          } else {
+            externalSignal.addEventListener('abort', abortFromExternalSignal, {
+              once: true,
+            });
+          }
+        }
+
+        try {
+          return await fetch(url, {
+            ...options,
+            signal: controller.signal,
+          });
+        } finally {
+          clearTimeout(timerId);
+          if (externalSignal) {
+            externalSignal.removeEventListener('abort', abortFromExternalSignal);
+          }
+        }
+      }
+
       function uploadBinarySingle(file, onProgress) {
         return new Promise((resolve, reject) => {
           const request = new XMLHttpRequest();
@@ -925,6 +1053,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           );
 
           request.open('POST', uploadUrl.toString(), true);
+          request.timeout = transferRequestTimeoutMs;
           const headers = getClientHeaders({
             'content-type': file.type || 'application/octet-stream',
           });
@@ -943,9 +1072,14 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               return;
             }
 
-            const payload = request.responseText
-              ? JSON.parse(request.responseText)
-              : {};
+            let payload = {};
+            try {
+              payload = request.responseText
+                ? JSON.parse(request.responseText)
+                : {};
+            } catch {
+              payload = { message: request.responseText };
+            }
 
             if (request.status >= 200 && request.status < 300) {
               resolve(payload);
@@ -959,8 +1093,79 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             reject(new Error(text.networkInterrupted));
           };
 
+          request.ontimeout = () => {
+            reject(new Error(text.requestFailed));
+          };
+
           request.send(file);
         });
+      }
+
+      function sendUploadBinaryPart(uploadId, body, offset) {
+        return new Promise((resolve, reject) => {
+          const request = new XMLHttpRequest();
+          const uploadUrl = new URL(withKey('/api/upload/part'));
+          uploadUrl.searchParams.set('uploadId', uploadId);
+          uploadUrl.searchParams.set('offset', String(offset));
+
+          request.open('POST', uploadUrl.toString(), true);
+          request.timeout = transferRequestTimeoutMs;
+          const headers = getClientHeaders({
+            'content-type': 'application/octet-stream',
+          });
+          for (const [key, value] of Object.entries(headers)) {
+            request.setRequestHeader(key, value);
+          }
+
+          request.onreadystatechange = () => {
+            if (request.readyState !== XMLHttpRequest.DONE) {
+              return;
+            }
+
+            let payload = {};
+            try {
+              payload = request.responseText
+                ? JSON.parse(request.responseText)
+                : {};
+            } catch {
+              payload = { message: request.responseText };
+            }
+
+            if (request.status >= 200 && request.status < 300) {
+              resolve(payload);
+              return;
+            }
+
+            reject(new Error(payload.message || text.requestFailed));
+          };
+
+          request.onerror = () => {
+            reject(new Error(text.networkInterrupted));
+          };
+
+          request.ontimeout = () => {
+            reject(new Error(text.requestFailed));
+          };
+
+          request.send(body);
+        });
+      }
+
+      async function uploadBinaryPart(uploadId, body, offset) {
+        let lastError = new Error(text.requestFailed);
+        for (let attempt = 1; attempt <= maxChunkAttempts; attempt += 1) {
+          try {
+            return await sendUploadBinaryPart(uploadId, body, offset);
+          } catch (error) {
+            lastError = error;
+            if (attempt === maxChunkAttempts) {
+              break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 260 * attempt));
+          }
+        }
+
+        throw lastError;
       }
 
       async function uploadBinaryWithProgress(file, onProgress) {
@@ -990,21 +1195,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             const start = index * uploadChunkSize;
             const end = Math.min(file.size, start + uploadChunkSize);
             const slice = file.slice(start, end);
-            const bytes = new Uint8Array(await slice.arrayBuffer());
-            const response = await fetch(
-              withKey('/api/upload/part?uploadId=' + encodeURIComponent(uploadId)),
-              {
-                body: bytes,
-                headers: getClientHeaders({
-                  'content-type': 'application/octet-stream',
-                }),
-                method: 'POST',
-              },
-            );
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) {
-              throw new Error(payload.message || text.requestFailed);
-            }
+            await uploadBinaryPart(uploadId, slice, start);
             onProgress(end / file.size);
             await waitForBrowserTurn();
           }
@@ -1013,7 +1204,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         } catch (error) {
           if (uploadId) {
             try {
-              await fetch(
+              await fetchWithTimeout(
                 withKey('/api/upload/abort?uploadId=' + encodeURIComponent(uploadId)),
                 {
                   body: JSON.stringify({uploadId: uploadId}),
@@ -1092,7 +1283,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
 
         try {
-          const response = await fetch(withKey('/api/text'), {
+          const response = await fetchWithTimeout(withKey('/api/text'), {
             method: 'POST',
             headers: getClientHeaders({
               'content-type': 'text/plain; charset=utf-8',
@@ -1113,16 +1304,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
       }
 
-      function combineUint8Arrays(parts, totalBytes) {
-        const combined = new Uint8Array(totalBytes);
-        let offset = 0;
-        for (const part of parts) {
-          combined.set(part, offset);
-          offset += part.byteLength;
-        }
-        return combined;
-      }
-
       async function fetchChunk(fileId, start, end, signal, onChunkProgress) {
         let lastError = new Error(text.requestFailed);
         const expectedBytes = Math.max(0, end - start);
@@ -1135,7 +1316,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             const url = new URL(withKey('/api/shared/' + fileId + '/download'));
             url.searchParams.set('offset', String(start));
             url.searchParams.set('length', String(end - start));
-            const response = await fetch(url.toString(), {
+            const response = await fetchWithTimeout(url.toString(), {
               headers: {
                 'x-client-id': getClientId(),
               },
@@ -1177,7 +1358,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               Math.max(receivedBytes, expectedBytes),
               expectedBytes,
             );
-            return combineUint8Arrays(parts, receivedBytes);
+            const combined = new Uint8Array(receivedBytes);
+            let offset = 0;
+            for (const part of parts) {
+              combined.set(part, offset);
+              offset += part.byteLength;
+            }
+            return combined;
           } catch (error) {
             lastError = error;
             if (signal && signal.aborted) {
@@ -1193,75 +1380,107 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         throw lastError;
       }
 
-      function createDownloadChunks(totalBytes) {
-        const chunks = [];
-        const totalChunks =
-          totalBytes > 0 ? Math.max(1, Math.ceil(totalBytes / chunkSize)) : 0;
-
-        for (let index = 0; index < totalChunks; index += 1) {
-          const start = index * chunkSize;
-          const end = Math.min(totalBytes, start + chunkSize);
-          chunks.push({
-            end: end,
-            index: index,
-            length: end - start,
-            start: start,
+      async function createDownloadTarget(file, totalBytes) {
+        if (typeof window.showSaveFilePicker === 'function') {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: file.displayName,
           });
+          const writable = await handle.createWritable();
+          return {
+            abort: async () => {
+              await writable.abort?.();
+            },
+            close: async () => {
+              await writable.close();
+            },
+            write: async chunk => {
+              await writable.write(chunk);
+            },
+          };
         }
 
-        return chunks;
+        if (totalBytes > blobDownloadFallbackMaxBytes) {
+          return {
+            abort: async () => {},
+            close: async () => {
+              const url = new URL(
+                withKey('/api/shared/' + file.id + '/download'),
+              );
+              url.searchParams.set('direct', '1');
+              const link = document.createElement('a');
+              link.href = url.toString();
+              link.download = file.displayName;
+              link.rel = 'noopener';
+              link.style.display = 'none';
+              document.body.appendChild(link);
+              link.click();
+              link.remove();
+            },
+            direct: true,
+            write: async () => {},
+          };
+        }
+
+        const parts = [];
+        return {
+          abort: async () => {
+            parts.length = 0;
+          },
+          close: async () => {
+            const blob = new Blob(parts, {
+              type: file.mimeType || 'application/octet-stream',
+            });
+            const link = document.createElement('a');
+            const objectUrl = URL.createObjectURL(blob);
+            link.href = objectUrl;
+            link.download = file.displayName;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+          },
+          write: async chunk => {
+            parts.push(chunk);
+          },
+        };
       }
 
-      async function downloadFileChunks(file, onProgress) {
+      async function downloadFileToTarget(file, onProgress) {
         const totalBytes = Math.max(0, Number(file.size) || 0);
-        const chunkPlan = createDownloadChunks(totalBytes);
-
-        if (chunkPlan.length === 0) {
-          onProgress(1);
-          return [];
-        }
-
         const abortController =
           typeof AbortController === 'function' ? new AbortController() : null;
-        const downloadedChunks = new Array(chunkPlan.length);
-        const chunkProgressByIndex = new Array(chunkPlan.length).fill(0);
-        const workerCount = Math.min(chunkPlan.length, maxConcurrentDownloadChunks);
-        let nextChunkIndex = 0;
-
-        const reportProgress = () => {
-          const downloadedBytes = chunkProgressByIndex.reduce(
-            (sum, value) => sum + value,
-            0,
-          );
-          onProgress(totalBytes > 0 ? downloadedBytes / totalBytes : 1);
-        };
+        const target = await createDownloadTarget(file, totalBytes);
+        let downloadedBytes = 0;
 
         onProgress(0);
 
-        const downloadNextChunk = async () => {
-          while (true) {
-            if (abortController?.signal.aborted) {
-              return;
-            }
+        try {
+          if (totalBytes === 0) {
+            await target.close();
+            onProgress(1);
+            return;
+          }
 
-            const planIndex = nextChunkIndex;
-            nextChunkIndex += 1;
-            const descriptor = chunkPlan[planIndex];
-            if (!descriptor) {
-              return;
-            }
-
+          while (downloadedBytes < totalBytes) {
+            const start = downloadedBytes;
+            const end = Math.min(totalBytes, start + downloadChunkSize);
+            let chunkProgress = 0;
             const chunk = await fetchChunk(
               file.id,
-              descriptor.start,
-              descriptor.end,
+              start,
+              end,
               abortController?.signal,
               loadedBytes => {
-                chunkProgressByIndex[descriptor.index] = Math.min(
-                  descriptor.length,
+                chunkProgress = Math.min(
+                  end - start,
                   Math.max(0, loadedBytes || 0),
                 );
-                reportProgress();
+                onProgress(
+                  totalBytes > 0
+                    ? (downloadedBytes + chunkProgress) / totalBytes
+                    : 1,
+                );
               },
             );
 
@@ -1269,19 +1488,17 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               return;
             }
 
-            downloadedChunks[descriptor.index] = chunk;
-            chunkProgressByIndex[descriptor.index] = descriptor.length;
-            reportProgress();
+            await target.write(chunk);
+            downloadedBytes += chunk.byteLength;
+            onProgress(totalBytes > 0 ? downloadedBytes / totalBytes : 1);
+            await waitForBrowserTurn();
           }
-        };
 
-        try {
-          await Promise.all(
-            Array.from({length: workerCount}, () => downloadNextChunk()),
-          );
-          return downloadedChunks;
+          await target.close();
+          onProgress(1);
         } catch (error) {
           abortController?.abort(error);
+          await target.abort().catch(() => {});
           throw error;
         }
       }
@@ -1299,26 +1516,13 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           renderDownloadState(file.id);
 
           try {
-            const chunks = await downloadFileChunks(file, progress => {
+            await downloadFileToTarget(file, progress => {
               downloadStateById.set(file.id, {
                 phase: 'downloading',
                 progress: progress,
               });
               renderDownloadState(file.id);
             });
-
-            const blob = new Blob(chunks, {
-              type: file.mimeType || 'application/octet-stream',
-            });
-            const link = document.createElement('a');
-            const objectUrl = URL.createObjectURL(blob);
-            link.href = objectUrl;
-            link.download = file.displayName;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
 
             downloadStateById.set(file.id, {
               phase: 'completed',
@@ -1333,6 +1537,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             });
             renderDownloadState(file.id);
             updateBanner(text.downloadBannerFailed, 'warn');
+            throw error;
           } finally {
             activeDownloads.delete(file.id);
             renderDownloadState(file.id);
@@ -1344,11 +1549,79 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         return downloadTask;
       }
 
+      function toggleDownloadSelection(fileId) {
+        if (selectedDownloadIds.has(fileId)) {
+          selectedDownloadIds.delete(fileId);
+        } else {
+          selectedDownloadIds.add(fileId);
+        }
+
+        renderSharedFiles(Array.from(sharedFilesById.values()));
+      }
+
+      function selectAllDownloads() {
+        for (const fileId of sharedFilesById.keys()) {
+          selectedDownloadIds.add(fileId);
+        }
+        renderSharedFiles(Array.from(sharedFilesById.values()));
+      }
+
+      function clearDownloadSelection() {
+        selectedDownloadIds.clear();
+        renderSharedFiles(Array.from(sharedFilesById.values()));
+      }
+
+      async function downloadSelectedFiles() {
+        const files = Array.from(selectedDownloadIds)
+          .map(fileId => sharedFilesById.get(fileId))
+          .filter(Boolean);
+
+        if (files.length === 0) {
+          updateBanner(text.downloadNoneSelected, 'warn');
+          return;
+        }
+
+        let failedCount = 0;
+        for (const file of files) {
+          try {
+            await downloadSharedFile(file);
+          } catch {
+            failedCount += 1;
+          }
+          await waitForBrowserTurn();
+        }
+
+        updateBanner(
+          failedCount > 0 ? text.downloadBannerFailed : text.downloadBatchComplete,
+          failedCount > 0 ? 'warn' : 'info',
+        );
+      }
+
       document.getElementById('upload-button').addEventListener('click', uploadQueuedFiles);
       document.getElementById('refresh-button').addEventListener('click', loadStatus);
       document.getElementById('text-submit').addEventListener('click', submitText);
       downloadList.addEventListener('click', async event => {
         if (!(event.target instanceof Element)) {
+          return;
+        }
+        const selectButton = event.target.closest('[data-select-download]');
+        if (selectButton) {
+          const fileId = selectButton.getAttribute('data-select-download');
+          if (fileId && sharedFilesById.has(fileId)) {
+            toggleDownloadSelection(fileId);
+          }
+          return;
+        }
+        if (event.target.closest('[data-select-all-downloads]')) {
+          selectAllDownloads();
+          return;
+        }
+        if (event.target.closest('[data-clear-download-selection]')) {
+          clearDownloadSelection();
+          return;
+        }
+        if (event.target.closest('[data-download-selected]')) {
+          await downloadSelectedFiles();
           return;
         }
         const button = event.target.closest('[data-download]');
@@ -1358,7 +1631,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         const fileId = button.getAttribute('data-download');
         const file = fileId ? sharedFilesById.get(fileId) : undefined;
         if (file) {
-          await downloadSharedFile(file);
+          await downloadSharedFile(file).catch(() => {});
         }
       });
       document.getElementById('file-input').addEventListener('change', event => {

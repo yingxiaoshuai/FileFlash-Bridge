@@ -3,7 +3,6 @@ import {
   ServiceRuntimeHandle,
   TransferRequest,
   TransferResponse,
-  isTransferBase64Body,
 } from './transferServiceController';
 
 type TcpAddressLike = {
@@ -331,32 +330,19 @@ function readHttpRequestFrameByteLength(buffer: Uint8Array) {
   return header.frameByteLength;
 }
 
-function base64ToBytes(value: string) {
-  const bufferCtor = (
-    globalThis as {
-      Buffer?: {
-        from(input: string, encoding: 'base64'): Uint8Array;
-      };
-    }
-  ).Buffer;
-
-  if (bufferCtor) {
-    return new Uint8Array(bufferCtor.from(value, 'base64'));
-  }
-
-  if (typeof globalThis.atob === 'function') {
-    const binary = globalThis.atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  }
-
-  throw new Error('Base64 decode is not available in this runtime.');
+function shouldPreserveRawBody(path: string) {
+  return path === '/api/upload' || path === '/api/upload/part';
 }
 
-function resolveRequestBody(headers: Record<string, string>, bodyBytes: Uint8Array) {
+function resolveRequestBody(
+  path: string,
+  headers: Record<string, string>,
+  bodyBytes: Uint8Array,
+) {
+  if (shouldPreserveRawBody(path)) {
+    return bodyBytes;
+  }
+
   if (bodyBytes.byteLength === 0) {
     return undefined;
   }
@@ -409,7 +395,7 @@ function createTransferRequestFromHeader(
   const url = new URL(target, 'http://127.0.0.1');
 
   return {
-    body: resolveRequestBody(header.headers, bodyBytes),
+    body: resolveRequestBody(url.pathname, header.headers, bodyBytes),
     headers: header.headers,
     method: method.toUpperCase(),
     path: url.pathname,
@@ -424,17 +410,6 @@ function resolveResponsePayload(response: TransferResponse) {
   if (!body) {
     return {
       bodyBytes: new Uint8Array(0),
-      headers,
-    };
-  }
-
-  if (isTransferBase64Body(body)) {
-    if (!headers['content-length'] && body.byteLength != null) {
-      headers['content-length'] = String(body.byteLength);
-    }
-
-    return {
-      bodyBytes: base64ToBytes(body.base64),
       headers,
     };
   }

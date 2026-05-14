@@ -16,7 +16,25 @@ const harmonyPackagePath = path.join(
   'react-native-harmony',
 );
 
+const readPositiveInteger = value => {
+  if (value == null || value === '') {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+const isHarmonyBundleCommand =
+  process.env.FILEFLASH_HARMONY_BUNDLE === '1' ||
+  process.argv.some(arg => /(?:^|[\\/])?bundle-harmony(?:$|\s)/.test(arg));
+
+const maxWorkers =
+  readPositiveInteger(process.env.METRO_MAX_WORKERS) ||
+  readPositiveInteger(process.env.RCT_METRO_MAX_WORKERS) ||
+  (isHarmonyBundleCommand ? 2 : undefined);
+
 const config = {
+  ...(maxWorkers ? {maxWorkers} : {}),
   transformer: {
     getTransformOptions: async () => ({
       transform: {

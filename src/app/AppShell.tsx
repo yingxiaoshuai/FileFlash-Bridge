@@ -18,6 +18,7 @@ import { AppBottomTabBar } from './navigation/AppBottomTabBar';
 import { HomeScreen } from './screens/HomeScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { theme } from './theme';
+import { FeedbackBanner } from './ui';
 import { useAppModel } from './useAppModel';
 import { WorkspaceOnboardingOverlay } from './workspaceOnboarding';
 import {
@@ -247,6 +248,20 @@ export function AppShell(): React.JSX.Element {
   }, [activeTab]);
 
   React.useEffect(() => {
+    if (!model.notice) {
+      return;
+    }
+
+    const timerId = setTimeout(() => {
+      model.clearNotice();
+    }, 3000);
+
+    return () => {
+      clearTimeout(timerId);
+    };
+  }, [model.notice?.message, model.notice?.tone]);
+
+  React.useEffect(() => {
     setLocaleMenuVisible(false);
     setSettingsQuickLocaleMenuVisible(false);
     setSettingsLocaleMenuVisible(false);
@@ -303,11 +318,7 @@ export function AppShell(): React.JSX.Element {
     return () => {
       subscription.remove();
     };
-  }, [
-    model.onboarding.isVisible,
-    skipWorkspaceOnboarding,
-    tourStepIndex,
-  ]);
+  }, [model.onboarding.isVisible, skipWorkspaceOnboarding, tourStepIndex]);
 
   React.useEffect(() => {
     if (Platform.OS !== 'android' || model.onboarding.isVisible) {
@@ -480,6 +491,25 @@ export function AppShell(): React.JSX.Element {
               onTabChange={setActiveTab}
               t={t}
             />
+
+            {model.notice ? (
+              <View
+                pointerEvents="box-none"
+                style={[
+                  styles.noticeOverlay,
+                  {
+                    left: pagePadding,
+                    right: pagePadding,
+                  },
+                ]}
+              >
+                <FeedbackBanner
+                  message={model.notice.message}
+                  onDismiss={model.clearNotice}
+                  tone={model.notice.tone}
+                />
+              </View>
+            ) : null}
           </View>
         )}
 

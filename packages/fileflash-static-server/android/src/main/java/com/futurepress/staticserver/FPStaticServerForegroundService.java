@@ -32,7 +32,7 @@ public class FPStaticServerForegroundService extends Service {
 
   private Notification buildNotification() {
     return new NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("FileFlash Bridge")
+        .setContentTitle("文件闪传桥")
         .setContentText("本地传输服务正在后台保持可用")
         .setOngoing(true)
         .setOnlyAlertOnce(true)
@@ -59,7 +59,7 @@ public class FPStaticServerForegroundService extends Service {
     NotificationChannel channel =
         new NotificationChannel(
             CHANNEL_ID,
-            "FileFlash Bridge 传输服务",
+            "文件闪传桥传输服务",
             NotificationManager.IMPORTANCE_LOW);
     channel.setDescription("保持本地传输服务在后台可用");
     manager.createNotificationChannel(channel);

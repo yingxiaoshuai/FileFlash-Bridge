@@ -6,6 +6,7 @@ import {
   cleanupLocalHarmonyReleaseArtifacts,
   prepareLocalHarmonyReleaseEnv,
 } from './harmony-local-release-config.mjs';
+import { ensureHarmonyBundleFresh } from './ensure-harmony-bundle-fresh.mjs';
 
 const repoRoot = process.cwd();
 const isWindows = process.platform === 'win32';
@@ -15,8 +16,19 @@ const reactNativeCommand = isWindows
 const trackedConfigPaths = [
   path.join(repoRoot, 'harmony', 'AppScope', 'app.json5'),
   path.join(repoRoot, 'harmony', 'build-profile.json5'),
+  path.join(repoRoot, 'harmony', 'entry', 'build-profile.json5'),
   path.join(repoRoot, 'harmony', 'entry', 'src', 'main', 'module.json5'),
 ];
+const harmonyBundlePath = path.join(
+  repoRoot,
+  'harmony',
+  'entry',
+  'src',
+  'main',
+  'resources',
+  'rawfile',
+  'bundle.harmony.js',
+);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -49,10 +61,28 @@ function restoreFiles(snapshots) {
   }
 }
 
+function hasFlag(name) {
+  return process.argv.includes(name);
+}
+
+function shouldSkipBundle() {
+  const envValue = String(process.env.HARMONY_SKIP_BUNDLE ?? '')
+    .trim()
+    .toLowerCase();
+
+  return (
+    hasFlag('--fast') ||
+    hasFlag('--skip-bundle') ||
+    envValue === '1' ||
+    envValue === 'true' ||
+    envValue === 'yes'
+  );
+}
+
 function main() {
-  if (process.argv.includes('--app')) {
+  if (hasFlag('--app')) {
     process.env.HARMONY_PACKAGE_TYPE = 'app';
-  } else if (process.argv.includes('--hap')) {
+  } else if (hasFlag('--hap')) {
     process.env.HARMONY_PACKAGE_TYPE = 'hap';
   }
 
@@ -61,7 +91,10 @@ function main() {
 
   if (prepared.configPath) {
     console.log(
-      `[harmony-release] local config=${path.relative(repoRoot, prepared.configPath)}`,
+      `[harmony-release] local config=${path.relative(
+        repoRoot,
+        prepared.configPath,
+      )}`,
     );
   } else {
     console.log('[harmony-release] local config=environment');
@@ -70,10 +103,34 @@ function main() {
 
   try {
     run(process.execPath, ['scripts/configure-harmony-project.mjs']);
-    run(reactNativeCommand, ['bundle-harmony', '--config', 'metro.config.js'], {
-      shell: isWindows,
-    });
-    run(process.execPath, ['scripts/build-harmony-release.mjs']);
+    if (shouldSkipBundle()) {
+      if (!fs.existsSync(harmonyBundlePath)) {
+        throw new Error(
+          `Cannot skip Harmony bundle because it does not exist: ${harmonyBundlePath}`,
+        );
+      }
+
+      console.log('[harmony-release] JS bundle skipped');
+    } else {
+      run(
+        reactNativeCommand,
+        ['bundle-harmony', '--config', 'metro.config.js', '--dev', 'false'],
+        {
+          shell: isWindows,
+        },
+      );
+    }
+
+    ensureHarmonyBundleFresh();
+
+    const buildArgs = ['scripts/build-harmony-release.mjs'];
+    if (hasFlag('--fast') || hasFlag('--skip-ohpm-install')) {
+      buildArgs.push('--skip-ohpm-install');
+    }
+    if (hasFlag('--clean-inactive-abi')) {
+      buildArgs.push('--clean-inactive-abi');
+    }
+    run(process.execPath, buildArgs);
   } finally {
     restoreFiles(snapshots);
     cleanupLocalHarmonyReleaseArtifacts();

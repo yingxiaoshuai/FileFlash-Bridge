@@ -1,4 +1,4 @@
-# FileFlash-Bridge Mobile / 文件闪送桥
+# FileFlash-Bridge Mobile / 文件闪传桥
 
 English version: [README.en.md](./README.en.md)
 
@@ -8,13 +8,13 @@ English version: [README.en.md](./README.en.md)
 
 把电脑浏览器里的文件、文本，直接送到手机里。
 
-**文件闪送桥** 是一款面向 iPhone 和 Android 的局域网传输工具：同一 Wi-Fi 或热点下，打开 App、扫一下二维码，就能在浏览器里把文件传到手机，或者把手机共享的文件下载回电脑。
+**文件闪传桥** 是一款面向 iPhone 和 Android 的局域网传输工具：同一 Wi-Fi 或热点下，打开 App、扫一下二维码，就能在浏览器里把文件传到手机，或者把手机共享的文件下载回电脑。
 
 **不需要数据线，不需要登录账号，浏览器端也不用额外安装客户端。**
 
 ## 立即下载
 
-- iOS：打开 App Store，搜索 **文件闪送桥**
+- iOS：打开 App Store，搜索 **文件闪传桥**
 - [下载最新版 Android APK](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases/latest/download/app-release.apk)
 - [查看所有版本与更新记录](https://github.com/yingxiaoshuai/FileFlash-Bridge/releases)
 - [查看隐私政策](./docs/privacy-policy-zh.md)
@@ -46,7 +46,7 @@ English version: [README.en.md](./README.en.md)
 
 ## 3 步开始使用
 
-1. 在 iPhone 或 Android 手机上安装并打开 **文件闪送桥**。
+1. 在 iPhone 或 Android 手机上安装并打开 **文件闪传桥**。
 2. 让手机和电脑处于同一 Wi-Fi 或热点，启动 App 内传输服务，复制链接或扫描二维码。
 3. 在浏览器里上传文件、发送文本，或下载手机端已共享的文件。
 
@@ -74,7 +74,7 @@ English version: [README.en.md](./README.en.md)
 
 ### 目前支持什么平台？
 
-支持 **iOS** 和 **Android**。iOS 可在 App Store 搜索 **文件闪送桥**；Android 可从本仓库的 GitHub Release 下载 `APK` 安装。
+支持 **iOS** 和 **Android**。iOS 可在 App Store 搜索 **文件闪传桥**；Android 可从本仓库的 GitHub Release 下载 `APK` 安装。
 
 ### 离线状态也能用吗？
 

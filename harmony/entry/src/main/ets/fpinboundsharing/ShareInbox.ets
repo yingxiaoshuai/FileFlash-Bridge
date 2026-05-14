@@ -1,15 +1,17 @@
 import type common from '@ohos.app.ability.common';
 import type { Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import fs from '@ohos.file.fs';
+import fs, { ReadOptions, WriteOptions } from '@ohos.file.fs';
 import fileUri from '@ohos.file.fileuri';
 import util from '@ohos.util';
 
 const LOG_DOMAIN: number = 0x0000;
 const LOG_TAG: string = 'FPInboundSharing';
 const INBOX_DIR_NAME: string = 'ffb-inbound';
+const COPYING_FILE_NAME: string = 'copying.json';
 const MANIFEST_FILE_NAME: string = 'pending.json';
 const STREAM_PARAM_KEY: string = 'ability.params.stream';
+const FILE_COPY_CHUNK_BYTES: number = 1024 * 1024;
 
 class PendingFile {
   byteLength: number = 0;
@@ -26,6 +28,7 @@ class PendingText {
 }
 
 class PendingManifest {
+  error: string | undefined = undefined;
   files: Array<PendingFile> = new Array<PendingFile>();
   texts: Array<PendingText> = new Array<PendingText>();
 }
@@ -59,6 +62,10 @@ function getManifestPath(context: common.UIAbilityContext): string {
   return getManifestDir(context) + '/' + MANIFEST_FILE_NAME;
 }
 
+function getCopyingPath(context: common.UIAbilityContext): string {
+  return getManifestDir(context) + '/' + COPYING_FILE_NAME;
+}
+
 function getImportRoot(context: common.UIAbilityContext): string {
   return context.cacheDir + '/' + INBOX_DIR_NAME;
 }
@@ -82,6 +89,77 @@ function writeUtf8File(path: string, content: string): void {
     fs.fsyncSync(file.fd);
   } finally {
     fs.closeSync(file);
+  }
+}
+
+function deletePathQuietly(path: string): void {
+  try {
+    fs.unlinkSync(path);
+  } catch {
+  }
+}
+
+function errorToMessage(error: Error | Object): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function writeBufferFully(
+  fd: number,
+  buffer: ArrayBuffer,
+  byteLength: number,
+  offset: number,
+): Promise<void> {
+  let written: number = 0;
+
+  while (written < byteLength) {
+    const chunk: ArrayBuffer =
+      written === 0 && byteLength === buffer.byteLength
+        ? buffer
+        : buffer.slice(written, byteLength);
+    const writeLength: number = await fs.write(fd, chunk, {
+      length: byteLength - written,
+      offset: offset + written,
+    } as WriteOptions);
+
+    if (writeLength <= 0) {
+      throw new Error('Unable to write shared file chunk.');
+    }
+
+    written += writeLength;
+  }
+}
+
+async function copyFileByChunks(
+  sourcePath: string,
+  destinationPath: string,
+): Promise<void> {
+  const source = fs.openSync(sourcePath, fs.OpenMode.READ_ONLY);
+  const destination = fs.openSync(
+    destinationPath,
+    fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC,
+  );
+  const buffer: ArrayBuffer = new ArrayBuffer(FILE_COPY_CHUNK_BYTES);
+  let offset: number = 0;
+
+  try {
+    while (true) {
+      const readLength: number = await fs.read(source.fd, buffer, {
+        length: FILE_COPY_CHUNK_BYTES,
+        offset,
+      } as ReadOptions);
+
+      if (readLength <= 0) {
+        break;
+      }
+
+      await writeBufferFully(destination.fd, buffer, readLength, offset);
+      offset += readLength;
+    }
+
+    await fs.fsync(destination.fd);
+  } finally {
+    fs.closeSync(source);
+    fs.closeSync(destination);
   }
 }
 
@@ -310,12 +388,12 @@ function extractSharedTexts(want: Want, createdAt: string): Array<PendingText> {
   return texts;
 }
 
-function copySharedUriToInbox(
+async function copySharedUriToInbox(
   context: common.UIAbilityContext,
   sharedUri: string,
   createdAt: string,
   fallbackMimeType: string | undefined,
-): PendingFile {
+): Promise<PendingFile> {
   const importRoot: string = getImportRoot(context);
   ensureDir(importRoot);
 
@@ -330,7 +408,16 @@ function copySharedUriToInbox(
     fileName;
   const sourcePath: string = normalizeShareUriToPath(sharedUri);
 
-  fs.copyFileSync(sourcePath, destinationPath);
+  try {
+    await copyFileByChunks(sourcePath, destinationPath);
+  } catch (error) {
+    deletePathQuietly(destinationPath);
+    throw new Error(
+      '共享文件无法读取，请重新选择文件或确认来源应用仍允许访问。' +
+        errorToMessage(error),
+    );
+  }
+
   const stat = fs.statSync(destinationPath);
 
   return createPendingFile(
@@ -351,36 +438,94 @@ function writeManifest(
   writeUtf8File(getManifestPath(context), JSON.stringify(manifest));
 }
 
+function writeFailureManifest(
+  context: common.UIAbilityContext,
+  message: string,
+): void {
+  const manifest: PendingManifest = new PendingManifest();
+  manifest.error = message;
+  writeManifest(context, manifest);
+}
+
+function writeCopyingMarker(context: common.UIAbilityContext, createdAt: string): void {
+  ensureDir(getManifestDir(context));
+  writeUtf8File(
+    getCopyingPath(context),
+    JSON.stringify({
+      createdAt,
+    }),
+  );
+}
+
+async function captureInboundWantAsync(
+  context: common.UIAbilityContext,
+  want: Want,
+  createdAt: string,
+  sharedUris: Array<string>,
+  sharedTexts: Array<PendingText>,
+): Promise<void> {
+  const manifest: PendingManifest = new PendingManifest();
+
+  let index: number = 0;
+  while (index < sharedUris.length) {
+    manifest.files.push(
+      await copySharedUriToInbox(context, sharedUris[index], createdAt, want.type),
+    );
+    index += 1;
+  }
+
+  index = 0;
+  while (index < sharedTexts.length) {
+    manifest.texts.push(sharedTexts[index]);
+    index += 1;
+  }
+
+  if (manifest.files.length === 0 && manifest.texts.length === 0) {
+    return;
+  }
+
+  writeManifest(context, manifest);
+}
+
 export function captureInboundWant(
   context: common.UIAbilityContext,
   want: Want,
 ): void {
-  try {
-    const createdAt: string = createTimestamp();
+  const createdAt: string = createTimestamp();
+  const sharedUris: Array<string> = extractShareUris(want);
+  const sharedTexts: Array<PendingText> = extractSharedTexts(want, createdAt);
+
+  if (sharedUris.length === 0 && sharedTexts.length === 0) {
+    return;
+  }
+
+  if (sharedUris.length === 0) {
     const manifest: PendingManifest = new PendingManifest();
-    const sharedUris: Array<string> = extractShareUris(want);
-    const sharedTexts: Array<PendingText> = extractSharedTexts(want, createdAt);
-
     let index: number = 0;
-    while (index < sharedUris.length) {
-      manifest.files.push(
-        copySharedUriToInbox(context, sharedUris[index], createdAt, want.type),
-      );
-      index += 1;
-    }
-
-    index = 0;
     while (index < sharedTexts.length) {
       manifest.texts.push(sharedTexts[index]);
       index += 1;
     }
-
-    if (manifest.files.length === 0 && manifest.texts.length === 0) {
-      return;
-    }
-
     writeManifest(context, manifest);
-  } catch {
-    hilog.error(LOG_DOMAIN, LOG_TAG, 'Failed to capture shared want.');
+    return;
   }
+
+  try {
+    writeCopyingMarker(context, createdAt);
+  } catch {
+  }
+
+  void (async () => {
+    try {
+      await captureInboundWantAsync(context, want, createdAt, sharedUris, sharedTexts);
+    } catch (error) {
+      hilog.error(LOG_DOMAIN, LOG_TAG, 'Failed to capture shared want.');
+      writeFailureManifest(
+        context,
+        '共享文件导入失败：' + errorToMessage(error),
+      );
+    } finally {
+      deletePathQuietly(getCopyingPath(context));
+    }
+  })();
 }

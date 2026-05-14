@@ -1,4 +1,7 @@
-import {InboundStorageGateway} from '../file-access/inboundStorageGateway';
+import {
+  InboundStorageGateway,
+  InboundUploadBody,
+} from '../file-access/inboundStorageGateway';
 import {
   AppLocale,
   createAppTranslator,
@@ -28,6 +31,10 @@ import {
 
 export interface TransferRequest {
   body?: unknown;
+  bodyFile?: {
+    byteLength: number;
+    path: string;
+  };
   headers: Record<string, string | undefined>;
   method: string;
   path: string;
@@ -35,14 +42,13 @@ export interface TransferRequest {
   remoteAddress?: string;
 }
 
-export interface TransferBase64Body {
-  base64: string;
-  byteLength?: number;
-  kind: 'base64';
-}
-
 export interface TransferResponse {
-  body?: object | string | TransferBase64Body | Uint8Array;
+  body?: object | string | Uint8Array;
+  bodyFile?: {
+    length: number;
+    offset: number;
+    path: string;
+  };
   headers?: Record<string, string>;
   status: number;
 }
@@ -60,6 +66,7 @@ export interface ServiceRuntimeHandle {
 }
 
 export interface ServiceRuntime {
+  supportsFileResponses?: boolean;
   start(options: {
     handler: (request: TransferRequest) => Promise<TransferResponse>;
     port: number;
@@ -85,10 +92,13 @@ export interface TransferServiceControllerOptions {
 }
 
 type NormalizedUploadFile = {
+  byteLength?: number;
+  bytes?: Uint8Array;
   mimeType?: string;
   name: string;
   relativePath?: string;
-} & ({bytes: Uint8Array} | TransferBase64Body);
+  sourcePath?: string;
+};
 
 export class TransferServiceController {
   private readonly connectionRegistry: ConnectionRegistry;
@@ -423,6 +433,7 @@ export class TransferServiceController {
         return this.html(
           200,
           buildPortalDocument({
+            binaryBridgeChunkSize: this.state.config.binaryBridgeChunkSize,
             chunkSize: this.state.config.chunkSize,
             deviceName: this.state.config.deviceName,
             locale,
@@ -436,6 +447,7 @@ export class TransferServiceController {
         return this.json(200, {
           activeConnections: this.state.activeConnections.length,
           activeProjectId: this.state.activeProjectId,
+          binaryBridgeChunkSize: this.state.config.binaryBridgeChunkSize,
           chunkSize: this.state.config.chunkSize,
           notice:
             this.state.config.securityMode === 'simple'
@@ -492,8 +504,38 @@ export class TransferServiceController {
           });
         }
 
+        const offsetParam = request.query.get('offset')?.trim();
+        const offset =
+          offsetParam && offsetParam.length > 0 ? Number(offsetParam) : undefined;
+        if (
+          offsetParam &&
+          (!Number.isFinite(offset) || (offset ?? 0) < 0)
+        ) {
+          return this.json(400, {
+            code: 'INVALID_REQUEST',
+            message: t('api.invalidUploadBeginFields'),
+          });
+        }
+
         try {
-          await this.options.storage.appendInboundUpload(uploadId, request.body);
+          const body: InboundUploadBody =
+            request.bodyFile != null
+              ? {
+                  byteLength: request.bodyFile.byteLength,
+                  sourcePath: request.bodyFile.path,
+                }
+              : request.body instanceof Uint8Array
+                ? request.body
+                : (() => {
+                    throw new Error('Invalid upload chunk data.');
+                  })();
+          await this.options.storage.appendInboundUpload(
+            uploadId,
+            body,
+            {
+              offset,
+            },
+          );
           return this.json(200, {ok: true});
         } catch (error) {
           const message =
@@ -558,23 +600,21 @@ export class TransferServiceController {
 
         const results = [];
         for (const file of files) {
-          const savedFile = await this.options.storage.saveInboundFile(
-            'bytes' in file
-              ? {
-                  bytes: file.bytes,
+          const savedFile =
+            file.sourcePath && file.byteLength != null
+              ? await this.options.storage.saveInboundFile({
+                  byteLength: file.byteLength,
                   mimeType: file.mimeType,
                   name: file.name,
                   relativePath: file.relativePath,
-                }
-              : {
-                  base64: file.base64,
-                  byteLength:
-                    file.byteLength ?? base64ByteLength(file.base64),
+                  sourcePath: file.sourcePath,
+                })
+              : await this.options.storage.saveInboundFile({
+                  bytes: file.bytes ?? new Uint8Array(0),
                   mimeType: file.mimeType,
                   name: file.name,
                   relativePath: file.relativePath,
-                },
-          );
+                });
           results.push(savedFile);
         }
 
@@ -634,35 +674,54 @@ export class TransferServiceController {
       const downloadMatch = request.path.match(/^\/api\/shared\/([^/]+)\/download$/);
       if (downloadMatch && request.method === 'GET') {
         const fileId = downloadMatch[1];
-        const offset = Number(request.query.get('offset') ?? '0');
-        const length = Number(request.query.get('length') ?? `${this.state.config.chunkSize}`);
-        const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
-        const chunk = await this.options.storage.prepareFileChunk(
-          fileId,
-          start,
-          length,
+        const directDownload = request.query.get('direct') === '1';
+        const offset = directDownload
+          ? 0
+          : Number(request.query.get('offset') ?? '0');
+        const requestedLength = Number(
+          request.query.get('length') ?? `${this.state.config.chunkSize}`,
         );
+        const length = directDownload
+          ? Number.MAX_SAFE_INTEGER
+          : Math.max(
+              0,
+              Math.min(
+                Number.isFinite(requestedLength)
+                  ? requestedLength
+                  : this.state.config.chunkSize,
+                this.state.config.chunkSize,
+                this.state.config.binaryBridgeChunkSize,
+              ),
+            );
+        const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+        const chunk = await this.options.storage.prepareFileChunk(fileId, {
+          length,
+          offset: start,
+          preferSourceFile: this.options.runtime?.supportsFileResponses,
+        });
         const status =
           start === 0 && chunk.contentLength === chunk.totalSize ? 200 : 206;
 
+        const headers = {
+          'content-disposition': `attachment; filename="${encodeURIComponent(
+            chunk.file.displayName,
+          )}"`,
+          'content-length': String(chunk.contentLength),
+          'content-type': chunk.file.mimeType ?? 'application/octet-stream',
+          'x-file-size': String(chunk.totalSize),
+        };
+
+        if (chunk.sourceFile) {
+          return {
+            bodyFile: chunk.sourceFile,
+            headers,
+            status,
+          };
+        }
+
         return {
-          body:
-            'base64' in chunk
-              ? {
-                  base64: chunk.base64,
-                  byteLength: chunk.contentLength,
-                  kind: 'base64',
-                }
-              : chunk.bytes,
-          headers: {
-            'content-disposition': `attachment; filename="${encodeURIComponent(
-              chunk.file.displayName,
-            )}"`,
-            'content-length': String(chunk.contentLength),
-            'content-type':
-              chunk.file.mimeType ?? 'application/octet-stream',
-            'x-file-size': String(chunk.totalSize),
-          },
+          body: chunk.bytes,
+          headers,
           status,
         };
       }
@@ -783,6 +842,18 @@ export class TransferServiceController {
 
     const relativePath = request.query.get('relativePath')?.trim() || name;
 
+    if (request.bodyFile) {
+      return [
+        {
+          byteLength: request.bodyFile.byteLength,
+          mimeType: normalizeMimeType(request.headers['content-type']),
+          name,
+          relativePath,
+          sourcePath: request.bodyFile.path,
+        },
+      ];
+    }
+
     if (request.body instanceof Uint8Array) {
       return [
         {
@@ -805,31 +876,19 @@ export class TransferServiceController {
       ];
     }
 
-    if (!isTransferBase64Body(request.body)) {
+    if (!(request.body instanceof Uint8Array)) {
       return [];
     }
 
     return [
       {
-        base64: request.body.base64,
-        byteLength:
-          request.body.byteLength ?? base64ByteLength(request.body.base64),
-        kind: 'base64',
+        bytes: request.body,
         mimeType: normalizeMimeType(request.headers['content-type']),
         name,
         relativePath,
       },
     ];
   }
-}
-
-export function isTransferBase64Body(value: unknown): value is TransferBase64Body {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const candidate = value as Partial<TransferBase64Body>;
-  return candidate.kind === 'base64' && typeof candidate.base64 === 'string';
 }
 
 function normalizeMimeType(value?: string) {
@@ -850,10 +909,6 @@ function decodeSubmittedText(body: unknown) {
 
   if (body instanceof Uint8Array) {
     return decodeUtf8(body);
-  }
-
-  if (isTransferBase64Body(body)) {
-    return decodeUtf8(decodeBase64(body.base64));
   }
 
   if (body && typeof body === 'object' && 'text' in body) {
@@ -885,40 +940,6 @@ function decodeUtf8(bytes: Uint8Array) {
     value += String.fromCharCode(bytes[index]);
   }
   return decodeURIComponent(escape(value));
-}
-
-function decodeBase64(value: string) {
-  const bufferCtor = (
-    globalThis as {
-      Buffer?: {
-        from(input: string, encoding: 'base64'): Uint8Array;
-      };
-    }
-  ).Buffer;
-  if (bufferCtor) {
-    return new Uint8Array(bufferCtor.from(value, 'base64'));
-  }
-
-  if (typeof globalThis.atob === 'function') {
-    const binary = globalThis.atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  }
-
-  throw new Error('Base64 decode is not available in this runtime.');
-}
-
-function base64ByteLength(value: string) {
-  const sanitized = value.replace(/[^A-Za-z0-9+/=]/g, '');
-  if (!sanitized) {
-    return 0;
-  }
-
-  const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
-  return (sanitized.length / 4) * 3 - padding;
 }
 
 function decodeJsonObject(body: unknown): Record<string, unknown> | null {

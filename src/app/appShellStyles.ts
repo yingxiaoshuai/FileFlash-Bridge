@@ -30,6 +30,19 @@ export const styles = StyleSheet.create({
   readyShell: {
     flex: 1,
   },
+  noticeOverlay: {
+    bottom: 74,
+    elevation: 24,
+    position: 'absolute',
+    shadowColor: theme.colors.shadowStrong,
+    shadowOffset: {
+      height: 12,
+      width: 0,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 18,
+    zIndex: 32,
+  },
   screenSection: {
     flex: 1,
     minHeight: 0,
@@ -476,6 +489,11 @@ export const styles = StyleSheet.create({
     shadowOpacity: 0.24,
     shadowRadius: 24,
   },
+  summaryShellCompact: {
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+  },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -525,6 +543,9 @@ export const styles = StyleSheet.create({
     gap: 10,
     justifyContent: 'space-between',
   },
+  metricRowCompact: {
+    gap: 8,
+  },
   infoBadge: {
     alignItems: 'center',
     flexBasis: 0,
@@ -538,19 +559,24 @@ export const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   infoBadgeCompact: {
-    gap: 8,
-    paddingHorizontal: 0,
-    paddingVertical: 4,
+    flexDirection: 'column',
+    gap: 6,
+    minHeight: 86,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
   },
   infoBadgeIconWrap: {
     alignItems: 'center',
+    aspectRatio: 1,
     backgroundColor: '#EAF2FF',
     borderColor: theme.colors.highlight,
     borderRadius: 18,
     borderWidth: 1,
     elevation: 3,
+    flexShrink: 0,
     height: 54,
     justifyContent: 'center',
+    overflow: 'hidden',
     shadowColor: theme.colors.primaryShadow,
     shadowOffset: {
       height: 8,
@@ -561,8 +587,9 @@ export const styles = StyleSheet.create({
     width: 54,
   },
   infoBadgeIconWrapCompact: {
-    height: 52,
-    width: 52,
+    borderRadius: 16,
+    height: 48,
+    width: 48,
   },
   infoBadgeText: {
     flex: 1,
@@ -570,9 +597,12 @@ export const styles = StyleSheet.create({
     minWidth: 0,
   },
   infoBadgeTextCompact: {
-    alignSelf: 'stretch',
-    flex: 1,
+    alignItems: 'center',
+    alignSelf: 'center',
+    flex: 0,
     gap: 3,
+    maxWidth: '100%',
+    minWidth: 0,
   },
   infoBadgeLabel: {
     color: theme.colors.inkSoft,
@@ -583,6 +613,7 @@ export const styles = StyleSheet.create({
   infoBadgeLabelCompact: {
     fontSize: 10,
     lineHeight: 13,
+    textAlign: 'center',
   },
   infoBadgeValue: {
     color: theme.colors.ink,
@@ -592,6 +623,7 @@ export const styles = StyleSheet.create({
   infoBadgeValueCompact: {
     fontSize: 16,
     lineHeight: 18,
+    textAlign: 'center',
   },
   quickToolsTitle: {
     color: theme.colors.inkSoft,
@@ -882,6 +914,29 @@ export const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'flex-end',
   },
+  sharedSelectionToolbar: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.card,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    justifyContent: 'space-between',
+    padding: 12,
+  },
+  sharedSelectionActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  sharedSelectionCount: {
+    color: theme.colors.inkSoft,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   activeProjectHeaderMain: {
     gap: 4,
   },
@@ -965,6 +1020,10 @@ export const styles = StyleSheet.create({
     shadowOpacity: 0.12,
     shadowRadius: 12,
   },
+  sharedFileCardSelected: {
+    backgroundColor: theme.colors.primarySoft,
+    borderColor: theme.colors.primary,
+  },
   fileCardHeader: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -978,6 +1037,29 @@ export const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
     minWidth: 0,
+  },
+  sharedSelectionBox: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderColor: theme.colors.borderStrong,
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 26,
+    justifyContent: 'center',
+    width: 26,
+  },
+  sharedSelectionBoxSelected: {
+    backgroundColor: theme.colors.primaryStrong,
+    borderColor: theme.colors.primaryStrong,
+  },
+  sharedSelectionBoxLabel: {
+    color: theme.colors.inkMuted,
+    fontSize: 14,
+    fontWeight: '900',
+    lineHeight: 18,
+  },
+  sharedSelectionBoxLabelSelected: {
+    color: theme.colors.inkOnStrong,
   },
   fileName: {
     color: theme.colors.ink,

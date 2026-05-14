@@ -34,6 +34,22 @@ describe('parseHttpRequestFrame', () => {
     expect(parsed?.request.headers['x-client-id']).toBe('browser-a');
     expect(parsed?.request.body).toBe('hello');
   });
+
+  test('preserves JSON file uploads as raw bytes', () => {
+    const body = '{"assembly":';
+    const requestBytes = new TextEncoder().encode(
+      `POST /api/upload?name=assembly.json HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: ${body.length}\r\n\r\n${body}`,
+    );
+
+    const parsed = parseHttpRequestFrame(requestBytes);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.request.path).toBe('/api/upload');
+    expect(parsed?.request.body).toBeInstanceOf(Uint8Array);
+    expect(
+      Buffer.from(parsed?.request.body as Uint8Array).toString('utf8'),
+    ).toBe(body);
+  });
 });
 
 describe('encodeHttpResponse', () => {
@@ -57,19 +73,17 @@ describe('encodeHttpResponse', () => {
     );
 
     expect(headerText).toContain('HTTP/1.1 200 OK');
-    expect(headerText).toContain('content-type: application/json; charset=utf-8');
+    expect(headerText).toContain(
+      'content-type: application/json; charset=utf-8',
+    );
     expect(headerText).toContain('connection: close');
     expect(headerText).toContain(`content-length: ${bodyText.length}`);
-    expect(bodyText).toBe(JSON.stringify({ok: true}));
+    expect(bodyText).toBe(JSON.stringify({ ok: true }));
   });
 
-  test('encodes base64-backed binary payloads', () => {
+  test('encodes Uint8Array binary payloads', () => {
     const responseBytes = encodeHttpResponse({
-      body: {
-        base64: Buffer.from('chunk-data', 'utf8').toString('base64'),
-        byteLength: 10,
-        kind: 'base64',
-      },
+      body: new TextEncoder().encode('chunk-data'),
       headers: {
         'content-type': 'application/octet-stream',
       },

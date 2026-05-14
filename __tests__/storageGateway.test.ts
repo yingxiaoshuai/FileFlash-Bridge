@@ -1,9 +1,17 @@
-import {mkdtemp, readFile as fsReadFile, rm, writeFile as fsWriteFile} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+  mkdtemp,
+  readFile as fsReadFile,
+  rm,
+  writeFile as fsWriteFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-import {InboundStorageGateway} from '../src/modules/file-access/inboundStorageGateway';
-import {NodeFileSystemAdapter, nodeGzipCompression} from '../src/test-support/node';
+import { InboundStorageGateway } from '../src/modules/file-access/inboundStorageGateway';
+import {
+  NodeFileSystemAdapter,
+  nodeGzipCompression,
+} from '../src/test-support/node';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -36,7 +44,7 @@ describe('InboundStorageGateway', () => {
       expect(second.relativePath).toBe('note (1).txt');
       expect(decoder.decode(restored.bytes)).toBe('hello fileflash bridge');
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -63,14 +71,16 @@ describe('InboundStorageGateway', () => {
       await gateway.addSharedFile(largeFile.id);
 
       const snapshot = await gateway.getSnapshot();
-      const activeProject = snapshot.projects.find(item => item.id === project.id);
+      const activeProject = snapshot.projects.find(
+        item => item.id === project.id,
+      );
 
       expect(largeFile.compression).toBe('none');
       expect(snapshot.activeProjectId).toBe(project.id);
       expect(snapshot.sharedFileIds).toContain(largeFile.id);
       expect(activeProject?.messages).toHaveLength(1);
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -99,11 +109,11 @@ describe('InboundStorageGateway', () => {
       expect(snapshot.activeProjectId).toBe(nextProject.id);
       expect(snapshot.sharedFileIds).toHaveLength(0);
       await expect(gateway.listSharedFiles()).resolves.toHaveLength(0);
-      await expect(gateway.listProjectFiles(initialProjectId)).resolves.toEqual([
-        expect.objectContaining({id: sharedFile.id}),
-      ]);
+      await expect(gateway.listProjectFiles(initialProjectId)).resolves.toEqual(
+        [expect.objectContaining({ id: sharedFile.id })],
+      );
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -130,7 +140,7 @@ describe('InboundStorageGateway', () => {
       const snapshot = await gateway.getSnapshot();
       expect(snapshot.files[storedFile.id]?.createdAt).toBe(createdAt);
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -153,7 +163,8 @@ describe('InboundStorageGateway', () => {
 
       const renamedSnapshot = await gateway.getSnapshot();
       expect(
-        renamedSnapshot.projects.find(project => project.id === activeProjectId)?.title,
+        renamedSnapshot.projects.find(project => project.id === activeProjectId)
+          ?.title,
       ).toBe('新的项目名称');
 
       const reloadedGateway = new InboundStorageGateway({
@@ -165,10 +176,12 @@ describe('InboundStorageGateway', () => {
       });
       const reloadedSnapshot = await reloadedGateway.getSnapshot();
       expect(
-        reloadedSnapshot.projects.find(project => project.id === activeProjectId)?.title,
+        reloadedSnapshot.projects.find(
+          project => project.id === activeProjectId,
+        )?.title,
       ).toBe('新的项目名称');
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -201,7 +214,8 @@ describe('InboundStorageGateway', () => {
 
       const snapshot = await gateway.getSnapshot();
       expect(
-        (snapshot as unknown as {workspaceOnboarding?: unknown}).workspaceOnboarding,
+        (snapshot as unknown as { workspaceOnboarding?: unknown })
+          .workspaceOnboarding,
       ).toBeUndefined();
 
       const reloadedGateway = new InboundStorageGateway({
@@ -228,7 +242,7 @@ describe('InboundStorageGateway', () => {
         version: 'tour-v2',
       });
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -261,7 +275,7 @@ describe('InboundStorageGateway', () => {
         version: 'tour-v1',
       });
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -288,7 +302,9 @@ describe('InboundStorageGateway', () => {
         rootDir,
         sessionId: 'session-locale-preference',
       });
-      await expect(reloadedGateway.getLocalePreference()).resolves.toBe('en-US');
+      await expect(reloadedGateway.getLocalePreference()).resolves.toBe(
+        'en-US',
+      );
 
       await fsWriteFile(
         join(rootDir, 'ui-state.json'),
@@ -311,9 +327,11 @@ describe('InboundStorageGateway', () => {
         rootDir,
         sessionId: 'session-locale-preference',
       });
-      await expect(fallbackGateway.getLocalePreference()).resolves.toBe('zh-CN');
+      await expect(fallbackGateway.getLocalePreference()).resolves.toBe(
+        'zh-CN',
+      );
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -372,7 +390,7 @@ describe('InboundStorageGateway', () => {
         'secure',
       );
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -390,7 +408,10 @@ describe('InboundStorageGateway', () => {
     try {
       await gateway.initialize();
       const sourcePath = join(rootDir, 'source-large.bin');
-      await fileSystem.writeFile(sourcePath, encoder.encode('0123456789abcdef'));
+      await fileSystem.writeFile(
+        sourcePath,
+        encoder.encode('0123456789abcdef'),
+      );
 
       const storedFile = await gateway.saveInboundFile({
         byteLength: 16,
@@ -400,19 +421,129 @@ describe('InboundStorageGateway', () => {
       const chunk = await gateway.prepareFileChunk(storedFile.id, 4, 6);
 
       expect(storedFile.compression).toBe('none');
-      expect('base64' in chunk).toBe(true);
-      if (!('base64' in chunk)) {
-        throw new Error('Expected a base64-backed chunk for large files.');
-      }
-
-      const base64Chunk = chunk.base64;
-      if (!base64Chunk) {
-        throw new Error('Expected the chunk to include base64 content.');
-      }
-
-      expect(Buffer.from(base64Chunk, 'base64').toString('utf8')).toBe('456789');
+      expect(Buffer.from(chunk.bytes).toString('utf8')).toBe('456789');
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  test('starts chunked uploads without writing an empty temp file first', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-upload-begin-'));
+
+    class RecordingFileSystemAdapter extends NodeFileSystemAdapter {
+      writeFileCalls: Array<{ byteLength: number; path: string }> = [];
+
+      override async writeFile(path: string, content: Uint8Array) {
+        this.writeFileCalls.push({ byteLength: content.byteLength, path });
+        await super.writeFile(path, content);
+      }
+    }
+
+    const fileSystem = new RecordingFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 0,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-chunked-upload-begin',
+    });
+
+    try {
+      await gateway.initialize();
+      const writeFileCallCount = fileSystem.writeFileCalls.length;
+
+      const { uploadId } = await gateway.beginInboundUpload({
+        mimeType: 'application/octet-stream',
+        name: 'upload.bin',
+        relativePath: 'incoming/upload.bin',
+        totalBytes: 4,
+      });
+
+      expect(fileSystem.writeFileCalls).toHaveLength(writeFileCallCount);
+
+      await gateway.appendInboundUpload(uploadId, encoder.encode('data'));
+      const storedFile = await gateway.finalizeInboundUpload(uploadId);
+      const restored = await gateway.prepareFileBytes(storedFile.id);
+
+      expect(storedFile.relativePath).toBe('incoming/upload.bin');
+      expect(decoder.decode(restored.bytes)).toBe('data');
+    } finally {
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  test('treats retried inbound upload chunks with the same offset as already written', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-upload-retry-'));
+    const fileSystem = new NodeFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 0,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-chunked-upload-retry',
+    });
+
+    try {
+      await gateway.initialize();
+      const { uploadId } = await gateway.beginInboundUpload({
+        mimeType: 'application/octet-stream',
+        name: 'upload.bin',
+        relativePath: 'incoming/upload.bin',
+        totalBytes: 8,
+      });
+
+      await gateway.appendInboundUpload(uploadId, encoder.encode('data'), {
+        offset: 0,
+      });
+      await gateway.appendInboundUpload(uploadId, encoder.encode('data'), {
+        offset: 0,
+      });
+      await gateway.appendInboundUpload(uploadId, encoder.encode('more'), {
+        offset: 4,
+      });
+
+      const storedFile = await gateway.finalizeInboundUpload(uploadId);
+      const restored = await gateway.prepareFileBytes(storedFile.id);
+
+      expect(decoder.decode(restored.bytes)).toBe('datamore');
+    } finally {
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  test('appends inbound upload chunks from native temp files', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-upload-path-'));
+    const fileSystem = new NodeFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 0,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-chunked-upload-path',
+    });
+
+    try {
+      await gateway.initialize();
+      const sourcePath = join(rootDir, 'native-upload.part');
+      await fsWriteFile(sourcePath, encoder.encode('native-data'));
+      const { uploadId } = await gateway.beginInboundUpload({
+        mimeType: 'application/octet-stream',
+        name: 'native.bin',
+        relativePath: 'incoming/native.bin',
+        totalBytes: 11,
+      });
+
+      await gateway.appendInboundUpload(uploadId, {
+        byteLength: 11,
+        sourcePath,
+      });
+
+      const storedFile = await gateway.finalizeInboundUpload(uploadId);
+      const restored = await gateway.prepareFileBytes(storedFile.id);
+
+      expect(decoder.decode(restored.bytes)).toBe('native-data');
+    } finally {
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -443,14 +574,18 @@ describe('InboundStorageGateway', () => {
       ) as {
         files: Record<
           string,
-          {originalSize: number; size: number; storedSize: number}
+          { originalSize: number; size: number; storedSize: number }
         >;
       };
 
       persistedSnapshot.files[storedFile.id].originalSize = 32;
       persistedSnapshot.files[storedFile.id].size = 32;
       persistedSnapshot.files[storedFile.id].storedSize = 32;
-      await fsWriteFile(snapshotPath, JSON.stringify(persistedSnapshot, null, 2), 'utf8');
+      await fsWriteFile(
+        snapshotPath,
+        JSON.stringify(persistedSnapshot, null, 2),
+        'utf8',
+      );
 
       const reloadedGateway = new InboundStorageGateway({
         compression: nodeGzipCompression,
@@ -461,22 +596,19 @@ describe('InboundStorageGateway', () => {
       });
       const reloadedSnapshot = await reloadedGateway.getSnapshot();
       const repairedFile = reloadedSnapshot.files[storedFile.id];
-      const chunk = await reloadedGateway.prepareFileChunk(storedFile.id, 0, 32);
+      const chunk = await reloadedGateway.prepareFileChunk(
+        storedFile.id,
+        0,
+        32,
+      );
 
       expect(repairedFile.originalSize).toBe(10);
       expect(repairedFile.size).toBe(10);
       expect(repairedFile.storedSize).toBe(10);
       expect(chunk.contentLength).toBe(10);
-      if (!('base64' in chunk)) {
-        throw new Error('Expected a base64-backed chunk for the repaired file.');
-      }
-      const base64Chunk = chunk.base64;
-      if (!base64Chunk) {
-        throw new Error('Expected the repaired chunk to include base64 content.');
-      }
-      expect(Buffer.from(base64Chunk, 'base64').toString('utf8')).toBe('0123456789');
+      expect(Buffer.from(chunk.bytes).toString('utf8')).toBe('0123456789');
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -516,7 +648,7 @@ describe('InboundStorageGateway', () => {
       expect(Object.keys(snapshot.files)).toHaveLength(0);
       expect(snapshot.projects[0]?.fileIds).toHaveLength(0);
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -554,7 +686,7 @@ describe('InboundStorageGateway', () => {
       expect(snapshot.sharedFileIds).toHaveLength(0);
       expect(snapshot.projects[0]?.fileIds).toHaveLength(0);
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -586,7 +718,7 @@ describe('InboundStorageGateway', () => {
       expect(storedFile.storagePath.endsWith('.png')).toBe(true);
       expect(Buffer.from(restored.bytes)).toEqual(Buffer.from(pngLikeBytes));
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -620,18 +752,20 @@ describe('InboundStorageGateway', () => {
         sessionId: 'session-c',
       });
       const snapshot = await reloadedGateway.getSnapshot();
-      const reloadedProject = snapshot.projects.find(item => item.id === project.id);
+      const reloadedProject = snapshot.projects.find(
+        item => item.id === project.id,
+      );
       const projectFiles = await reloadedGateway.listProjectFiles(project.id);
       const sharedFiles = await reloadedGateway.listSharedFiles();
 
       expect(snapshot.activeProjectId).toBe(project.id);
-      expect(reloadedProject?.messages.map(message => message.content)).toEqual([
-        '浏览器的新文本会落到当前项目。',
-      ]);
+      expect(reloadedProject?.messages.map(message => message.content)).toEqual(
+        ['浏览器的新文本会落到当前项目。'],
+      );
       expect(projectFiles.map(file => file.id)).toEqual([sharedFile.id]);
       expect(sharedFiles.map(file => file.id)).toEqual([sharedFile.id]);
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -666,7 +800,7 @@ describe('InboundStorageGateway', () => {
       expect(sharedFiles).toHaveLength(0);
       await expect(fileSystem.exists(file.storagePath)).resolves.toBe(false);
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 
@@ -692,7 +826,9 @@ describe('InboundStorageGateway', () => {
 
       let snapshot = await gateway.getSnapshot();
       expect(snapshot.activeProjectId).toBe(initialProjectId);
-      expect(snapshot.projects.map(project => project.id)).toEqual([initialProjectId]);
+      expect(snapshot.projects.map(project => project.id)).toEqual([
+        initialProjectId,
+      ]);
 
       await gateway.deleteProject(initialProjectId);
 
@@ -701,7 +837,7 @@ describe('InboundStorageGateway', () => {
       expect(snapshot.activeProjectId).toBe(snapshot.projects[0]?.id);
       expect(snapshot.projects[0]?.title).toBe('当前分享轮次');
     } finally {
-      await rm(rootDir, {force: true, recursive: true});
+      await rm(rootDir, { force: true, recursive: true });
     }
   });
 });

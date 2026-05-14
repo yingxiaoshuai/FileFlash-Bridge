@@ -31,13 +31,13 @@ describe('Harmony platform adapters', () => {
     expect(pickDeviceMediaForShare).not.toHaveBeenCalled();
   });
 
-  test('selects the TCP socket runtime on Harmony', () => {
+  test('selects the native HTTP runtime on Harmony so LAN URLs use the device IP', () => {
     const harmonyRuntime = {
       isRunning: jest.fn(),
       start: jest.fn(),
     };
-    const createReactNativeTcpHttpRuntime = jest.fn(() => harmonyRuntime);
-    const createReactNativeHttpRuntime = jest.fn();
+    const createReactNativeTcpHttpRuntime = jest.fn();
+    const createReactNativeHttpRuntime = jest.fn(() => harmonyRuntime);
 
     jest.doMock('react-native', () => ({
       Platform: {
@@ -55,8 +55,8 @@ describe('Harmony platform adapters', () => {
     const {createPlatformServiceRuntime} = require('../src/platform/serviceRuntime.harmony');
 
     expect(createPlatformServiceRuntime()).toBe(harmonyRuntime);
-    expect(createReactNativeTcpHttpRuntime).toHaveBeenCalledTimes(1);
-    expect(createReactNativeHttpRuntime).not.toHaveBeenCalled();
+    expect(createReactNativeHttpRuntime).toHaveBeenCalledTimes(1);
+    expect(createReactNativeTcpHttpRuntime).not.toHaveBeenCalled();
   });
 
   test('writes to the clipboard on Harmony without throwing', () => {

@@ -1,12 +1,14 @@
-import {NativeEventEmitter, NativeModules, TurboModuleRegistry} from 'react-native';
+import {
+  NativeEventEmitter,
+  NativeModules,
+  TurboModuleRegistry,
+} from 'react-native';
 
 import {
   ServiceRuntime,
-  TransferBase64Body,
   ServiceRuntimeHandle,
   TransferRequest,
   TransferResponse,
-  isTransferBase64Body,
 } from './transferServiceController';
 
 type NativeServerModule = {
@@ -23,16 +25,41 @@ type NativeServerModule = {
     requestId: string,
     status: number,
     headers: Record<string, string>,
-    bodyEncoding: 'empty' | 'text' | 'base64',
+    bodyEncoding: 'empty' | 'text',
     body: string,
+  ) => Promise<void> | void;
+  respondBytes?: (
+    requestId: string,
+    status: number,
+    headers: Record<string, string>,
+    body: Uint8Array,
+  ) => Promise<void> | void;
+  respondFile?: (
+    requestId: string,
+    status: number,
+    headers: Record<string, string>,
+    path: string,
+    offset: number,
+    length: number,
   ) => Promise<void> | void;
   addListener?: (eventName: string) => void;
   removeListeners?: (count: number) => void;
 };
 
 type NativeServerRequestEvent = {
-  bodyBase64?: string;
-  bodyBytes?: ArrayBuffer | ArrayBufferView | number[] | {data?: number[]};
+  bodyFile?: {
+    byteLength?: number;
+    path?: string;
+  };
+  bodyBytes?:
+    | ArrayBuffer
+    | ArrayBufferView
+    | number[]
+    | {
+        data?: number[];
+        length?: number;
+        [key: string]: unknown;
+      };
   bodyText?: string;
   headers?: Record<string, string>;
   method: string;
@@ -42,61 +69,36 @@ type NativeServerRequestEvent = {
   requestId: string;
 };
 
+type NativeResponsePayload =
+  | {
+      bodyBytes: Uint8Array;
+      headers: Record<string, string>;
+      status: number;
+    }
+  | {
+      bodyFile: {
+        length: number;
+        offset: number;
+        path: string;
+      };
+      headers: Record<string, string>;
+      status: number;
+    }
+  | {
+      body: string;
+      bodyEncoding: 'empty' | 'text';
+      headers: Record<string, string>;
+      status: number;
+    };
+
 const REQUEST_EVENT = 'fpStaticServerRequest';
 
 const turboModuleRegistry = TurboModuleRegistry as
-  | {get<T>(name: string): T | null}
+  | { get<T>(name: string): T | null }
   | undefined;
-const nativeServer = (
-  NativeModules?.FPStaticServer ??
+const nativeServer = (NativeModules?.FPStaticServer ??
   turboModuleRegistry?.get<NativeServerModule>('FPStaticServer') ??
-  undefined
-) as NativeServerModule | undefined;
-
-function bytesToBase64(bytes: Uint8Array) {
-  const alphabet =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  let output = '';
-
-  for (let index = 0; index < bytes.length; index += 3) {
-    const first = bytes[index] ?? 0;
-    const second = bytes[index + 1] ?? 0;
-    const third = bytes[index + 2] ?? 0;
-    const triple = (first << 16) | (second << 8) | third;
-
-    output += alphabet[(triple >> 18) & 0x3f];
-    output += alphabet[(triple >> 12) & 0x3f];
-    output += index + 1 < bytes.length ? alphabet[(triple >> 6) & 0x3f] : '=';
-    output += index + 2 < bytes.length ? alphabet[triple & 0x3f] : '=';
-  }
-
-  return output;
-}
-
-function base64ToBytes(value: string) {
-  const bufferCtor = (
-    globalThis as {
-      Buffer?: {
-        from(input: string, encoding: 'base64'): Uint8Array;
-      };
-    }
-  ).Buffer;
-
-  if (bufferCtor) {
-    return new Uint8Array(bufferCtor.from(value, 'base64'));
-  }
-
-  if (typeof globalThis.atob === 'function') {
-    const binary = globalThis.atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  }
-
-  throw new Error('Base64 decode is not available in this runtime.');
-}
+  undefined) as NativeServerModule | undefined;
 
 function readNativeBodyBytes(value: NativeServerRequestEvent['bodyBytes']) {
   if (!value) {
@@ -123,6 +125,14 @@ function readNativeBodyBytes(value: NativeServerRequestEvent['bodyBytes']) {
     return new Uint8Array(value.data);
   }
 
+  if (typeof value.length === 'number' && Number.isFinite(value.length)) {
+    const bytes = new Uint8Array(Math.max(0, value.length));
+    for (let index = 0; index < bytes.byteLength; index += 1) {
+      bytes[index] = Number(value[String(index)] ?? 0) & 0xff;
+    }
+    return bytes;
+  }
+
   return undefined;
 }
 
@@ -130,7 +140,7 @@ function bytesToUtf8(bytes: Uint8Array) {
   const bufferCtor = (
     globalThis as {
       Buffer?: {
-        from(input: Uint8Array): {toString(encoding: 'utf8'): string};
+        from(input: Uint8Array): { toString(encoding: 'utf8'): string };
       };
     }
   ).Buffer;
@@ -150,9 +160,25 @@ function bytesToUtf8(bytes: Uint8Array) {
   return decodeURIComponent(escape(binary));
 }
 
+function textToUtf8(value: string) {
+  if (typeof TextEncoder === 'function') {
+    return new TextEncoder().encode(value);
+  }
+
+  const encoded = unescape(encodeURIComponent(value));
+  const bytes = new Uint8Array(encoded.length);
+  for (let index = 0; index < encoded.length; index += 1) {
+    bytes[index] = encoded.charCodeAt(index);
+  }
+  return bytes;
+}
+
 function normalizeHeaders(headers?: Record<string, string>) {
   return Object.fromEntries(
-    Object.entries(headers ?? {}).map(([key, value]) => [key.toLowerCase(), value]),
+    Object.entries(headers ?? {}).map(([key, value]) => [
+      key.toLowerCase(),
+      value,
+    ]),
   );
 }
 
@@ -166,18 +192,13 @@ function buildQueryParams(query?: Record<string, string>) {
   return params;
 }
 
-function toNativeResponse(response: TransferResponse) {
-  const headers = {...(response.headers ?? {})};
+function toNativeResponse(response: TransferResponse): NativeResponsePayload {
+  const headers = { ...(response.headers ?? {}) };
   const body = response.body;
 
-  if (isTransferBase64Body(body)) {
-    if (!headers['content-length'] && body.byteLength != null) {
-      headers['content-length'] = String(body.byteLength);
-    }
-
+  if (response.bodyFile) {
     return {
-      body: body.base64,
-      bodyEncoding: 'base64' as const,
+      bodyFile: response.bodyFile,
       headers,
       status: response.status,
     };
@@ -185,8 +206,7 @@ function toNativeResponse(response: TransferResponse) {
 
   if (body instanceof Uint8Array) {
     return {
-      body: bytesToBase64(body),
-      bodyEncoding: 'base64' as const,
+      bodyBytes: body,
       headers,
       status: response.status,
     };
@@ -223,17 +243,21 @@ function toNativeResponse(response: TransferResponse) {
 }
 
 export class ReactNativeHttpRuntime implements ServiceRuntime {
+  readonly supportsFileResponses = Boolean(nativeServer?.respondFile);
+
   private readonly emitter?: NativeEventEmitter;
 
-  private handleRequest?: (request: TransferRequest) => Promise<TransferResponse>;
+  private handleRequest?: (
+    request: TransferRequest,
+  ) => Promise<TransferResponse>;
 
-  private listenerSubscription?: {remove(): void};
+  private listenerSubscription?: { remove(): void };
 
   private origin?: string;
 
   private port?: number;
 
-  constructor(private readonly options: {keepAlive?: boolean} = {}) {
+  constructor(private readonly options: { keepAlive?: boolean } = {}) {
     if (nativeServer) {
       this.emitter = new NativeEventEmitter(nativeServer as never);
     }
@@ -316,6 +340,7 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
 
       const response = await this.handleRequest({
         body: requestBody,
+        bodyFile: resolveRequestBodyFile(event),
         headers,
         method: event.method,
         path: event.path,
@@ -324,13 +349,43 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
       });
 
       const nativeResponse = toNativeResponse(response);
-      await nativeServer.respond(
-        event.requestId,
-        nativeResponse.status,
-        nativeResponse.headers,
-        nativeResponse.bodyEncoding,
-        nativeResponse.body,
-      );
+      if ('bodyFile' in nativeResponse) {
+        if (!nativeServer.respondFile) {
+          throw new Error(
+            'Native HTTP runtime does not support file responses.',
+          );
+        }
+
+        await nativeServer.respondFile(
+          event.requestId,
+          nativeResponse.status,
+          nativeResponse.headers,
+          nativeResponse.bodyFile.path,
+          nativeResponse.bodyFile.offset,
+          nativeResponse.bodyFile.length,
+        );
+      } else if ('bodyBytes' in nativeResponse) {
+        if (!nativeServer.respondBytes) {
+          throw new Error(
+            'Native HTTP runtime does not support byte responses.',
+          );
+        }
+
+        await nativeServer.respondBytes(
+          event.requestId,
+          nativeResponse.status,
+          nativeResponse.headers,
+          nativeResponse.bodyBytes,
+        );
+      } else {
+        await nativeServer.respond(
+          event.requestId,
+          nativeResponse.status,
+          nativeResponse.headers,
+          nativeResponse.bodyEncoding,
+          nativeResponse.body,
+        );
+      }
     } catch (error) {
       const message =
         error instanceof Error
@@ -340,7 +395,7 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
       await nativeServer.respond(
         event.requestId,
         500,
-        {'content-type': 'application/json; charset=utf-8'},
+        { 'content-type': 'application/json; charset=utf-8' },
         'text',
         JSON.stringify({
           code: 'INVALID_REQUEST',
@@ -357,12 +412,46 @@ export function createReactNativeHttpRuntime() {
   });
 }
 
+function resolveRequestBodyFile(event: NativeServerRequestEvent) {
+  if (
+    event.bodyFile &&
+    typeof event.bodyFile.path === 'string' &&
+    typeof event.bodyFile.byteLength === 'number' &&
+    Number.isFinite(event.bodyFile.byteLength)
+  ) {
+    return {
+      byteLength: Math.max(0, Math.trunc(event.bodyFile.byteLength)),
+      path: event.bodyFile.path,
+    };
+  }
+
+  return undefined;
+}
+
+function shouldPreserveRawBody(path: string) {
+  return path === '/api/upload' || path === '/api/upload/part';
+}
+
 function resolveRequestBody(
   headers: Record<string, string | undefined>,
   event: NativeServerRequestEvent,
 ) {
+  if (event.bodyFile) {
+    return undefined;
+  }
+
   const contentType = headers['content-type'] ?? '';
   const bodyBytes = readNativeBodyBytes(event.bodyBytes);
+
+  if (shouldPreserveRawBody(event.path)) {
+    if (bodyBytes) {
+      return bodyBytes;
+    }
+
+    return typeof event.bodyText === 'string'
+      ? textToUtf8(event.bodyText)
+      : undefined;
+  }
 
   if (contentType.includes('application/json')) {
     if (event.bodyText) {
@@ -371,10 +460,6 @@ function resolveRequestBody(
 
     if (bodyBytes) {
       return JSON.parse(bytesToUtf8(bodyBytes));
-    }
-
-    if (event.bodyBase64) {
-      return JSON.parse(bytesToUtf8(base64ToBytes(event.bodyBase64)));
     }
 
     return undefined;
@@ -392,34 +477,5 @@ function resolveRequestBody(
     return bodyBytes;
   }
 
-  if (!event.bodyBase64) {
-    return event.bodyText;
-  }
-
-  return {
-    base64: event.bodyBase64,
-    byteLength:
-      parseContentLength(headers['content-length']) ??
-      base64ByteLength(event.bodyBase64),
-    kind: 'base64',
-  } satisfies TransferBase64Body;
-}
-
-function parseContentLength(value?: string) {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-function base64ByteLength(value: string) {
-  const sanitized = value.replace(/[^A-Za-z0-9+/=]/g, '');
-  if (!sanitized) {
-    return 0;
-  }
-
-  const padding = sanitized.endsWith('==') ? 2 : sanitized.endsWith('=') ? 1 : 0;
-  return (sanitized.length / 4) * 3 - padding;
+  return event.bodyText;
 }

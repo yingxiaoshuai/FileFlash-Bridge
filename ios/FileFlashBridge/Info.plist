@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>FileFlashBridge</string>
+	<string>文件闪传桥</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -47,13 +47,13 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>FileFlash Bridge needs local network access so browsers on the same network can send files and text to your phone.</string>
+	<string>文件闪传桥需要访问本地网络，以便同一网络中的浏览器向手机发送文件和文本。</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>FileFlash Bridge needs access to your photo library to save exported images and videos to your device.</string>
+	<string>文件闪传桥需要访问照片图库，以便将导出的图片和视频保存到设备。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FileFlash Bridge needs access to your photo library so you can choose photos and videos to share or export.</string>
+	<string>文件闪传桥需要访问照片图库，以便选择要共享或导出的照片和视频。</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>
