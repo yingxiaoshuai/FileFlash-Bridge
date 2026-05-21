@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Alert,
+  Animated,
   Pressable,
   ScrollView,
   Switch,
@@ -11,13 +12,9 @@ import {
 import { Drawer, Menu } from 'react-native-paper';
 
 import { styles } from '../appShellStyles';
-import { PlatformQrCode } from '../components/PlatformQrCode';
-import {
-  WorkspaceConnectionsIcon,
-  WorkspaceSecurityIcon,
-  WorkspaceSharedIcon,
-} from '../icons/AppIcons';
 import { setClipboardString } from '../../platform/clipboard';
+import { AppIcon } from '../icons/AppIcons';
+import type { AppIconName } from '../icons/AppIcons';
 import { theme } from '../theme';
 import {
   ActionButton,
@@ -28,10 +25,7 @@ import {
 } from '../ui';
 import { useAppModel } from '../useAppModel';
 import { GuidedTourTarget } from '../workspaceOnboarding';
-import {
-  APP_LOCALE_OPTIONS,
-  createAppTranslator,
-} from '../../modules/localization/i18n';
+import { createAppTranslator } from '../../modules/localization/i18n';
 import type { AppLocale } from '../../modules/localization/i18n';
 import type { EdgeInsets } from 'react-native-safe-area-context';
 import type {
@@ -45,21 +39,29 @@ import type { WorkspaceTourTargetId } from '../workspaceTypes';
 type TranslateApp = ReturnType<typeof createAppTranslator>;
 type AppModel = ReturnType<typeof useAppModel>;
 type TourTargetNode = React.ElementRef<typeof View>;
+type WorkspacePhaseId = 'service-startup' | 'content-sharing';
+
+type WorkspacePhaseMetadata = {
+  complete: boolean;
+  id: WorkspacePhaseId;
+  shortLabel: string;
+  summary: string;
+  title: string;
+};
 
 type HomeScreenProps = {
   activeTourTargetId?: WorkspaceTourTargetId;
-  currentLocaleLabel: string;
   historyDrawerWidth: number;
   insets: EdgeInsets;
-  isLocaleMenuVisible: boolean;
   isProjectHistoryOpen: boolean;
   model: AppModel;
   pagePadding: number;
   projectActionMenuId?: string;
-  serviceQrSize: number;
   stackOverviewCards: boolean;
   stackProjectPanels: boolean;
   tabBarPadding: number;
+  targetLocale: AppLocale;
+  targetLocaleLabel: string;
   t: TranslateApp;
   tourTargetCallbacks: Record<
     WorkspaceTourTargetId,
@@ -68,7 +70,6 @@ type HomeScreenProps = {
   width: number;
   onOpenTour: () => void;
   onSelectLocale: (locale: AppLocale) => void;
-  setLocaleMenuVisible: React.Dispatch<React.SetStateAction<boolean>>;
   setProjectActionMenuId: React.Dispatch<
     React.SetStateAction<string | undefined>
   >;
@@ -77,24 +78,22 @@ type HomeScreenProps = {
 
 export function HomeScreen({
   activeTourTargetId,
-  currentLocaleLabel,
   historyDrawerWidth,
   insets,
-  isLocaleMenuVisible,
   isProjectHistoryOpen,
   model,
   pagePadding,
   projectActionMenuId,
-  serviceQrSize,
   stackOverviewCards,
   stackProjectPanels,
   tabBarPadding,
+  targetLocale,
+  targetLocaleLabel,
   t,
   tourTargetCallbacks,
   width,
   onOpenTour,
   onSelectLocale,
-  setLocaleMenuVisible,
   setProjectActionMenuId,
   setProjectHistoryOpen,
 }: HomeScreenProps) {
@@ -110,6 +109,8 @@ export function HomeScreen({
   >();
   const isCompactScreen = width < 560;
   const isServiceRunning = model.serviceState.phase === 'running';
+  const isServiceStarting =
+    model.serviceState.phase === 'starting' || model.busyAction === 'service';
   const securityModeLabel =
     model.serviceState.config.securityMode === 'secure'
       ? t('home.mode.secureDetailed')
@@ -126,9 +127,20 @@ export function HomeScreen({
   const hasReachableAddress =
     Boolean(model.serviceState.accessUrl) &&
     model.serviceState.network.reachable;
-  const stoppedAddressCopy = model.serviceState.network.reachable
-    ? t('home.service.addressPlaceholder')
-    : localizedServiceError?.message ?? displayNetworkLabel;
+  const isServiceReachable = isServiceRunning && hasReachableAddress;
+  const workspacePhase = resolveWorkspacePhase(isServiceReachable);
+  const isServiceStartupPhase = workspacePhase === 'service-startup';
+  const isContentSharingPhase = workspacePhase === 'content-sharing';
+  const startupActionLabel = isServiceStarting
+    ? t('home.service.starting')
+    : localizedServiceError
+    ? t('home.service.retryStart')
+    : t('home.service.start');
+  const startupStatusText = localizedServiceError?.message
+    ? localizedServiceError.message
+    : model.serviceState.network.reachable
+    ? t('home.service.startStepBody')
+    : t('home.service.networkUnavailable');
   const projectTitleById = React.useMemo(
     () => new Map(model.projects.map(project => [project.id, project.title])),
     [model.projects],
@@ -152,6 +164,52 @@ export function HomeScreen({
     [model.sharedFiles, selectedSharedFileIds],
   );
   const selectedSharedFileCount = selectedSharedFiles.length;
+  const activeProjectFileCount = model.activeProjectFiles.length;
+  const activeProjectMessageCount = model.activeProject?.messages.length ?? 0;
+  const contentSharingSummary = t('home.flow.contentSharingSummary', {
+    files: activeProjectFileCount,
+    messages: activeProjectMessageCount,
+    shared: model.sharedFiles.length,
+  });
+  const servicePhaseMetadata: WorkspacePhaseMetadata = {
+    complete: isServiceReachable,
+    id: 'service-startup',
+    shortLabel: t('home.flow.stepService'),
+    summary: isServiceReachable
+      ? t('home.flow.serviceReadySummary', {
+          count: model.serviceState.activeConnections.length,
+          mode: securityModeLabel,
+        })
+      : startupStatusText,
+    title: t('home.service.title'),
+  };
+  const contentPhaseMetadata: WorkspacePhaseMetadata = {
+    complete: isContentSharingPhase,
+    id: 'content-sharing',
+    shortLabel: t('home.flow.stepContentSharing'),
+    summary: contentSharingSummary,
+    title: t('home.contentSharing.title'),
+  };
+  const startupScale = React.useRef(new Animated.Value(1)).current;
+  const contentWorkspaceOpacity = React.useRef(
+    new Animated.Value(isContentSharingPhase ? 1 : 0),
+  ).current;
+  const contentWorkspaceTranslateY = React.useRef(
+    new Animated.Value(isContentSharingPhase ? 0 : 10),
+  ).current;
+
+  const animateStartupScale = React.useCallback(
+    (toValue: number) => {
+      Animated.spring(startupScale, {
+        damping: 16,
+        mass: 1,
+        stiffness: 180,
+        toValue,
+        useNativeDriver: true,
+      }).start();
+    },
+    [startupScale],
+  );
 
   React.useEffect(() => {
     if (renameProjectId && !renameTargetProject) {
@@ -178,6 +236,27 @@ export function HomeScreen({
       setSharedDownloadSelectionMode(false);
     }
   }, [model.sharedFiles.length, sharedFileIdSet]);
+
+  React.useEffect(() => {
+    Animated.parallel([
+      Animated.timing(contentWorkspaceOpacity, {
+        duration: theme.tokens.duration.medium,
+        easing: theme.tokens.easing.emphasized,
+        toValue: isContentSharingPhase ? 1 : 0,
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentWorkspaceTranslateY, {
+        duration: theme.tokens.duration.medium,
+        easing: theme.tokens.easing.emphasized,
+        toValue: isContentSharingPhase ? 0 : 10,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [
+    contentWorkspaceOpacity,
+    contentWorkspaceTranslateY,
+    isContentSharingPhase,
+  ]);
 
   const handleToggleSharedDownloadSelection = (fileId: string) => {
     setSelectedSharedFileIds(current => {
@@ -285,52 +364,25 @@ export function HomeScreen({
           <IconButton
             accessibilityLabel={t('home.sidebar.open')}
             disabled={isBusy}
-            icon="☰"
+            icon="menu"
             onPress={() => {
               setProjectHistoryOpen(true);
             }}
             testID="sidebar-open"
           />
           <View style={styles.globalTopBarActions}>
-            <Menu
-              anchor={
-                <View style={styles.localeMenuAnchor}>
-                  <GhostButton
-                    accessibilityLabel={t('settings.language.openMenu')}
-                    compact
-                    disabled={isBusy}
-                    label={`${currentLocaleLabel} ▾`}
-                    onPress={() => {
-                      setLocaleMenuVisible(true);
-                    }}
-                    testID="locale-menu-open"
-                  />
-                </View>
-              }
-              anchorPosition="bottom"
-              onDismiss={() => {
-                setLocaleMenuVisible(false);
-              }}
-              statusBarHeight={0}
-              testID="locale-menu"
-              visible={isLocaleMenuVisible}
-            >
-              {APP_LOCALE_OPTIONS.map(option => (
-                <Menu.Item
-                  key={option.value}
-                  onPress={() => {
-                    onSelectLocale(option.value);
-                  }}
-                  testID={`locale-menu-item-${option.value}`}
-                  title={t(option.labelKey)}
-                  titleStyle={
-                    option.value === model.locale
-                      ? styles.localeMenuItemActiveLabel
-                      : undefined
-                  }
-                />
-              ))}
-            </Menu>
+            <View style={styles.localeMenuAnchor}>
+              <GhostButton
+                accessibilityLabel={t('settings.language.openMenu')}
+                compact
+                disabled={isBusy}
+                label={targetLocaleLabel}
+                onPress={() => {
+                  onSelectLocale(targetLocale);
+                }}
+                testID="locale-menu-open"
+              />
+            </View>
             <GuidedTourTarget
               active={activeTourTargetId === 'help-button'}
               captureRef={tourTargetCallbacks['help-button']}
@@ -339,7 +391,7 @@ export function HomeScreen({
               <IconButton
                 accessibilityLabel={t('home.help.reopen')}
                 disabled={isBusy}
-                icon="?"
+                icon="help"
                 onPress={onOpenTour}
                 testID="workspace-open-onboarding"
               />
@@ -370,94 +422,43 @@ export function HomeScreen({
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.main}>
-          <PanelSurface
-            style={[
-              styles.summaryShell,
-              isCompactScreen ? styles.summaryShellCompact : null,
-            ]}
-          >
-            <View style={styles.header}>
-              <View style={styles.headerMain}>
-                <Text
-                  style={[
-                    styles.headerTitle,
-                    isCompactScreen ? styles.headerTitleCompact : null,
-                  ]}
-                >
-                  {t('home.header.title')}
-                </Text>
-                <Text numberOfLines={1} style={styles.headerMeta}>
-                  {model.activeProject?.title ?? t('home.header.noProject')}
-                </Text>
-              </View>
-            </View>
-
-            <View
-              style={[
-                styles.metricRow,
-                isCompactScreen ? styles.metricRowCompact : null,
-              ]}
-            >
-              <InfoBadge
-                compact={isCompactScreen}
-                icon={
-                  <WorkspaceConnectionsIcon
-                    size={isCompactScreen ? 20 : 22}
-                  />
-                }
-                label={t('home.metric.connections')}
-                testID="workspace-summary-connections"
-                value={String(model.serviceState.activeConnections.length)}
-              />
-              <InfoBadge
-                compact={isCompactScreen}
-                icon={
-                  <WorkspaceSharedIcon size={isCompactScreen ? 20 : 22} />
-                }
-                label={t('home.metric.shared')}
-                testID="workspace-summary-shared"
-                value={String(model.sharedFiles.length)}
-              />
-              <InfoBadge
-                compact={isCompactScreen}
-                icon={
-                  <WorkspaceSecurityIcon
-                    secure={model.serviceState.config.securityMode === 'secure'}
-                    size={isCompactScreen ? 20 : 22}
-                  />
-                }
-                label={t('home.metric.mode')}
-                testID="workspace-summary-mode"
-                value={
-                  model.serviceState.config.securityMode === 'secure'
-                    ? t('home.mode.secure')
-                    : t('home.mode.simple')
-                }
-                valueColor={
-                  model.serviceState.config.securityMode === 'secure'
-                    ? theme.colors.success
-                    : undefined
-                }
-              />
-            </View>
-          </PanelSurface>
-
+        <View
+          style={[
+            styles.main,
+            isServiceStartupPhase ? styles.mainStartup : styles.mainContent,
+          ]}
+        >
           <View
             style={[
               styles.topGrid,
-              stackOverviewCards ? styles.topGridCompact : null,
+              isServiceStartupPhase || stackOverviewCards
+                ? styles.topGridCompact
+                : null,
             ]}
           >
-            <GuidedTourTarget
-              active={activeTourTargetId === 'service-panel'}
-              captureRef={tourTargetCallbacks['service-panel']}
-              style={styles.topGridTourTarget}
-            >
-              <PanelSurface style={[styles.card, styles.serviceCard]}>
+            {isServiceStartupPhase ? (
+              <GuidedTourTarget
+                active={activeTourTargetId === 'service-panel'}
+                captureRef={tourTargetCallbacks['service-panel']}
+                style={styles.startupTourTarget}
+              >
+                <PanelSurface
+                  style={[
+                    styles.card,
+                    styles.serviceCard,
+                    styles.serviceStartupCard,
+                    styles.serviceStartupFocusCard,
+                  ]}
+                >
                 <View style={styles.serviceHeaderRow}>
                   <View style={styles.serviceHeaderTitleWrap}>
-                    <SectionTitle title={t('home.service.title')} />
+                    <Text style={styles.stepEyebrow}>
+                      {servicePhaseMetadata.shortLabel}
+                    </Text>
+                    <SectionTitle title={servicePhaseMetadata.title} />
+                    <Text numberOfLines={2} style={styles.phaseSummaryText}>
+                      {servicePhaseMetadata.summary}
+                    </Text>
                   </View>
                   <NetworkTag
                     label={t('home.service.network')}
@@ -466,342 +467,437 @@ export function HomeScreen({
                   />
                 </View>
 
-                {hasReachableAddress ? (
-                  <GuidedTourTarget
-                    active={activeTourTargetId === 'service-address'}
-                    captureRef={tourTargetCallbacks['service-address']}
-                    style={styles.serviceAddressTarget}
-                    testID="service-address-row"
-                  >
-                    <View style={styles.serviceAddressSection}>
-                      <KeyValueTile
-                        fill
-                        label={t('home.service.address')}
-                        value={model.serviceState.accessUrl!}
-                      />
-                      <View style={styles.serviceAddressActions}>
-                        <IconButton
-                          accessibilityLabel={t('home.service.copyLink')}
-                          disabled={isBusy}
-                          icon="⎘"
-                          onPress={handleCopyLink}
-                          testID="service-copy-link"
-                        />
-                        <IconButton
-                          accessibilityLabel={t('home.service.refreshAddress')}
-                          disabled={isBusy}
-                          icon="↻"
-                          onPress={() => {
-                            void model.refreshAddress();
-                          }}
-                          testID="service-refresh-address"
-                        />
-                      </View>
-                    </View>
-                  </GuidedTourTarget>
-                ) : (
-                  <View
-                    style={styles.serviceAddressCollapsed}
-                    testID="service-address-collapsed"
-                  >
-                    <Text style={styles.serviceAddressCollapsedLabel}>
-                      {t('home.service.address')}
-                    </Text>
-                    <Text style={styles.serviceAddressCollapsedValue}>
-                      {stoppedAddressCopy}
-                    </Text>
-                  </View>
-                )}
-
-                <PrimaryButton
-                  disabled={isBusy}
-                  fullWidth
-                  label={
-                    isServiceRunning
-                      ? t('home.service.stop')
-                      : t('home.service.start')
-                  }
-                  onPress={() => {
-                    void model.toggleService();
-                  }}
-                  testID="home-toggle-service"
-                />
-
-                <View style={styles.serviceSecondaryPanel}>
-                  <View
-                    style={styles.serviceSecondaryRow}
-                    testID="service-mode-panel"
-                  >
-                    <View style={styles.securityModeSwitchText}>
-                      <View style={styles.securityModeTitleRow}>
-                        <Text style={styles.quickToolsTitle}>
-                          {t('home.service.accessMode')}
-                        </Text>
-                        <GlyphIconButton
-                          accessibilityLabel={t(
-                            'home.service.securityModeHelpTitle',
-                          )}
-                          disabled={isBusy}
-                          glyph="!"
-                          onPress={handleShowSecurityModeHelp}
-                          testID="security-mode-help"
-                        />
-                      </View>
-                      <Text style={styles.securityModeSwitchTitle}>
-                        {securityModeLabel}
-                      </Text>
-                    </View>
-                    <Switch
-                      accessibilityLabel={t('home.service.securityMode')}
-                      disabled={isBusy}
-                      ios_backgroundColor={theme.colors.border}
-                      onValueChange={nextSecure => {
-                        void model.setSecurityMode(
-                          nextSecure ? 'secure' : 'simple',
-                        );
+                  <View style={styles.startupHero} testID="home-startup-step">
+                    <Animated.View
+                      style={{
+                        transform: [{ scale: startupScale }],
                       }}
-                      thumbColor={theme.colors.surfaceElevated}
-                      trackColor={{
-                        false: theme.colors.border,
-                        true: theme.colors.primary,
-                      }}
-                      value={
-                        model.serviceState.config.securityMode === 'secure'
-                      }
-                    />
-                  </View>
-                </View>
-
-                {model.serviceState.qrValue && hasReachableAddress ? (
-                  <View style={styles.qrPanel}>
-                    <PlatformQrCode
-                      backgroundColor={theme.colors.surface}
-                      color={theme.colors.ink}
-                      size={serviceQrSize}
-                      value={model.serviceState.qrValue}
-                    />
-                  </View>
-                ) : null}
-              </PanelSurface>
-            </GuidedTourTarget>
-
-            <GuidedTourTarget
-              active={activeTourTargetId === 'shared-files-panel'}
-              captureRef={tourTargetCallbacks['shared-files-panel']}
-              style={styles.topGridTourTarget}
-            >
-              <PanelSurface style={[styles.card, styles.sharedFilesCard]}>
-                <View style={styles.cardHeaderRow}>
-                  <SectionTitle title={t('home.shared.title')} />
-                  <View style={styles.sharedFilesHeaderActions}>
-                    <GhostButton
-                      compact
-                      disabled={isBusy}
-                      label={t('home.shared.importFiles')}
-                      onPress={() => {
-                        void model.importFilesForShare();
-                      }}
-                      testID="home-import-files"
-                    />
-                    <GhostButton
-                      compact
-                      disabled={isBusy}
-                      label={t('home.shared.importMedia')}
-                      onPress={() => {
-                        void model.importMediaForShare();
-                      }}
-                      testID="home-import-media"
-                    />
-                    {model.sharedFiles.length > 0 ? (
-                      <GhostButton
-                        compact
-                        disabled={isBusy}
-                        label={
-                          isSharedDownloadSelectionMode
-                            ? t('home.shared.cancelSelection')
-                            : t('home.shared.selectDownloads')
-                        }
-                        onPress={() => {
-                          if (isSharedDownloadSelectionMode) {
-                            handleExitSharedDownloadSelection();
-                          } else {
-                            setSharedDownloadSelectionMode(true);
-                          }
+                    >
+                      <Pressable
+                        accessibilityLabel={startupActionLabel}
+                        accessibilityRole="button"
+                        accessibilityState={{
+                          busy: isServiceStarting,
+                          disabled: isBusy,
                         }}
-                        testID="home-shared-select-downloads"
-                      />
+                        disabled={isBusy}
+                        onPress={() => {
+                          void model.toggleService();
+                        }}
+                        onPressIn={() => {
+                          animateStartupScale(0.97);
+                        }}
+                        onPressOut={() => {
+                          animateStartupScale(1);
+                        }}
+                        style={[
+                          styles.startupCircle,
+                          isServiceStarting ? styles.startupCircleBusy : null,
+                          localizedServiceError
+                            ? styles.startupCircleWarning
+                            : null,
+                        ]}
+                        testID="home-toggle-service"
+                      >
+                        <Text style={styles.startupCircleKicker}>
+                          {t('home.service.startStepKicker')}
+                        </Text>
+                        <Text style={styles.startupCircleLabel}>
+                          {startupActionLabel}
+                        </Text>
+                      </Pressable>
+                    </Animated.View>
+                    <Text style={styles.startupStatusText}>
+                      {startupStatusText}
+                    </Text>
+                    {localizedServiceError?.suggestedAction ? (
+                      <Text style={styles.startupSuggestionText}>
+                        {localizedServiceError.suggestedAction}
+                      </Text>
                     ) : null}
                   </View>
-                </View>
 
-                {model.sharedFiles.length === 0 ? (
-                  <EmptyState title={t('home.shared.empty')} />
-                ) : (
-                  <>
-                    {isSharedDownloadSelectionMode ? (
-                      <View style={styles.sharedSelectionToolbar}>
-                        <Text style={styles.sharedSelectionCount}>
-                          {t('home.shared.selectedCount', {
-                            count: selectedSharedFileCount,
-                          })}
-                        </Text>
-                        <View style={styles.sharedSelectionActions}>
-                          <GhostButton
-                            compact
+                  <View style={styles.serviceSecondaryPanel}>
+                    <View
+                      style={styles.serviceSecondaryRow}
+                      testID="service-mode-panel"
+                    >
+                      <View style={styles.securityModeSwitchText}>
+                        <View style={styles.securityModeTitleRow}>
+                          <Text style={styles.quickToolsTitle}>
+                            {t('home.service.accessMode')}
+                          </Text>
+                          <GlyphIconButton
+                            accessibilityLabel={t(
+                              'home.service.securityModeHelpTitle',
+                            )}
                             disabled={isBusy}
-                            label={t('common.selectAll')}
-                            onPress={handleSelectAllSharedDownloads}
-                            testID="home-shared-select-all"
+                            iconName="info"
+                            onPress={handleShowSecurityModeHelp}
+                            testID="security-mode-help"
                           />
-                          <GhostButton
-                            compact
-                            disabled={isBusy || selectedSharedFileCount === 0}
-                            label={t('home.shared.clearSelection')}
-                            onPress={handleClearSharedDownloadSelection}
-                            testID="home-shared-clear-selection"
+                        </View>
+                        <Text style={styles.securityModeSwitchTitle}>
+                          {securityModeLabel}
+                        </Text>
+                      </View>
+                      <Switch
+                        accessibilityLabel={t('home.service.securityMode')}
+                        disabled={isBusy}
+                        ios_backgroundColor={theme.colors.border}
+                        onValueChange={nextSecure => {
+                          void model.setSecurityMode(
+                            nextSecure ? 'secure' : 'simple',
+                          );
+                        }}
+                        thumbColor={theme.colors.surfaceElevated}
+                        trackColor={{
+                          false: theme.colors.border,
+                          true: theme.colors.primary,
+                        }}
+                        value={
+                          model.serviceState.config.securityMode === 'secure'
+                        }
+                      />
+                    </View>
+                  </View>
+                </PanelSurface>
+              </GuidedTourTarget>
+            ) : null}
+
+            {isContentSharingPhase ? (
+              <Animated.View
+                style={[
+                  styles.contentWorkspaceMotion,
+                  {
+                    opacity: contentWorkspaceOpacity,
+                    transform: [{ translateY: contentWorkspaceTranslateY }],
+                  },
+                ]}
+              >
+                <GuidedTourTarget
+                  active={activeTourTargetId === 'content-sharing-panel'}
+                  captureRef={tourTargetCallbacks['content-sharing-panel']}
+                  style={styles.contentWorkspaceTourTarget}
+                >
+                  <PanelSurface
+                    style={[styles.card, styles.contentWorkspaceCard]}
+                    testID="content-sharing-panel"
+                  >
+                    <View style={styles.contentWorkspaceHeader}>
+                    <View style={styles.contentWorkspaceHeaderMain}>
+                      <Text style={styles.stepEyebrow}>
+                        {contentPhaseMetadata.shortLabel}
+                      </Text>
+                      <SectionTitle title={contentPhaseMetadata.title} />
+                      <Text
+                        numberOfLines={2}
+                        style={styles.contentWorkspaceMeta}
+                      >
+                        {contentPhaseMetadata.summary}
+                      </Text>
+                    </View>
+                    <View style={styles.sharedFilesHeaderActions}>
+                      <IconButton
+                        accessibilityLabel={t('home.shared.importFiles')}
+                        disabled={isBusy}
+                        icon="add"
+                        onPress={() => {
+                          void model.importFilesForShare();
+                        }}
+                        testID="home-import-files"
+                      />
+                      <IconButton
+                        accessibilityLabel={t('home.shared.importMedia')}
+                        disabled={isBusy}
+                        icon="image"
+                        onPress={() => {
+                          void model.importMediaForShare();
+                        }}
+                        testID="home-import-media"
+                      />
+                      {model.sharedFiles.length > 0 ? (
+                        <IconButton
+                          accessibilityLabel={
+                            isSharedDownloadSelectionMode
+                              ? t('home.shared.cancelSelection')
+                              : t('home.shared.selectDownloads')
+                          }
+                          disabled={isBusy}
+                          icon={
+                            isSharedDownloadSelectionMode ? 'close' : 'check'
+                          }
+                          onPress={() => {
+                            if (isSharedDownloadSelectionMode) {
+                              handleExitSharedDownloadSelection();
+                            } else {
+                              setSharedDownloadSelectionMode(true);
+                            }
+                          }}
+                          testID="home-shared-select-downloads"
+                        />
+                      ) : null}
+                    </View>
+                    </View>
+
+                    {hasReachableAddress ? (
+                    <GuidedTourTarget
+                      active={activeTourTargetId === 'service-address'}
+                      captureRef={tourTargetCallbacks['service-address']}
+                      style={styles.contentServiceTarget}
+                      testID="service-address-row"
+                    >
+                      <View style={styles.contentServiceStrip}>
+                        <Text
+                          numberOfLines={1}
+                          selectable
+                          style={styles.contentServiceAddress}
+                        >
+                          {model.serviceState.accessUrl}
+                        </Text>
+                        <View style={styles.contentServiceActions}>
+                          <IconButton
+                            accessibilityLabel={t('home.service.copyLink')}
+                            disabled={isBusy}
+                            icon="copy"
+                            onPress={handleCopyLink}
+                            testID="service-copy-link"
+                          />
+                          <IconButton
+                            accessibilityLabel={t(
+                              'home.service.refreshAddress',
+                            )}
+                            disabled={isBusy}
+                            icon="refresh"
+                            onPress={() => {
+                              void model.refreshAddress();
+                            }}
+                            testID="service-refresh-address"
                           />
                           <PrimaryButton
                             compact
                             disabled={isBusy}
-                            label={t('home.shared.downloadSelected')}
-                            onPress={handleDownloadSelectedSharedFiles}
-                            testID="home-shared-download-selected"
+                            label={t('home.service.stop')}
+                            onPress={() => {
+                              void model.toggleService();
+                            }}
+                            testID="home-toggle-service"
                           />
                         </View>
                       </View>
+                    </GuidedTourTarget>
                     ) : null}
-                    {model.sharedFiles.map(file => (
-                      <SharedListCard
-                        busy={
-                          isBusy &&
-                          (model.busyAction === 'share' ||
-                            model.busyAction === 'export:batch' ||
-                            model.busyAction === `export:${file.id}`)
-                        }
-                        compact={isCompactScreen}
-                        file={file}
-                        key={`shared-${file.id}`}
-                        locale={model.locale}
-                        onExport={() => {
-                          void model.exportFile(file);
-                        }}
-                        onRemoveShare={() => {
-                          void model.toggleSharedFile(file.id);
-                        }}
-                        onToggleSelected={() => {
-                          handleToggleSharedDownloadSelection(file.id);
-                        }}
-                        projectTitle={
-                          projectTitleById.get(file.projectId) ??
-                          t('home.shared.unnamedProject')
-                        }
-                        selected={selectedSharedFileIds.has(file.id)}
-                        selectionMode={isSharedDownloadSelectionMode}
-                        t={t}
-                      />
-                    ))}
-                  </>
-                )}
-              </PanelSurface>
-            </GuidedTourTarget>
-          </View>
 
-          <GuidedTourTarget
-            active={activeTourTargetId === 'project-panel'}
-            captureRef={tourTargetCallbacks['project-panel']}
-            style={styles.projectTourTarget}
-          >
-            <PanelSurface style={styles.card}>
-              {model.activeProject ? (
-                <>
-                  <View style={styles.activeProjectHeaderMain}>
-                    <Text style={styles.activeProjectTitle}>
-                      {model.activeProject.title}
-                    </Text>
-                    <Text style={styles.activeProjectMeta}>
-                      {t('home.project.summary', {
-                        files: model.activeProjectFiles.length,
-                        messages: model.activeProject.messages.length,
-                      })}
-                    </Text>
-                  </View>
-
-                  <View
+                    <View
                     style={[
-                      styles.projectContentGrid,
+                      styles.contentWorkspaceSections,
                       stackProjectPanels
-                        ? styles.projectContentGridCompact
+                        ? styles.contentWorkspaceSectionsCompact
                         : null,
                     ]}
                   >
-                    <View style={styles.subsection}>
-                      <Text style={styles.subsectionTitle}>
-                        {t('home.project.textTitle')}
-                      </Text>
-                      {model.activeProject.messages.length === 0 ? (
-                        <EmptyState title={t('home.project.textEmpty')} />
+                    <View
+                      style={[
+                        styles.contentWorkspaceSection,
+                        styles.contentWorkspacePrimary,
+                      ]}
+                      testID="shared-files-panel"
+                    >
+                      <View style={styles.contentSectionHeader}>
+                        <Text style={styles.subsectionTitle}>
+                          {t('home.shared.title')}
+                        </Text>
+                        <Text style={styles.contentSectionMeta}>
+                          {t('home.flow.sharedSummary', {
+                            count: model.sharedFiles.length,
+                          })}
+                        </Text>
+                      </View>
+
+                      {model.sharedFiles.length === 0 ? (
+                        <EmptyState title={t('home.shared.empty')} />
                       ) : (
-                        model.activeProject.messages.map(message => (
-                          <MessageCard
-                            key={message.id}
-                            locale={model.locale}
-                            message={message}
-                            onCopy={() => {
-                              model.copyMessage(message);
-                            }}
-                            onDelete={() => {
-                              void model.deleteMessage(
-                                model.activeProject!.id,
-                                message.id,
-                              );
-                            }}
-                            t={t}
-                          />
-                        ))
+                        <>
+                          {isSharedDownloadSelectionMode ? (
+                            <View style={styles.sharedSelectionToolbar}>
+                              <Text style={styles.sharedSelectionCount}>
+                                {t('home.shared.selectedCount', {
+                                  count: selectedSharedFileCount,
+                                })}
+                              </Text>
+                              <View style={styles.sharedSelectionActions}>
+                                <IconButton
+                                  accessibilityLabel={t('common.selectAll')}
+                                  disabled={isBusy}
+                                  icon="check"
+                                  onPress={handleSelectAllSharedDownloads}
+                                  testID="home-shared-select-all"
+                                />
+                                <IconButton
+                                  accessibilityLabel={t(
+                                    'home.shared.clearSelection',
+                                  )}
+                                  disabled={
+                                    isBusy || selectedSharedFileCount === 0
+                                  }
+                                  icon="close"
+                                  onPress={handleClearSharedDownloadSelection}
+                                  testID="home-shared-clear-selection"
+                                />
+                                <PrimaryButton
+                                  compact
+                                  disabled={isBusy}
+                                  label={t('home.shared.downloadSelected')}
+                                  onPress={handleDownloadSelectedSharedFiles}
+                                  testID="home-shared-download-selected"
+                                />
+                              </View>
+                            </View>
+                          ) : null}
+                          {model.sharedFiles.map(file => (
+                            <SharedListCard
+                              busy={
+                                isBusy &&
+                                (model.busyAction === 'share' ||
+                                  model.busyAction === 'export:batch' ||
+                                  model.busyAction === `export:${file.id}`)
+                              }
+                              compact={isCompactScreen}
+                              file={file}
+                              key={`shared-${file.id}`}
+                              locale={model.locale}
+                              onExport={() => {
+                                void model.exportFile(file);
+                              }}
+                              onRemoveShare={() => {
+                                void model.toggleSharedFile(file.id);
+                              }}
+                              onToggleSelected={() => {
+                                handleToggleSharedDownloadSelection(file.id);
+                              }}
+                              projectTitle={
+                                projectTitleById.get(file.projectId) ??
+                                t('home.shared.unnamedProject')
+                              }
+                              selected={selectedSharedFileIds.has(file.id)}
+                              selectionMode={isSharedDownloadSelectionMode}
+                              t={t}
+                            />
+                          ))}
+                        </>
                       )}
                     </View>
 
-                    <View style={styles.subsection}>
-                      <Text style={styles.subsectionTitle}>
-                        {t('home.project.filesTitle')}
-                      </Text>
-                      {model.activeProjectFiles.length === 0 ? (
-                        <EmptyState title={t('home.project.filesEmpty')} />
+                    <View
+                      style={[
+                        styles.contentWorkspaceSection,
+                        styles.contentWorkspaceSecondary,
+                        !stackProjectPanels
+                          ? styles.contentWorkspaceSecondarySeparated
+                          : null,
+                      ]}
+                      testID="project-panel"
+                    >
+                      {model.activeProject ? (
+                        <>
+                          <View style={styles.activeProjectHeaderMain}>
+                            <Text style={styles.activeProjectTitle}>
+                              {model.activeProject.title}
+                            </Text>
+                            <Text style={styles.activeProjectMeta}>
+                              {t('home.project.summary', {
+                                files: activeProjectFileCount,
+                                messages: activeProjectMessageCount,
+                              })}
+                            </Text>
+                          </View>
+
+                          <View
+                            style={[
+                              styles.projectContentGrid,
+                              stackProjectPanels
+                                ? styles.projectContentGridCompact
+                                : null,
+                            ]}
+                          >
+                            <View style={styles.subsection}>
+                              <Text style={styles.subsectionTitle}>
+                                {t('home.project.textTitle')}
+                              </Text>
+                              {model.activeProject.messages.length === 0 ? (
+                                <EmptyState
+                                  title={t('home.project.textEmpty')}
+                                />
+                              ) : (
+                                model.activeProject.messages.map(message => (
+                                  <MessageCard
+                                    key={message.id}
+                                    locale={model.locale}
+                                    message={message}
+                                    onCopy={() => {
+                                      model.copyMessage(message);
+                                    }}
+                                    onDelete={() => {
+                                      void model.deleteMessage(
+                                        model.activeProject!.id,
+                                        message.id,
+                                      );
+                                    }}
+                                    t={t}
+                                  />
+                                ))
+                              )}
+                            </View>
+
+                            <View style={styles.subsection}>
+                              <Text style={styles.subsectionTitle}>
+                                {t('home.project.filesTitle')}
+                              </Text>
+                              {model.activeProjectFiles.length === 0 ? (
+                                <EmptyState
+                                  title={t('home.project.filesEmpty')}
+                                />
+                              ) : (
+                                model.activeProjectFiles.map(file => (
+                                  <FileCard
+                                    busy={
+                                      isBusy &&
+                                      (model.busyAction === 'share' ||
+                                        model.busyAction === 'file' ||
+                                        model.busyAction ===
+                                          `export:${file.id}`)
+                                    }
+                                    compact={isCompactScreen}
+                                    file={file}
+                                    isShared={model.isFileShared(file.id)}
+                                    key={file.id}
+                                    locale={model.locale}
+                                    onDelete={() => {
+                                      void model.deleteFile(file.id);
+                                    }}
+                                    onExport={() => {
+                                      void model.exportFile(file);
+                                    }}
+                                    onToggleShare={() => {
+                                      void model.toggleSharedFile(file.id);
+                                    }}
+                                    t={t}
+                                  />
+                                ))
+                              )}
+                            </View>
+                          </View>
+                        </>
                       ) : (
-                        model.activeProjectFiles.map(file => (
-                          <FileCard
-                            busy={
-                              isBusy &&
-                              (model.busyAction === 'share' ||
-                                model.busyAction === 'file' ||
-                                model.busyAction === `export:${file.id}`)
-                            }
-                            compact={isCompactScreen}
-                            file={file}
-                            isShared={model.isFileShared(file.id)}
-                            key={file.id}
-                            locale={model.locale}
-                            onDelete={() => {
-                              void model.deleteFile(file.id);
-                            }}
-                            onExport={() => {
-                              void model.exportFile(file);
-                            }}
-                            onToggleShare={() => {
-                              void model.toggleSharedFile(file.id);
-                            }}
-                            t={t}
-                          />
-                        ))
+                        <EmptyState title={t('home.project.empty')} />
                       )}
                     </View>
-                  </View>
-                </>
-              ) : (
-                <EmptyState title={t('home.project.empty')} />
-              )}
-            </PanelSurface>
-          </GuidedTourTarget>
+                    </View>
+                  </PanelSurface>
+                </GuidedTourTarget>
+              </Animated.View>
+            ) : null}
+          </View>
         </View>
       </ScrollView>
 
@@ -956,6 +1052,10 @@ function SectionTitle({ title }: SectionTitleProps) {
   return <Text style={styles.sectionTitle}>{title}</Text>;
 }
 
+function resolveWorkspacePhase(isServiceReachable: boolean): WorkspacePhaseId {
+  return isServiceReachable ? 'content-sharing' : 'service-startup';
+}
+
 type NetworkTagProps = {
   label: string;
   reachable?: boolean;
@@ -985,81 +1085,6 @@ function StatusChip({ accent, label }: StatusChipProps) {
     <View style={[styles.statusChip, { borderColor: accent }]}>
       <View style={[styles.statusDot, { backgroundColor: accent }]} />
       <Text style={styles.statusChipText}>{label}</Text>
-    </View>
-  );
-}
-
-type InfoBadgeProps = {
-  compact?: boolean;
-  icon: React.ReactNode;
-  label: string;
-  testID?: string;
-  value: string;
-  valueColor?: string;
-};
-
-function InfoBadge({
-  compact,
-  icon,
-  label,
-  testID,
-  value,
-  valueColor,
-}: InfoBadgeProps) {
-  return (
-    <View
-      style={[styles.infoBadge, compact ? styles.infoBadgeCompact : null]}
-      testID={testID}
-    >
-      <View
-        style={[
-          styles.infoBadgeIconWrap,
-          compact ? styles.infoBadgeIconWrapCompact : null,
-        ]}
-      >
-        {icon}
-      </View>
-      <View
-        style={[
-          styles.infoBadgeText,
-          compact ? styles.infoBadgeTextCompact : null,
-        ]}
-      >
-        <Text
-          style={[
-            styles.infoBadgeLabel,
-            compact ? styles.infoBadgeLabelCompact : null,
-          ]}
-        >
-          {label}
-        </Text>
-        <Text
-          style={[
-            styles.infoBadgeValue,
-            compact ? styles.infoBadgeValueCompact : null,
-            valueColor ? { color: valueColor } : null,
-          ]}
-        >
-          {value}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-type KeyValueTileProps = {
-  fill?: boolean;
-  label: string;
-  value: string;
-};
-
-function KeyValueTile({ fill, label, value }: KeyValueTileProps) {
-  return (
-    <View style={[styles.keyValueTile, fill ? styles.keyValueTileFill : null]}>
-      <Text style={styles.keyLabel}>{label}</Text>
-      <Text selectable style={styles.keyValue}>
-        {value}
-      </Text>
     </View>
   );
 }
@@ -1144,7 +1169,7 @@ function DangerGhostButton({
 }
 
 type IconButtonProps = Omit<ButtonProps, 'fullWidth' | 'label'> & {
-  icon: string;
+  icon: AppIconName;
 };
 
 function IconButton({
@@ -1158,7 +1183,7 @@ function IconButton({
     <GlyphIconButton
       accessibilityLabel={accessibilityLabel}
       disabled={disabled}
-      glyph={icon}
+      iconName={icon}
       onPress={onPress}
       testID={testID}
     />
@@ -1179,7 +1204,7 @@ function MenuTriggerButton({
   return (
     <GlyphIconButton
       accessibilityLabel={accessibilityLabel}
-      glyph="⋯"
+      iconName="more"
       onPress={onPress}
       testID={testID}
     />
@@ -1320,8 +1345,18 @@ function MessageCard({
           : t('message.source.app')}
       </Text>
       <View style={styles.inlineActions}>
-        <GhostButton label={t('common.copy')} onPress={onCopy} />
-        <DangerGhostButton label={t('common.delete')} onPress={onDelete} />
+        <IconButton
+          accessibilityLabel={t('common.copy')}
+          icon="copy"
+          onPress={onCopy}
+          testID={`message-copy-${message.id}`}
+        />
+        <DangerGhostButton
+          compact
+          label={t('common.delete')}
+          onPress={onDelete}
+          testID={`message-delete-${message.id}`}
+        />
       </View>
     </PanelSurface>
   );
@@ -1385,24 +1420,22 @@ function FileCard({
           compact ? styles.fileCardActionsRowCompact : null,
         ]}
       >
-        <View style={styles.fileCardActionCell}>
-          <GhostButton
-            compact
-            disabled={busy}
-            fullWidth
-            label={isShared ? t('file.removeFromShare') : t('file.addToShare')}
-            onPress={onToggleShare}
-          />
-        </View>
-        <View style={styles.fileCardActionCell}>
-          <GhostButton
-            compact
-            disabled={busy}
-            fullWidth
-            label={t('common.export')}
-            onPress={onExport}
-          />
-        </View>
+        <IconButton
+          accessibilityLabel={
+            isShared ? t('file.removeFromShare') : t('file.addToShare')
+          }
+          disabled={busy}
+          icon={isShared ? 'remove' : 'share'}
+          onPress={onToggleShare}
+          testID={`file-toggle-share-${file.id}`}
+        />
+        <IconButton
+          accessibilityLabel={t('common.export')}
+          disabled={busy}
+          icon="download"
+          onPress={onExport}
+          testID={`file-export-${file.id}`}
+        />
         <View style={styles.fileCardActionCell}>
           <DangerGhostButton
             compact
@@ -1410,6 +1443,7 @@ function FileCard({
             fullWidth
             label={t('common.delete')}
             onPress={onDelete}
+            testID={`file-delete-${file.id}`}
           />
         </View>
       </View>
@@ -1467,14 +1501,14 @@ function SharedListCard({
             ]}
             testID={`shared-file-select-${file.id}`}
           >
-            <Text
-              style={[
-                styles.sharedSelectionBoxLabel,
-                selected ? styles.sharedSelectionBoxLabelSelected : null,
-              ]}
-            >
-              {selected ? '✓' : ''}
-            </Text>
+            {selected ? (
+              <AppIcon
+                color={theme.colors.inkOnStrong}
+                name="check"
+                size={theme.tokens.iconSize.sm}
+                strokeWidth={2.2}
+              />
+            ) : null}
           </Pressable>
         ) : null}
         <Pressable
@@ -1503,24 +1537,20 @@ function SharedListCard({
             compact ? styles.fileCardActionsRowCompact : null,
           ]}
         >
-          <View style={styles.fileCardActionCell}>
-            <GhostButton
-              compact
-              disabled={busy}
-              fullWidth
-              label={t('common.download')}
-              onPress={onExport}
-            />
-          </View>
-          <View style={styles.fileCardActionCell}>
-            <GhostButton
-              compact
-              disabled={busy}
-              fullWidth
-              label={t('common.remove')}
-              onPress={onRemoveShare}
-            />
-          </View>
+          <IconButton
+            accessibilityLabel={t('common.download')}
+            disabled={busy}
+            icon="download"
+            onPress={onExport}
+            testID={`shared-file-download-${file.id}`}
+          />
+          <IconButton
+            accessibilityLabel={t('common.remove')}
+            disabled={busy}
+            icon="remove"
+            onPress={onRemoveShare}
+            testID={`shared-file-remove-${file.id}`}
+          />
         </View>
       ) : null}
     </PanelSurface>

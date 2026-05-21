@@ -1,4 +1,5 @@
 import {
+  createTcpServerStartError,
   encodeHttpResponse,
   parseHttpRequestFrame,
   resolveTcpServerPort,
@@ -127,5 +128,25 @@ describe('resolveTcpServerPort', () => {
         8668,
       ),
     ).toBe(8877);
+  });
+});
+
+describe('createTcpServerStartError', () => {
+  test('preserves native socket error objects for diagnostics', () => {
+    const error = createTcpServerStartError({
+      code: 'EADDRINUSE',
+      message: 'Address already in use',
+      syscall: 'listen',
+    });
+
+    expect(error.message).toContain('EADDRINUSE');
+    expect(error.message).toContain('listen');
+    expect(error.message).toContain('Address already in use');
+  });
+
+  test('falls back to the generic TCP startup message', () => {
+    expect(createTcpServerStartError(undefined).message).toBe(
+      'Failed to start TCP server.',
+    );
   });
 });

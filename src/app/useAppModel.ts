@@ -10,6 +10,7 @@ import {
   createAppTranslator,
   DEFAULT_APP_LOCALE,
 } from '../modules/localization/i18n';
+import { getDeviceDefaultAppLocale } from '../platform/deviceLocale';
 import { InboundStorageGateway } from '../modules/file-access/inboundStorageGateway';
 import {
   cleanupImportedDeviceFiles,
@@ -247,25 +248,35 @@ export function useAppModel() {
     });
   }
 
-  const [state, setState] = useState<AppModelState>(() => ({
-    isReady: false,
-    locale: DEFAULT_APP_LOCALE,
-    onboarding: createWorkspaceOnboardingViewState(),
-    serviceState: createInitialServiceState(configRef.current!),
-  }));
+  const [state, setState] = useState<AppModelState>(() => {
+    const initialLocale = getDeviceDefaultAppLocale();
+
+    return {
+      isReady: false,
+      locale: initialLocale,
+      onboarding: createWorkspaceOnboardingViewState(),
+      serviceState: createInitialServiceState(configRef.current!),
+    };
+  });
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const resolveCurrentErrorMessage = (error: unknown) =>
-    resolveLocalizedErrorMessage(
-      error,
-      stateRef.current?.locale ?? DEFAULT_APP_LOCALE,
-    );
+  const resolveCurrentErrorMessage = useCallback(
+    (error: unknown) =>
+      resolveLocalizedErrorMessage(
+        error,
+        stateRef.current?.locale ?? DEFAULT_APP_LOCALE,
+      ),
+    [],
+  );
 
-  const createErrorNotice = (error: unknown): AppNotice => ({
-    message: resolveCurrentErrorMessage(error),
-    tone: 'error',
-  });
+  const createErrorNotice = useCallback(
+    (error: unknown): AppNotice => ({
+      message: resolveCurrentErrorMessage(error),
+      tone: 'error',
+    }),
+    [resolveCurrentErrorMessage],
+  );
 
   const syncSnapshot = async (notice?: AppNotice, busyAction?: string) => {
     const snapshot = await gatewayRef.current!.getSnapshot();
@@ -344,7 +355,15 @@ export function useAppModel() {
       try {
         await gatewayRef.current!.initialize();
         await controllerRef.current!.initialize();
-        const locale = await gatewayRef.current!.getLocalePreference();
+        const deviceLocale = getDeviceDefaultAppLocale();
+        const hasStoredLocalePreference =
+          await gatewayRef.current!.hasLocalePreference();
+        const locale = await gatewayRef.current!.getLocalePreference(
+          deviceLocale,
+        );
+        if (!hasStoredLocalePreference) {
+          await gatewayRef.current!.setLocalePreference(locale);
+        }
         const importedSummary = await importPendingSystemSharedItems();
         const snapshot = await gatewayRef.current!.getSnapshot();
         const onboarding =
@@ -395,7 +414,7 @@ export function useAppModel() {
     return () => {
       active = false;
     };
-  }, [importPendingSystemSharedItems]);
+  }, [createErrorNotice, importPendingSystemSharedItems]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
@@ -407,7 +426,9 @@ export function useAppModel() {
         try {
           const restoreResult = await controllerRef.current!.restoreIfNeeded();
           const importedSummary = await importPendingSystemSharedItems();
-          const locale = await gatewayRef.current!.getLocalePreference();
+          const locale = await gatewayRef.current!.getLocalePreference(
+            getDeviceDefaultAppLocale(),
+          );
           const hasImportedContent =
             importedSummary.fileCount > 0 || importedSummary.textCount > 0;
           if (!restoreResult.restored && !hasImportedContent) {
@@ -448,7 +469,7 @@ export function useAppModel() {
     return () => {
       subscription.remove();
     };
-  }, [importPendingSystemSharedItems]);
+  }, [createErrorNotice, importPendingSystemSharedItems]);
 
   useEffect(() => {
     const shouldKeepScreenAwake = state.serviceState.phase === 'running';

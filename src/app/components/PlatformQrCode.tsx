@@ -3,26 +3,8 @@ import { StyleSheet, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
 import { isHarmonyPlatform } from '../../platform/platform';
-
-type ErrorCorrectionLevel = 'L' | 'M' | 'Q' | 'H';
-
-type QrMatrix = {
-  get: (row: number, col: number) => boolean | number;
-  size: number;
-};
-
-type QrSymbol = {
-  modules: QrMatrix;
-};
-
-type QrCodeFactory = {
-  create: (
-    value: string,
-    options?: {
-      errorCorrectionLevel?: ErrorCorrectionLevel;
-    },
-  ) => QrSymbol;
-};
+import { buildQrRows, createQrMatrix, getQrLayout } from './qrCodeMatrix';
+import type { ErrorCorrectionLevel } from './qrCodeMatrix';
 
 type PlatformQrCodeProps = {
   backgroundColor?: string;
@@ -34,8 +16,6 @@ type PlatformQrCodeProps = {
   value: string;
 };
 
-const harmonyQrCodeFactory = require('qrcode/lib/core/qrcode') as QrCodeFactory;
-
 export function PlatformQrCode({
   backgroundColor = '#FFFFFF',
   color = '#000000',
@@ -46,44 +26,77 @@ export function PlatformQrCode({
   value,
 }: PlatformQrCodeProps) {
   const qrMatrix = React.useMemo(() => {
-    if (!isHarmonyPlatform()) {
-      return undefined;
-    }
-
-    try {
-      return harmonyQrCodeFactory.create(value, {
-        errorCorrectionLevel: ecl,
-      }).modules;
-    } catch {
-      return undefined;
-    }
+    return createQrMatrix(value, ecl);
   }, [ecl, value]);
 
-  if (!isHarmonyPlatform() || !qrMatrix) {
+  if (!isHarmonyPlatform()) {
+    if (!qrMatrix) {
+      return (
+        <QRCode
+          backgroundColor={backgroundColor}
+          color={color}
+          ecl={ecl}
+          quietZone={quietZone}
+          size={size}
+          testID={testID}
+          value={value}
+        />
+      );
+    }
+
+    const { matrixSize, outerPadding } = getQrLayout(
+      size,
+      quietZone,
+      qrMatrix.size,
+    );
+
     return (
-      <QRCode
-        backgroundColor={backgroundColor}
-        color={color}
-        ecl={ecl}
-        quietZone={quietZone}
-        size={size}
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor,
+            height: size,
+            padding: outerPadding,
+            width: size,
+          },
+        ]}
         testID={testID}
-        value={value}
+      >
+        <QRCode
+          backgroundColor={backgroundColor}
+          color={color}
+          ecl={ecl}
+          quietZone={0}
+          size={matrixSize}
+          value={value}
+        />
+      </View>
+    );
+  }
+
+  if (!qrMatrix) {
+    return (
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor,
+            height: size,
+            width: size,
+          },
+        ]}
+        testID={testID}
       />
     );
   }
 
-  const availableSize = Math.max(1, size - quietZone * 2);
-  const cellSize = Math.max(1, Math.floor(availableSize / qrMatrix.size));
-  const matrixSize = qrMatrix.size * cellSize;
-  const contentSize = matrixSize + quietZone * 2;
-  const centeringOffset = Math.max(0, Math.floor((size - contentSize) / 2));
-  const outerPadding = centeringOffset + quietZone;
-  const rows = Array.from({ length: qrMatrix.size }, (_, rowIndex) =>
-    Array.from({ length: qrMatrix.size }, (_, columnIndex) =>
-      Boolean(qrMatrix.get(rowIndex, columnIndex)),
-    ),
+  const { cellSize, matrixSize, outerPadding } = getQrLayout(
+    size,
+    quietZone,
+    qrMatrix.size,
   );
+  const rows = buildQrRows(qrMatrix);
 
   return (
     <View

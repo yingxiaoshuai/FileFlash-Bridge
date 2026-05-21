@@ -16,6 +16,7 @@ import {
 import {
   AppLocale,
   DEFAULT_APP_LOCALE,
+  isSupportedAppLocale,
   resolveAppLocale,
 } from '../localization/i18n';
 
@@ -180,9 +181,19 @@ export class InboundStorageGateway {
     );
   }
 
-  async getLocalePreference(): Promise<AppLocale> {
+  async getLocalePreference(
+    fallbackLocale: AppLocale = DEFAULT_APP_LOCALE,
+  ): Promise<AppLocale> {
     await this.initialize();
-    return resolveAppLocale(this.uiMetadata.localePreference?.locale);
+    return resolveAppLocale(
+      this.uiMetadata.localePreference?.locale,
+      fallbackLocale,
+    );
+  }
+
+  async hasLocalePreference(): Promise<boolean> {
+    await this.initialize();
+    return isSupportedAppLocale(this.uiMetadata.localePreference?.locale);
   }
 
   async setLocalePreference(
@@ -963,22 +974,21 @@ export class InboundStorageGateway {
   private async loadUiMetadata() {
     const metadataPath = this.uiMetadataFilePath();
     if (!(await this.options.fileSystem.exists(metadataPath))) {
-      this.uiMetadata = {
-        localePreference: {
-          locale: DEFAULT_APP_LOCALE,
-        },
-      };
+      this.uiMetadata = {};
       return;
     }
 
     const rawMetadata = await this.options.fileSystem.readText(metadataPath);
     const parsedMetadata = JSON.parse(rawMetadata) as AppUiMetadata;
+    const localePreference = isSupportedAppLocale(
+      parsedMetadata.localePreference?.locale,
+    )
+      ? parsedMetadata.localePreference
+      : undefined;
+
     this.uiMetadata = {
       ...parsedMetadata,
-      localePreference: {
-        ...parsedMetadata.localePreference,
-        locale: resolveAppLocale(parsedMetadata.localePreference?.locale),
-      },
+      localePreference,
       securityModePreference: parsedMetadata.securityModePreference
         ? {
             ...parsedMetadata.securityModePreference,

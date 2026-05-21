@@ -310,3 +310,102 @@ TBD - created by archiving change launch-fileflash-bridge-v1. Update Purpose aft
 - **THEN** 服务 MUST 返回明确的失败响应
 - **AND** 浏览器门户 MUST 按既有分块重试策略处理，重试耗尽后提示传输失败
 
+### Requirement: Harmony transfer bridge SHALL use bounded binary payloads
+在 HarmonyOS 上，本地传输服务在浏览器上传保存、共享文件下载、JS 与 Native 文件桥交互时，系统 MUST 以有界字节分块处理二进制数据。任何单次跨 Harmony/RNOH/Hermes 运行时边界的 `Uint8Array`、`ArrayBuffer` 或等价字节对象 MUST 小于实现定义的安全上限，并且 MUST NOT 使用 base64 字符串作为大文件二进制传递格式。
+
+#### Scenario: Harmony browser uploads a large file
+- **WHEN** 浏览器向鸿蒙设备上传大文件并触发 `/api/upload` 或分片上传接口
+- **THEN** 本地传输服务 MUST 将请求体按安全字节上限拆分后写入 App 内部会话存储
+- **AND** 系统 MUST NOT 因单个 `Uint8Array` 或请求体对象过大触发 `Property storage exceeds 196607 properties`
+- **AND** 上传成功后文件 MUST 保持原始字节内容、文件名和相对路径信息
+
+#### Scenario: Harmony browser uploads JSON content
+- **WHEN** Android、桌面或移动浏览器向鸿蒙设备上传 `application/json` 文件
+- **THEN** 本地传输服务 MUST 按字节文件处理该请求
+- **AND** 系统 MUST NOT 因 JSON MIME 类型、文本解码路径或请求体桥接失败返回 500
+
+#### Scenario: Browser downloads a large shared file from Harmony
+- **WHEN** 浏览器请求下载鸿蒙 App 中用户显式加入共享列表的大文件
+- **THEN** 本地传输服务 MUST 按 range、part 或等价分块方式读取并返回文件内容
+- **AND** 每次传给 JS runtime 或从文件桥读取的二进制载荷 MUST 保持在安全上限内
+- **AND** 系统 MUST NOT 为单次下载响应在 RN JS 内构造完整文件字节数组
+
+#### Scenario: Harmony bridge fails during binary transfer
+- **WHEN** 鸿蒙文件桥、静态服务或运行时边界在上传保存或共享下载过程中返回错误
+- **THEN** 本地传输服务 MUST 返回结构化失败响应并中止当前文件任务
+- **AND** 系统 MUST NOT 将半写入文件标记为可用、可下载或已成功接收
+- **AND** 浏览器门户 MUST 能获取可理解的失败原因用于提示和重试
+
+### Requirement: Transfer service SHALL avoid hanging browser requests after runtime failures
+本地传输服务 MUST 捕获 Harmony/RNOH/Hermes 运行时边界抛出的二进制处理异常，并向浏览器返回明确的 HTTP 失败状态。系统 MUST NOT 让上传或下载请求在 App 侧异常后无限等待或停留在无进度状态。
+
+#### Scenario: Hermes property storage limit would be exceeded
+- **WHEN** 上传或下载处理检测到单次二进制载荷可能超过 Harmony/RNOH/Hermes 安全边界
+- **THEN** 系统 MUST 拆分为更小的字节块继续处理，或返回可重试的失败响应
+- **AND** App MUST NOT 因该文件任务崩溃或停止整个本地传输服务
+
+#### Scenario: Service cannot continue a file transfer
+- **WHEN** 存储空间不足、文件读取失败、用户撤销共享文件或服务停止导致当前传输无法继续
+- **THEN** 系统 MUST 关闭该文件任务并向浏览器返回失败原因
+- **AND** 后续新的上传、文本提交或其它共享文件下载请求 MUST NOT 被已失败任务永久阻塞
+
+### Requirement: App workspace SHALL support batch selecting shared files for download
+App 工作台的共享文件区 MUST 支持批量选择下载/保存。用户 MUST 能进入选择模式、选择多个当前共享文件、全选、清空选择，并对选中文件一次性发起显式下载/保存流程。批量操作 MUST 复用单文件导出/保存路径，不得绕过用户确认，也不得把文件自动写入系统公共目录。
+
+#### Scenario: User selects multiple shared files in the app
+- **WHEN** App 用户在共享文件区进入选择下载模式
+- **THEN** 系统 MUST 展示每个共享文件的可选状态
+- **AND** 用户 MUST 能选择或取消选择单个文件
+- **AND** 系统 MUST 展示当前已选择文件数量
+
+#### Scenario: User downloads selected files from the app
+- **WHEN** App 用户选择多个共享文件并触发下载选中
+- **THEN** 系统 MUST 对选中文件逐个或以受控并发发起现有显式导出/保存流程
+- **AND** 系统 MUST 保持既有平台权限和保存交互，不得静默写入公共下载目录
+- **AND** 成功或失败 MUST 以 App 内提示反馈给用户
+
+#### Scenario: User triggers batch download without selection
+- **WHEN** App 用户未选择任何共享文件即触发下载选中
+- **THEN** 系统 MUST 阻止该操作并提示用户先选择要下载的文件
+
+### Requirement: Service controls SHALL guide users through a stepwise sharing flow
+系统 MUST 在 App 首页中将本地传输服务启动视为局域网共享流程的前置步骤。服务未运行时，用户 MUST 能通过首页中心主入口启动服务；服务运行前，系统 MUST 不展示会让用户误以为浏览器已可访问的地址、二维码或完整共享工作台。服务运行后，系统 MUST 展示当前可访问地址、二维码和后续共享操作入口。
+
+#### Scenario: Start service from the primary step entry
+- **WHEN** 用户在服务未运行时点击首页中心启动入口
+- **THEN** 系统 MUST 执行与现有启动服务相同的权限检查、网络检查、安全模式配置和本地服务启动逻辑
+- **AND** 成功后 MUST 生成当前访问 URL 与二维码
+
+#### Scenario: Do not expose unavailable access affordances before startup
+- **WHEN** 服务未启动、已停止或当前网络无法生成可达地址
+- **THEN** 系统 MUST 不展示可复制的误导性访问地址或二维码
+- **AND** 系统 MUST 以停止态、网络不可达或错误说明提示用户需要先完成启动条件
+
+#### Scenario: Continue sharing after service becomes reachable
+- **WHEN** 服务进入运行中且访问地址可达
+- **THEN** 系统 MUST 允许用户继续执行添加共享文件、浏览共享列表、查看当前项目内容、复制访问链接、刷新地址和停止服务等既有操作
+- **AND** 这些操作 MUST 复用现有服务控制、共享列表和项目数据语义
+
+### Requirement: Stepwise service UI SHALL preserve transfer and permission behavior
+步骤式服务 UI MUST 不改变浏览器文件上传、文件夹上传、文本提交、共享文件下载、App 内显式保存/导出、安全模式和后台保活的底层行为。iOS 与 Android 的权限申请、系统保存器、分享面板、前后台限制和错误提示 MUST 沿用现有平台能力；UI 改版不得绕过用户确认或扩大浏览器可访问文件范围。
+
+#### Scenario: Browser uploads remain bound to the current session
+- **WHEN** 服务运行后浏览器用户上传文件或文件夹
+- **THEN** 系统 MUST 继续将内容写入当前会话绑定的 App 内部存储
+- **AND** 不得因为首页步骤式 UI 改版自动写入系统公共下载目录、相册或其它外部位置
+
+#### Scenario: Browser text submissions remain bound to the active project
+- **WHEN** 服务运行后浏览器用户提交文本内容
+- **THEN** 系统 MUST 继续把文本写入 App 端当前活跃项目的文本接收区
+- **AND** 首页布局切换不得改变项目归属或覆盖既有消息
+
+#### Scenario: Explicit file saving remains user-confirmed
+- **WHEN** 用户在 App 内对已接收文件或共享文件执行保存、导出或下载选中
+- **THEN** 系统 MUST 继续使用现有显式保存/导出流程
+- **AND** 在 iOS 与 Android 上不得静默绕过系统权限、保存器或分享确认
+
+#### Scenario: Service startup failures remain recoverable
+- **WHEN** 启动服务因权限缺失、端口绑定失败、网络不可达或系统限制失败
+- **THEN** 系统 MUST 在启动步骤中展示明确失败原因和可执行恢复动作
+- **AND** 用户 MUST 能在问题修复后从同一主入口重新尝试启动
+

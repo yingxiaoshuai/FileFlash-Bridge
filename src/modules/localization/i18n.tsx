@@ -70,7 +70,12 @@ const zhCN = {
   'home.service.copyLink': '复制链接',
   'home.service.refreshAddress': '刷新地址',
   'home.service.start': '启动服务',
+  'home.service.starting': '启动中',
+  'home.service.retryStart': '重试启动',
   'home.service.stop': '停止服务',
+  'home.service.startStepKicker': '第一步',
+  'home.service.startStepBody':
+    '点击启动后，浏览器入口、二维码、共享文件和项目内容会依次出现。',
   'home.service.accessMode': '访问模式',
   'home.service.securityMode': '安全模式',
   'home.service.securityModeHelpTitle': '安全模式',
@@ -101,6 +106,15 @@ const zhCN = {
   'home.shared.downloadSelected': '下载选中',
   'home.shared.selectedCount': '已选 {{count}} 个',
   'home.shared.noSelection': '请先选择要下载的文件。',
+  'home.contentSharing.title': '内容与共享',
+  'home.flow.stepService': '第一步 · 启动服务',
+  'home.flow.stepContentSharing': '第二步 · 内容与共享',
+  'home.flow.serviceReadySummary': '{{count}} 个连接 · {{mode}}',
+  'home.flow.contentSharingSummary':
+    '{{shared}} 个共享 · {{messages}} 条文本 · {{files}} 个文件',
+  'home.flow.stepShared': '第二步 · 共享文件',
+  'home.flow.stepProject': '第三步 · 项目内容',
+  'home.flow.sharedSummary': '{{count}} 个文件待共享',
   'home.help.reopen': '重新查看引导',
   'message.source.browser': '浏览器',
   'message.source.app': 'App',
@@ -119,14 +133,18 @@ const zhCN = {
     '这里是服务中心。你可以查看当前地址、确认网络状态，并随时停止或继续使用当前服务。',
   'onboarding.service.title.stopped': '先从这里启动服务',
   'onboarding.service.body.stopped':
-    '先从这里启动服务。服务开启后，浏览器入口和二维码才会出现，其他设备才能访问你的共享内容。',
+    '点击中心按钮启动服务。服务开启后，浏览器入口和二维码才会出现，其他设备才能访问你的共享内容。',
   'onboarding.shared.title': '共享文件会先集中到这里',
   'onboarding.shared.body':
     '通过系统分享、相册或文件导入进来的内容都会先进入共享文件区。文件闪传桥也支持从其他 App 直接把文件分享到这里，再继续分析和整理。',
+  'onboarding.contentSharing.title': '内容和共享在同一处完成',
+  'onboarding.contentSharing.body':
+    '导入文件、相册内容、别人发送的文件、项目文本和项目文件都会在这个工作区里协同处理。你可以在这里继续加入共享、移出共享、下载或导出，不需要切到另一个步骤。',
   'onboarding.project.title': '项目区负责整理本次内容',
   'onboarding.project.body':
-    '每次新建项目后，这里会展示当前项目里的文本和文件结果，方便你继续查看、分析和导出。iOS 可在 App Store 评论反馈，Android 可在 GitHub 提修改意见，我会认真听取并持续优化。',
-  'notice.imported.both': '已接收 {{fileCount}} 个共享文件和 {{textCount}} 条共享文本。',
+    '每次新建项目后，这里会展示当前项目里的文本和文件结果，方便你继续查看、分析和导出。文件闪传桥支持 iOS、Android 与 HarmonyOS NEXT 操作系统；iOS 和 HarmonyOS NEXT 可在对应应用商店评论反馈，Android 可在 GitHub 提反馈，我会认真听取并持续优化。',
+  'notice.imported.both':
+    '已接收 {{fileCount}} 个共享文件和 {{textCount}} 条共享文本。',
   'notice.imported.files': '已接收 {{fileCount}} 个共享文件，并加入共享列表。',
   'notice.imported.texts': '已接收 {{textCount}} 条共享文本，并加入当前项目。',
   'notice.resumedForeground': '应用回到前台后，服务已恢复。',
@@ -222,7 +240,8 @@ const zhCN = {
   'api.networkRefreshed': '网络地址已刷新，旧地址应视为失效。',
   'api.useNewAddress': '请使用新地址重新访问',
   'api.invalidJsonObject': '请求体必须是 JSON 对象。',
-  'api.invalidUploadBeginFields': '请提供有效的 name、relativePath 和 totalBytes。',
+  'api.invalidUploadBeginFields':
+    '请提供有效的 name、relativePath 和 totalBytes。',
   'api.cannotStartChunkedUpload': '无法开始分块上传。',
   'api.chunkWriteFailed': '分块写入失败。',
   'api.finishChunkedUploadFailed': '无法完成分块上传。',
@@ -261,7 +280,8 @@ const enUS: Record<TranslationKey, string> = {
   'settings.preferences': 'Preferences',
   'settings.language.title': 'Language',
   'settings.language.description': 'Choose how FileFlash Bridge is displayed.',
-  'settings.language.portalHint': 'The browser portal automatically follows this choice.',
+  'settings.language.portalHint':
+    'The browser portal automatically follows this choice.',
   'settings.language.option.zh': 'Chinese',
   'settings.language.option.en': 'English',
   'settings.language.openMenu': 'Open language menu',
@@ -285,7 +305,8 @@ const enUS: Record<TranslationKey, string> = {
   'home.sidebar.deleteProject': 'Delete project',
   'home.sidebar.renameProject': 'Rename project',
   'home.project.deleteTitle': 'Delete Project',
-  'home.project.deleteBody': 'Deleting will clear this session and its related files.',
+  'home.project.deleteBody':
+    'Deleting will clear this session and its related files.',
   'home.project.deleteConfirm': 'Delete',
   'home.project.renameTitle': 'Rename project',
   'home.project.renamePlaceholder': 'Enter a project name',
@@ -302,7 +323,12 @@ const enUS: Record<TranslationKey, string> = {
   'home.service.copyLink': 'Copy link',
   'home.service.refreshAddress': 'Refresh address',
   'home.service.start': 'Start service',
+  'home.service.starting': 'Starting',
+  'home.service.retryStart': 'Try again',
   'home.service.stop': 'Stop service',
+  'home.service.startStepKicker': 'Step one',
+  'home.service.startStepBody':
+    'Start the service to reveal the browser entry, QR code, shared files, and project content.',
   'home.service.accessMode': 'Access mode',
   'home.service.securityMode': 'Security mode',
   'home.service.securityModeHelpTitle': 'Security Mode',
@@ -315,7 +341,8 @@ const enUS: Record<TranslationKey, string> = {
   'home.service.networkCurrent': 'Current network: {{label}}',
   'home.service.networkUnavailable':
     'No address is reachable from other devices. Check the current Wi-Fi or hotspot connection.',
-  'home.service.addressPlaceholder': 'Start the service to reveal the browser entry.',
+  'home.service.addressPlaceholder':
+    'Start the service to reveal the browser entry.',
   'home.service.noAddressTitle': 'No address to copy',
   'home.service.noAddressBody': 'Start the service first.',
   'home.service.copiedTitle': 'Copied',
@@ -333,6 +360,15 @@ const enUS: Record<TranslationKey, string> = {
   'home.shared.downloadSelected': 'Download selected',
   'home.shared.selectedCount': '{{count}} selected',
   'home.shared.noSelection': 'Select files to download first.',
+  'home.contentSharing.title': 'Content & Sharing',
+  'home.flow.stepService': 'Step 1 · Start service',
+  'home.flow.stepContentSharing': 'Step 2 · Content & sharing',
+  'home.flow.serviceReadySummary': '{{count}} connections · {{mode}}',
+  'home.flow.contentSharingSummary':
+    '{{shared}} shared · {{messages}} texts · {{files}} files',
+  'home.flow.stepShared': 'Step 2 · Shared files',
+  'home.flow.stepProject': 'Step 3 · Project content',
+  'home.flow.sharedSummary': '{{count}} files ready to share',
   'home.help.reopen': 'Reopen onboarding',
   'message.source.browser': 'Browser',
   'message.source.app': 'App',
@@ -351,32 +387,42 @@ const enUS: Record<TranslationKey, string> = {
     'This is the service center. You can review the current address, confirm network status, and keep or stop the service at any time.',
   'onboarding.service.title.stopped': 'Start the service here first',
   'onboarding.service.body.stopped':
-    'Start the service here first. Once it is running, the browser entry and QR code will appear so other devices can reach your shared content.',
+    'Use the center button to start the service. Once it is running, the browser entry and QR code appear so other devices can reach your shared content.',
   'onboarding.shared.title': 'Shared files gather here first',
   'onboarding.shared.body':
     'Anything brought in through system share, the gallery, or file import lands in Shared Files first. FileFlash Bridge also supports sharing files in directly from other apps before you analyze or organize them.',
+  'onboarding.contentSharing.title': 'Content and sharing stay together',
+  'onboarding.contentSharing.body':
+    'Imported files, gallery items, files sent by other people, project text, and project files now work in one workspace. Add or remove sharing, download, and export from here without switching to another step.',
   'onboarding.project.title': 'Projects organize the current session',
   'onboarding.project.body':
-    'Each new project collects the text and file results for that round so you can keep reviewing, analyzing, and exporting them. iOS users can leave feedback in an App Store review, and Android users can share change requests on GitHub. I will keep listening and improving the app.',
+    'Each new project collects the text and file results for that round so you can keep reviewing, analyzing, and exporting them. FileFlash Bridge supports iOS, Android, and HarmonyOS NEXT. iOS and HarmonyOS NEXT users can leave feedback in the matching app store, while Android users can share feedback on GitHub so I can keep listening and improving the app.',
   'notice.imported.both':
     'Received {{fileCount}} shared files and {{textCount}} shared notes.',
   'notice.imported.files':
     'Received {{fileCount}} shared files and added them to sharing.',
   'notice.imported.texts':
     'Received {{textCount}} shared notes and added them to the current project.',
-  'notice.resumedForeground': 'The service resumed after the app returned to the foreground.',
-  'notice.serviceStarted': 'The service status was updated and the current session remains available.',
-  'notice.serviceStopped': 'The service stopped and external connections were cleared.',
-  'notice.securityModeSecure': 'Switched to secure mode. Access now requires the key.',
-  'notice.projectCreated': 'Created a new project. Incoming content will go there next.',
+  'notice.resumedForeground':
+    'The service resumed after the app returned to the foreground.',
+  'notice.serviceStarted':
+    'The service status was updated and the current session remains available.',
+  'notice.serviceStopped':
+    'The service stopped and external connections were cleared.',
+  'notice.securityModeSecure':
+    'Switched to secure mode. Access now requires the key.',
+  'notice.projectCreated':
+    'Created a new project. Incoming content will go there next.',
   'notice.projectRenamed': 'Project name updated.',
   'notice.fileUnshared': 'The file was removed from the current shared list.',
-  'notice.fileShared': 'The file was added to the current shared list for browser download.',
+  'notice.fileShared':
+    'The file was added to the current shared list for browser download.',
   'notice.messageDeleted': 'The text record was deleted.',
   'notice.projectDeleted': 'The project and its related files were deleted.',
   'notice.fileDeleted': 'The file was removed from the current project.',
   'notice.textCopied': 'The text was copied to the system clipboard.',
-  'notice.importFiles': 'Imported {{count}} files from this device and added them to sharing.',
+  'notice.importFiles':
+    'Imported {{count}} files from this device and added them to sharing.',
   'notice.importMedia':
     'Imported {{count}} media items from the gallery and added them to sharing.',
   'notice.addressRefreshed':
@@ -416,7 +462,8 @@ const enUS: Record<TranslationKey, string> = {
     'The service on the phone is unavailable. Make sure the app is still running.',
   'portal.selectFilesFirst': 'Choose files or folders to upload first.',
   'portal.requestFailed': 'Request failed',
-  'portal.networkInterrupted': 'The network was interrupted before the upload finished.',
+  'portal.networkInterrupted':
+    'The network was interrupted before the upload finished.',
   'portal.upload.pending': 'Pending',
   'portal.upload.inProgress': 'Uploading',
   'portal.upload.complete': 'Done',
@@ -431,7 +478,8 @@ const enUS: Record<TranslationKey, string> = {
   'portal.download.selectedCount': '{{count}} selected',
   'portal.download.selectedButton': 'Download selected',
   'portal.download.noneSelected': 'Select files to download first.',
-  'portal.download.batchComplete': 'All selected files have started downloading.',
+  'portal.download.batchComplete':
+    'All selected files have started downloading.',
   'portal.download.saveUnsupported':
     'This browser cannot save large files directly. Use a browser with file saving support, or download smaller files first.',
   'portal.download.pending': 'Waiting to download',
@@ -439,7 +487,8 @@ const enUS: Record<TranslationKey, string> = {
   'portal.download.complete': 'Completed',
   'portal.download.failed': 'Download failed: {{message}}',
   'portal.download.chunked': 'Chunked download',
-  'portal.download.bannerFailed': 'Download failed. Check the network and try again.',
+  'portal.download.bannerFailed':
+    'Download failed. Check the network and try again.',
   'portal.text.empty': 'Enter or paste some text first.',
   'portal.text.sentTo': 'Sent to: {{projectTitle}}',
   'portal.unauthorizedTitle': 'Get a fresh link',
@@ -453,12 +502,15 @@ const enUS: Record<TranslationKey, string> = {
   'api.networkUnavailable':
     'The current network is not reachable from other devices on the same LAN. Switch to an available Wi-Fi or hotspot.',
   'api.switchNetworkRetry': 'Switch networks and try again',
-  'api.startServiceFailed': 'The service failed to start. Please try again later.',
-  'api.changePortOrStopConflict': 'Change the port or stop the service using it',
+  'api.startServiceFailed':
+    'The service failed to start. Please try again later.',
+  'api.changePortOrStopConflict':
+    'Change the port or stop the service using it',
   'api.addressUnavailable':
     'No address is reachable from other devices. Check the current Wi-Fi or hotspot connection.',
   'api.switchNetworkOrRefresh': 'Switch networks or refresh again',
-  'api.networkRefreshed': 'The network address was refreshed and the old address is now invalid.',
+  'api.networkRefreshed':
+    'The network address was refreshed and the old address is now invalid.',
   'api.useNewAddress': 'Use the new address to reconnect',
   'api.invalidJsonObject': 'The request body must be a JSON object.',
   'api.invalidUploadBeginFields':
@@ -484,16 +536,30 @@ export const APP_LOCALE_OPTIONS: Array<{
   labelKey: TranslationKey;
   value: AppLocale;
 }> = [
-  {labelKey: 'settings.language.option.zh', value: 'zh-CN'},
-  {labelKey: 'settings.language.option.en', value: 'en-US'},
+  { labelKey: 'settings.language.option.zh', value: 'zh-CN' },
+  { labelKey: 'settings.language.option.en', value: 'en-US' },
 ];
 
 export function isSupportedAppLocale(value: unknown): value is AppLocale {
   return value === 'zh-CN' || value === 'en-US';
 }
 
-export function resolveAppLocale(value: unknown): AppLocale {
-  return isSupportedAppLocale(value) ? value : DEFAULT_APP_LOCALE;
+export function resolveAppLocale(
+  value: unknown,
+  fallbackLocale: AppLocale = DEFAULT_APP_LOCALE,
+): AppLocale {
+  return isSupportedAppLocale(value) ? value : fallbackLocale;
+}
+
+export function resolveAppLocaleFromLanguageTag(value: unknown): AppLocale {
+  if (typeof value !== 'string') {
+    return 'en-US';
+  }
+
+  const languageTag = value.trim().replace(/_/g, '-').toLowerCase();
+  return languageTag === 'zh' || languageTag.startsWith('zh-')
+    ? 'zh-CN'
+    : 'en-US';
 }
 
 function interpolate(

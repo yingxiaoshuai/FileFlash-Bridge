@@ -60,6 +60,44 @@ async function createController(
 }
 
 describe('TransferServiceController', () => {
+  test('classifies native address-in-use startup failures as port conflicts', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-port-conflict-'));
+    const storage = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 128,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'port-conflict-session',
+    });
+    const runtime: ServiceRuntime = {
+      async start() {
+        throw new Error('Address already in use');
+      },
+      async isRunning() {
+        return false;
+      },
+    };
+    const controller = new TransferServiceController({
+      config: {
+        ...DEFAULT_SERVICE_CONFIG,
+        port: 8668,
+      },
+      networkProvider: async () => [],
+      runtime,
+      storage,
+    });
+
+    try {
+      const state = await controller.start();
+
+      expect(state.phase).toBe('error');
+      expect(state.error?.code).toBe('PORT_IN_USE');
+      expect(state.error?.message).toBe('Address already in use');
+    } finally {
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
   test('serves secure APIs, accepts text upload, and exposes chunked downloads', async () => {
     const { controller, rootDir, sharedFile, storage } =
       await createController();

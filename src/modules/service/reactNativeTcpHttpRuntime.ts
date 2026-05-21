@@ -532,6 +532,36 @@ function createMissingTcpSocketError() {
   );
 }
 
+function readErrorField(error: object, key: string) {
+  const value = (error as Record<string, unknown>)[key];
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+export function createTcpServerStartError(error?: unknown) {
+  if (error instanceof Error) {
+    return error;
+  }
+
+  if (typeof error === 'string' && error.trim().length > 0) {
+    return new Error(error.trim());
+  }
+
+  if (error && typeof error === 'object') {
+    const code = readErrorField(error, 'code');
+    const message = readErrorField(error, 'message');
+    const syscall = readErrorField(error, 'syscall');
+    const details = [code, syscall, message].filter(Boolean).join(': ');
+
+    if (details) {
+      return new Error(details);
+    }
+  }
+
+  return new Error('Failed to start TCP server.');
+}
+
 function removeListener(
   emitter: {removeListener?: (event: string, listener: (...args: unknown[]) => void) => void},
   event: string,
@@ -597,7 +627,7 @@ export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
     await new Promise<void>((resolve, reject) => {
       const handleError = (error?: unknown) => {
         removeListener(server, 'error', handleError);
-        reject(error instanceof Error ? error : new Error('Failed to start TCP server.'));
+        reject(createTcpServerStartError(error));
       };
 
       server.on('error', handleError);

@@ -1,25 +1,9 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 
-type ErrorCorrectionLevel = 'L' | 'M' | 'Q' | 'H';
-
-type QrMatrix = {
-  get: (row: number, col: number) => boolean | number;
-  size: number;
-};
-
-type QrSymbol = {
-  modules: QrMatrix;
-};
-
-type QrCodeFactory = {
-  create: (
-    value: string,
-    options?: {
-      errorCorrectionLevel?: ErrorCorrectionLevel;
-    },
-  ) => QrSymbol;
-};
+import { buildQrRows, createQrMatrix, getQrLayout } from './qrCodeMatrix';
+import { createQrPngDataUri } from './qrCodePng';
+import type { ErrorCorrectionLevel } from './qrCodeMatrix';
 
 type PlatformQrCodeProps = {
   backgroundColor?: string;
@@ -31,8 +15,6 @@ type PlatformQrCodeProps = {
   value: string;
 };
 
-const qrCodeFactory = require('qrcode/lib/core/qrcode') as QrCodeFactory;
-
 export function PlatformQrCode({
   backgroundColor = '#FFFFFF',
   color = '#000000',
@@ -43,14 +25,26 @@ export function PlatformQrCode({
   value,
 }: PlatformQrCodeProps) {
   const qrMatrix = React.useMemo(() => {
-    try {
-      return qrCodeFactory.create(value, {
-        errorCorrectionLevel: ecl,
-      }).modules;
-    } catch {
+    return createQrMatrix(value, ecl);
+  }, [ecl, value]);
+  const pngDataUri = React.useMemo(() => {
+    if (!qrMatrix) {
       return undefined;
     }
-  }, [ecl, value]);
+
+    return createQrPngDataUri({
+      backgroundColor,
+      color,
+      matrix: qrMatrix,
+      quietZone,
+      size,
+    });
+  }, [backgroundColor, color, qrMatrix, quietZone, size]);
+  const [useViewFallback, setUseViewFallback] = React.useState(false);
+
+  React.useEffect(() => {
+    setUseViewFallback(false);
+  }, [pngDataUri]);
 
   if (!qrMatrix) {
     return (
@@ -68,17 +62,40 @@ export function PlatformQrCode({
     );
   }
 
-  const availableSize = Math.max(1, size - quietZone * 2);
-  const cellSize = Math.max(1, Math.floor(availableSize / qrMatrix.size));
-  const matrixSize = qrMatrix.size * cellSize;
-  const contentSize = matrixSize + quietZone * 2;
-  const centeringOffset = Math.max(0, Math.floor((size - contentSize) / 2));
-  const outerPadding = centeringOffset + quietZone;
-  const rows = Array.from({ length: qrMatrix.size }, (_, rowIndex) =>
-    Array.from({ length: qrMatrix.size }, (_, columnIndex) =>
-      Boolean(qrMatrix.get(rowIndex, columnIndex)),
-    ),
+  if (pngDataUri && !useViewFallback) {
+    return (
+      <View
+        style={[
+          styles.container,
+          {
+            backgroundColor,
+            height: size,
+            width: size,
+          },
+        ]}
+        testID={testID}
+      >
+        <Image
+          onError={() => {
+            setUseViewFallback(true);
+          }}
+          resizeMode="stretch"
+          source={{ uri: pngDataUri }}
+          style={{
+            height: size,
+            width: size,
+          }}
+        />
+      </View>
+    );
+  }
+
+  const { cellSize, matrixSize, outerPadding } = getQrLayout(
+    size,
+    quietZone,
+    qrMatrix.size,
   );
+  const rows = buildQrRows(qrMatrix);
 
   return (
     <View

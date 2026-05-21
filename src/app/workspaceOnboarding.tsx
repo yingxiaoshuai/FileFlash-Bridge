@@ -86,6 +86,7 @@ type WorkspaceOnboardingOverlayProps = {
 const ONBOARDING_IMAGE_ASPECT_RATIO = 364 / 735;
 
 const ONBOARDING_IMAGES: Record<string, ImageSourcePropType> = {
+  'content-sharing': require('../assets/tutorial/sharedFiles.png'),
   project: require('../assets/tutorial/project.png'),
   service: require('../assets/tutorial/service.png'),
   'shared-files': require('../assets/tutorial/sharedFiles.png'),
@@ -163,7 +164,7 @@ export function WorkspaceOnboardingOverlay({
             </View>
             <GlyphIconButton
               accessibilityLabel={labels.close}
-              glyph="X"
+              iconName="close"
               onPress={onClose}
               testID="workspace-onboarding-close"
             />

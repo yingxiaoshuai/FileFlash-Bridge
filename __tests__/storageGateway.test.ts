@@ -279,7 +279,7 @@ describe('InboundStorageGateway', () => {
     }
   });
 
-  test('stores locale preference, restores it on reload, and falls back to Chinese for invalid values', async () => {
+  test('stores locale preference, restores it on reload, and falls back when no valid preference exists', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const gateway = new InboundStorageGateway({
       compression: nodeGzipCompression,
@@ -292,6 +292,8 @@ describe('InboundStorageGateway', () => {
     try {
       await gateway.initialize();
       await expect(gateway.getLocalePreference()).resolves.toBe('zh-CN');
+      await expect(gateway.getLocalePreference('en-US')).resolves.toBe('en-US');
+      await expect(gateway.hasLocalePreference()).resolves.toBe(false);
 
       await gateway.setLocalePreference('en-US', '2026-04-28T09:00:00.000Z');
 
@@ -330,6 +332,10 @@ describe('InboundStorageGateway', () => {
       await expect(fallbackGateway.getLocalePreference()).resolves.toBe(
         'zh-CN',
       );
+      await expect(fallbackGateway.getLocalePreference('en-US')).resolves.toBe(
+        'en-US',
+      );
+      await expect(fallbackGateway.hasLocalePreference()).resolves.toBe(false);
     } finally {
       await rm(rootDir, { force: true, recursive: true });
     }

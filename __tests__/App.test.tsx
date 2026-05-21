@@ -1,9 +1,9 @@
 import React from 'react';
-import {Alert} from 'react-native';
-import renderer, {act} from 'react-test-renderer';
+import { Alert, Text as RNText } from 'react-native';
+import renderer, { act } from 'react-test-renderer';
 
 import App from '../App';
-import {useAppModel} from '../src/app/useAppModel';
+import { useAppModel } from '../src/app/useAppModel';
 import {
   DEFAULT_SERVICE_CONFIG,
   ProjectRecord,
@@ -22,10 +22,12 @@ jest.mock('react-native-qrcode-svg', () => 'QRCode');
 
 jest.mock('react-native-safe-area-context', () => {
   const React = require('react');
-  const {View} = require('react-native');
+  const { View } = require('react-native');
 
   return {
-    SafeAreaProvider: ({children}: {children: React.ReactNode}) => <>{children}</>,
+    SafeAreaProvider: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
     SafeAreaView: ({
       children,
       style,
@@ -44,7 +46,7 @@ jest.mock('react-native-safe-area-context', () => {
 
 jest.mock('react-native-paper', () => {
   const React = require('react');
-  const {Pressable, Text, View} = require('react-native');
+  const { Pressable, Text, View } = require('react-native');
 
   const Menu = Object.assign(
     ({
@@ -141,7 +143,8 @@ jest.mock('react-native-paper', () => {
                   route,
                 });
               }}
-              testID={route.testID}>
+              testID={route.testID}
+            >
               {renderIcon?.({
                 color: focused ? 'active' : 'inactive',
                 focused,
@@ -181,7 +184,8 @@ jest.mock('react-native-paper', () => {
           onPress={() => {
             onValueChange(button.value);
           }}
-          testID={button.testID}>
+          testID={button.testID}
+        >
           <Text>{button.label}</Text>
           <Text>{button.value === value ? 'selected' : 'idle'}</Text>
         </Pressable>
@@ -192,32 +196,66 @@ jest.mock('react-native-paper', () => {
   return {
     Button: ({
       children,
+      disabled,
       onPress,
+      accessibilityLabel,
       testID,
     }: {
+      accessibilityLabel?: string;
       children: React.ReactNode;
+      disabled?: boolean;
       onPress: () => void;
       testID?: string;
     }) => (
-      <Pressable onPress={onPress} testID={testID}>
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={disabled ? { disabled: true } : undefined}
+        disabled={disabled}
+        onPress={onPress}
+        testID={testID}
+      >
         <Text>{children}</Text>
       </Pressable>
     ),
     BottomNavigation,
     IconButton: ({
+      accessibilityLabel,
+      accessibilityState,
+      disabled,
       onPress,
       testID,
     }: {
+      accessibilityLabel?: string;
+      accessibilityState?: unknown;
+      disabled?: boolean;
       onPress: () => void;
       testID?: string;
-    }) => <Pressable onPress={onPress} testID={testID} />,
+    }) => (
+      <Pressable
+        accessibilityLabel={accessibilityLabel}
+        accessibilityState={accessibilityState}
+        disabled={disabled}
+        onPress={onPress}
+        testID={testID}
+      />
+    ),
     MD3LightTheme: {
       colors: {},
     },
     Menu,
-    PaperProvider: ({children}: {children: React.ReactNode}) => <>{children}</>,
+    PaperProvider: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
     SegmentedButtons,
-    Surface: ({children, style, testID}: {children: React.ReactNode; style?: unknown; testID?: string}) => (
+    Surface: ({
+      children,
+      style,
+      testID,
+    }: {
+      children: React.ReactNode;
+      style?: unknown;
+      testID?: string;
+    }) => (
       <View style={style} testID={testID}>
         {children}
       </View>
@@ -238,7 +276,9 @@ jest.mock('react-native-paper', () => {
           <Text>{label}</Text>
         </Pressable>
       ),
-      Section: ({children}: {children: React.ReactNode}) => <View>{children}</View>,
+      Section: ({ children }: { children: React.ReactNode }) => (
+        <View>{children}</View>
+      ),
     },
   };
 });
@@ -361,14 +401,12 @@ function createModel(overrides: Record<string, unknown> = {}) {
 describe('App sidebar history', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
-    jest
-      .spyOn(require('react-native'), 'useWindowDimensions')
-      .mockReturnValue({
-        fontScale: 1,
-        height: 900,
-        scale: 2,
-        width: 1100,
-      });
+    jest.spyOn(require('react-native'), 'useWindowDimensions').mockReturnValue({
+      fontScale: 1,
+      height: 900,
+      scale: 2,
+      width: 1100,
+    });
   });
 
   test('renders project history with drawer items and switches projects from the sidebar', () => {
@@ -380,17 +418,18 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(() => tree!.root.findByProps({testID: 'sidebar-panel'})).toThrow();
+    expect(() => tree!.root.findByProps({ testID: 'sidebar-panel' })).toThrow();
 
     act(() => {
-      tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
+      tree!.root.findByProps({ testID: 'sidebar-open' }).props.onPress();
     });
 
-    expect(tree!.root.findByProps({testID: 'sidebar-panel'})).toBeTruthy();
+    expect(tree!.root.findByProps({ testID: 'sidebar-panel' })).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'project-drawer-item-project-b'}).props
-        .onPress();
+      tree!.root
+        .findByProps({ testID: 'project-drawer-item-project-b' })
+        .props.onPress();
     });
 
     expect(model.selectProject).toHaveBeenCalledWith('project-b');
@@ -407,26 +446,30 @@ describe('App sidebar history', () => {
     });
 
     act(() => {
-      tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
-    });
-
-    act(() => {
-      tree!.root.findByProps({testID: 'sidebar-create-project'}).props.onPress();
+      tree!.root.findByProps({ testID: 'sidebar-open' }).props.onPress();
     });
 
     act(() => {
       tree!.root
-        .findByProps({testID: 'project-row-menu-open-project-b'})
+        .findByProps({ testID: 'sidebar-create-project' })
+        .props.onPress();
+    });
+
+    act(() => {
+      tree!.root
+        .findByProps({ testID: 'project-row-menu-open-project-b' })
         .props.onPress();
     });
 
     expect(model.createProject).toHaveBeenCalled();
 
-    expect(() => tree!.root.findByProps({testID: 'sidebar-delete-project'})).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'sidebar-delete-project' }),
+    ).toThrow();
 
     act(() => {
       tree!.root
-        .findByProps({testID: 'project-row-menu-delete-project-b'})
+        .findByProps({ testID: 'project-row-menu-delete-project-b' })
         .props.onPress();
     });
 
@@ -447,38 +490,49 @@ describe('App sidebar history', () => {
     });
 
     act(() => {
-      tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
+      tree!.root.findByProps({ testID: 'sidebar-open' }).props.onPress();
     });
 
     act(() => {
       tree!.root
-        .findByProps({testID: 'project-row-menu-open-project-b'})
+        .findByProps({ testID: 'project-row-menu-open-project-b' })
         .props.onPress();
     });
 
     act(() => {
       tree!.root
-        .findByProps({testID: 'project-row-menu-rename-project-b'})
+        .findByProps({ testID: 'project-row-menu-rename-project-b' })
         .props.onPress();
     });
 
-    expect(tree!.root.findByProps({testID: 'project-rename-dialog'})).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'project-rename-dialog' }),
+    ).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'project-rename-input'}).props.onChangeText(
-        '新的项目名',
-      );
+      tree!.root
+        .findByProps({ testID: 'project-rename-input' })
+        .props.onChangeText('新的项目名');
     });
 
     await act(async () => {
-      tree!.root.findByProps({testID: 'project-rename-submit'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'project-rename-submit' })
+        .props.onPress();
     });
 
     expect(model.renameProject).toHaveBeenCalledWith('project-b', '新的项目名');
   });
 
-  test('keeps service and file import actions on the home workspace instead of inside the sidebar', () => {
-    const model = createModel();
+  test('keeps service and file import actions on the staged home workspace instead of inside the sidebar', () => {
+    const model = createModel({
+      serviceState: {
+        ...createModel().serviceState,
+        accessUrl: undefined,
+        phase: 'idle',
+        qrValue: undefined,
+      },
+    });
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
 
     let tree: renderer.ReactTestRenderer;
@@ -486,11 +540,41 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'home-toggle-service'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'home-import-files'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'home-import-media'})).toBeTruthy();
-    expect(() => tree!.root.findByProps({testID: 'sidebar-toggle-service'})).toThrow();
-    expect(() => tree!.root.findByProps({testID: 'sidebar-import-files'})).toThrow();
+    expect(
+      tree!.root.findByProps({ testID: 'home-startup-step' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'home-toggle-service' }),
+    ).toBeTruthy();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'home-import-files' }),
+    ).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'home-import-media' }),
+    ).toThrow();
+
+    mockUseAppModel.mockReturnValue(
+      createModel() as ReturnType<typeof useAppModel>,
+    );
+    act(() => {
+      tree!.update(<App />);
+    });
+
+    expect(() =>
+      tree!.root.findByProps({ testID: 'home-startup-step' }),
+    ).toThrow();
+    expect(
+      tree!.root.findByProps({ testID: 'home-import-files' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'home-import-media' }),
+    ).toBeTruthy();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'sidebar-toggle-service' }),
+    ).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'sidebar-import-files' }),
+    ).toThrow();
   });
 
   test('supports selecting shared files for batch download from the workspace', async () => {
@@ -503,21 +587,180 @@ describe('App sidebar history', () => {
     });
 
     act(() => {
-      tree!.root.findByProps({testID: 'home-shared-select-downloads'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'home-shared-select-downloads' })
+        .props.onPress();
     });
 
     act(() => {
-      tree!.root.findByProps({testID: 'shared-file-select-file-b'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'shared-file-select-file-b' })
+        .props.onPress();
     });
 
     await act(async () => {
-      tree!.root.findByProps({testID: 'home-shared-download-selected'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'home-shared-download-selected' })
+        .props.onPress();
     });
 
     expect(model.exportFiles).toHaveBeenCalledWith([model.sharedFiles[0]]);
   });
 
-  test('renders compact workspace summary and contextual address actions when service is reachable', () => {
+  test('keeps import, project content, and sharing operations in one content workspace', async () => {
+    const receivedFile = createSharedFile(
+      'file-a',
+      'project-a',
+      'received.txt',
+    );
+    const model = createModel({
+      activeProjectFiles: [receivedFile],
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(
+      tree!.root.findByProps({ testID: 'content-sharing-panel' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'shared-files-panel' }),
+    ).toBeTruthy();
+    expect(tree!.root.findByProps({ testID: 'project-panel' })).toBeTruthy();
+
+    await act(async () => {
+      tree!.root.findByProps({ testID: 'home-import-files' }).props.onPress();
+    });
+    await act(async () => {
+      tree!.root.findByProps({ testID: 'home-import-media' }).props.onPress();
+    });
+    act(() => {
+      tree!.root.findByProps({ testID: 'service-copy-link' }).props.onPress();
+    });
+    await act(async () => {
+      tree!.root
+        .findByProps({ testID: 'service-refresh-address' })
+        .props.onPress();
+    });
+    act(() => {
+      tree!.root.findByProps({ testID: 'message-copy-msg-a' }).props.onPress();
+    });
+    await act(async () => {
+      tree!.root.findByProps({ testID: 'file-export-file-a' }).props.onPress();
+    });
+    await act(async () => {
+      tree!.root
+        .findByProps({ testID: 'file-toggle-share-file-a' })
+        .props.onPress();
+    });
+    await act(async () => {
+      tree!.root
+        .findByProps({ testID: 'shared-file-remove-file-b' })
+        .props.onPress();
+    });
+
+    expect(model.importFilesForShare).toHaveBeenCalled();
+    expect(model.importMediaForShare).toHaveBeenCalled();
+    expect(model.refreshAddress).toHaveBeenCalled();
+    expect(model.copyMessage).toHaveBeenCalledWith(
+      model.activeProject!.messages[0],
+    );
+    expect(model.exportFile).toHaveBeenCalledWith(receivedFile);
+    expect(model.toggleSharedFile).toHaveBeenCalledWith('file-a');
+    expect(model.toggleSharedFile).toHaveBeenCalledWith('file-b');
+
+    act(() => {
+      tree!.root.findByProps({ testID: 'sidebar-open' }).props.onPress();
+    });
+    await act(async () => {
+      tree!.root
+        .findByProps({ testID: 'project-drawer-item-project-b' })
+        .props.onPress();
+    });
+
+    expect(model.selectProject).toHaveBeenCalledWith('project-b');
+  });
+
+  test('exposes icon-first workspace controls with accessible labels', () => {
+    const receivedFile = createSharedFile(
+      'file-a',
+      'project-a',
+      'received.txt',
+    );
+    const model = createModel({
+      activeProjectFiles: [receivedFile],
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(
+      tree!.root.findByProps({ testID: 'home-import-files' }).props
+        .accessibilityLabel,
+    ).toBe('添加文件');
+    expect(
+      tree!.root.findByProps({ testID: 'home-import-media' }).props
+        .accessibilityLabel,
+    ).toBe('添加图库');
+    expect(
+      tree!.root.findByProps({ testID: 'home-shared-select-downloads' }).props
+        .accessibilityLabel,
+    ).toBe('选择下载');
+    expect(
+      tree!.root.findByProps({ testID: 'message-copy-msg-a' }).props
+        .accessibilityLabel,
+    ).toBe('复制');
+    expect(
+      tree!.root.findByProps({ testID: 'file-toggle-share-file-a' }).props
+        .accessibilityLabel,
+    ).toBe('加入共享');
+    expect(
+      tree!.root.findByProps({ testID: 'shared-file-download-file-b' }).props
+      .accessibilityLabel,
+    ).toBe('下载');
+  });
+
+  test('renders the unified content workspace on narrow phone widths', () => {
+    jest.spyOn(require('react-native'), 'useWindowDimensions').mockReturnValue({
+      fontScale: 1,
+      height: 844,
+      scale: 3,
+      width: 390,
+    });
+    const receivedFile = createSharedFile(
+      'file-a',
+      'project-a',
+      'received.txt',
+    );
+    const model = createModel({
+      activeProjectFiles: [receivedFile],
+    });
+    mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
+
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<App />);
+    });
+
+    expect(
+      tree!.root.findByProps({ testID: 'content-sharing-panel' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'service-address-row' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'home-import-files' }),
+    ).toBeTruthy();
+    expect(tree!.root.findByProps({ testID: 'project-panel' })).toBeTruthy();
+  });
+
+  test('renders only the content workspace with compact service actions when service is reachable', () => {
     const model = createModel();
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
 
@@ -526,14 +769,34 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'workspace-summary-connections'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'workspace-summary-shared'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'workspace-summary-mode'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'service-address-row'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'service-copy-link'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'service-refresh-address'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'service-mode-panel'})).toBeTruthy();
-    expect(() => tree!.root.findByProps({testID: 'service-address-collapsed'})).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'home-startup-step' }),
+    ).toThrow();
+    expect(
+      tree!.root.findByProps({ testID: 'content-sharing-panel' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'shared-files-panel' }),
+    ).toBeTruthy();
+    expect(tree!.root.findByProps({ testID: 'project-panel' })).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'service-address-row' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'service-copy-link' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'service-refresh-address' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'home-toggle-service' }),
+    ).toBeTruthy();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'service-mode-panel' }),
+    ).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'service-address-collapsed' }),
+    ).toThrow();
   });
 
   test('collapses the address area and hides duplicate offline diagnostics when no reachable address is available', () => {
@@ -563,15 +826,36 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'service-address-collapsed'})).toBeTruthy();
-    expect(() => tree!.root.findByProps({testID: 'service-copy-link'})).toThrow();
-    expect(() => tree!.root.findByProps({testID: 'service-refresh-address'})).toThrow();
-    expect(() => tree!.root.findByProps({testID: 'service-address-row'})).toThrow();
-    expect(() => tree!.root.findByProps({testID: 'service-network-warning'})).toThrow();
+    expect(
+      tree!.root.findByProps({ testID: 'home-startup-step' }),
+    ).toBeTruthy();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'service-copy-link' }),
+    ).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'service-refresh-address' }),
+    ).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'service-address-row' }),
+    ).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'content-sharing-panel' }),
+    ).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'shared-files-panel' }),
+    ).toThrow();
+    expect(() => tree!.root.findByProps({ testID: 'project-panel' })).toThrow();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'service-network-warning' }),
+    ).toThrow();
   });
 
   test('shows received file timestamps and removes the shared file project shortcut', () => {
-    const receivedFile = createSharedFile('file-a', 'project-a', 'received.txt');
+    const receivedFile = createSharedFile(
+      'file-a',
+      'project-a',
+      'received.txt',
+    );
     const noticeMessage = '服务状态已更新，当前会话内容可继续管理。';
     const model = createModel({
       activeProjectFiles: [receivedFile],
@@ -587,11 +871,15 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'file-received-at-file-a'})).toBeTruthy();
-    expect(() => tree!.root.findByProps({testID: 'shared-file-project-file-b'})).toThrow();
+    expect(
+      tree!.root.findByProps({ testID: 'file-received-at-file-a' }),
+    ).toBeTruthy();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'shared-file-project-file-b' }),
+    ).toThrow();
     expect(
       tree!.root.findAll(node => {
-        const {children} = node.props ?? {};
+        const { children } = node.props ?? {};
         return (
           children === noticeMessage ||
           (Array.isArray(children) && children.includes(noticeMessage))
@@ -601,14 +889,12 @@ describe('App sidebar history', () => {
   });
 
   test('opens the project history drawer from the toolbar on narrow screens', () => {
-    jest
-      .spyOn(require('react-native'), 'useWindowDimensions')
-      .mockReturnValue({
-        fontScale: 1,
-        height: 844,
-        scale: 3,
-        width: 390,
-      });
+    jest.spyOn(require('react-native'), 'useWindowDimensions').mockReturnValue({
+      fontScale: 1,
+      height: 844,
+      scale: 3,
+      width: 390,
+    });
 
     const model = createModel();
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
@@ -618,19 +904,19 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(() => tree!.root.findByProps({testID: 'sidebar-panel'})).toThrow();
+    expect(() => tree!.root.findByProps({ testID: 'sidebar-panel' })).toThrow();
 
     act(() => {
-      tree!.root.findByProps({testID: 'sidebar-open'}).props.onPress();
+      tree!.root.findByProps({ testID: 'sidebar-open' }).props.onPress();
     });
 
-    expect(tree!.root.findByProps({testID: 'sidebar-panel'})).toBeTruthy();
+    expect(tree!.root.findByProps({ testID: 'sidebar-panel' })).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'sidebar-backdrop'}).props.onPress();
+      tree!.root.findByProps({ testID: 'sidebar-backdrop' }).props.onPress();
     });
 
-    expect(() => tree!.root.findByProps({testID: 'sidebar-panel'})).toThrow();
+    expect(() => tree!.root.findByProps({ testID: 'sidebar-panel' })).toThrow();
   });
 
   test('shows the onboarding overlay for first-run users and lets them reopen it later', () => {
@@ -642,6 +928,12 @@ describe('App sidebar history', () => {
         status: 'unseen',
         version: 'workspace-tour-v1',
       },
+      serviceState: {
+        ...createModel().serviceState,
+        accessUrl: undefined,
+        phase: 'idle',
+        qrValue: undefined,
+      },
     });
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
 
@@ -650,35 +942,49 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-overlay'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-sheet-docked'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-image-service'})).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'workspace-onboarding-overlay' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'workspace-onboarding-sheet-docked' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'workspace-onboarding-image-service' }),
+    ).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'workspace-onboarding-next' })
+        .props.onPress();
     });
 
     expect(
-      tree!.root.findByProps({testID: 'workspace-onboarding-previous'}),
+      tree!.root.findByProps({ testID: 'workspace-onboarding-previous' }),
     ).toBeTruthy();
     expect(
-      tree!.root.findByProps({testID: 'workspace-onboarding-image-shared-files'}),
+      tree!.root.findByProps({
+        testID: 'workspace-onboarding-image-content-sharing',
+      }),
     ).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-skip'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'workspace-onboarding-skip' })
+        .props.onPress();
     });
 
     expect(model.skipWorkspaceOnboarding).toHaveBeenCalled();
 
     act(() => {
-      tree!.root.findByProps({testID: 'workspace-open-onboarding'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'workspace-open-onboarding' })
+        .props.onPress();
     });
 
     expect(model.openWorkspaceOnboarding).toHaveBeenCalled();
   });
 
-  test('opens a locale menu in the header and forwards language changes', () => {
+  test('shows the alternate language in the header and switches directly', () => {
     const model = createModel();
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
 
@@ -687,18 +993,27 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    act(() => {
-      tree!.root.findByProps({testID: 'locale-menu-open'}).props.onPress();
-    });
-
-    expect(tree!.root.findByProps({testID: 'locale-menu-item-zh-CN'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'locale-menu-item-en-US'})).toBeTruthy();
+    const localeButton = tree!.root.findByProps({ testID: 'locale-menu-open' });
+    expect(localeButton.findByType(RNText).props.children).toBe('English');
 
     act(() => {
-      tree!.root.findByProps({testID: 'locale-menu-item-en-US'}).props.onPress();
+      localeButton.props.onPress();
     });
 
     expect(model.setLocale).toHaveBeenCalledWith('en-US');
+
+    const englishModel = createModel({ locale: 'en-US' });
+    mockUseAppModel.mockReturnValue(
+      englishModel as ReturnType<typeof useAppModel>,
+    );
+    act(() => {
+      tree!.update(<App />);
+    });
+
+    expect(
+      tree!.root.findByProps({ testID: 'locale-menu-open' }).findByType(RNText)
+        .props.children,
+    ).toBe('中文');
   });
 
   test('switches between home and settings tabs while keeping transfer actions on home', () => {
@@ -710,25 +1025,33 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'tab-home'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'tab-settings'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'home-toggle-service'})).toBeTruthy();
+    expect(tree!.root.findByProps({ testID: 'tab-home' })).toBeTruthy();
+    expect(tree!.root.findByProps({ testID: 'tab-settings' })).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'home-toggle-service' }),
+    ).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'tab-settings'}).props.onPress();
+      tree!.root.findByProps({ testID: 'tab-settings' }).props.onPress();
     });
 
-    expect(tree!.root.findByProps({testID: 'settings-language-item'})).toBeTruthy();
-    expect(() => tree!.root.findByProps({testID: 'home-toggle-service'})).toThrow();
+    expect(
+      tree!.root.findByProps({ testID: 'settings-language-item' }),
+    ).toBeTruthy();
+    expect(() =>
+      tree!.root.findByProps({ testID: 'home-toggle-service' }),
+    ).toThrow();
 
     act(() => {
-      tree!.root.findByProps({testID: 'tab-home'}).props.onPress();
+      tree!.root.findByProps({ testID: 'tab-home' }).props.onPress();
     });
 
-    expect(tree!.root.findByProps({testID: 'home-toggle-service'})).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'home-toggle-service' }),
+    ).toBeTruthy();
   });
 
-  test('opens the settings language menu and forwards language changes', () => {
+  test('shows the alternate language in settings and keeps the full selector available', () => {
     const model = createModel();
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
 
@@ -738,19 +1061,36 @@ describe('App sidebar history', () => {
     });
 
     act(() => {
-      tree!.root.findByProps({testID: 'tab-settings'}).props.onPress();
+      tree!.root.findByProps({ testID: 'tab-settings' }).props.onPress();
     });
+
+    const quickLocaleButton = tree!.root.findByProps({
+      testID: 'settings-locale-menu-open',
+    });
+    expect(quickLocaleButton.findByType(RNText).props.children).toBe('English');
 
     act(() => {
-      tree!.root.findByProps({testID: 'settings-language-item'}).props.onPress();
+      quickLocaleButton.props.onPress();
     });
 
-    expect(tree!.root.findByProps({testID: 'settings-language-menu-item-zh-CN'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'settings-language-menu-item-en-US'})).toBeTruthy();
+    expect(model.setLocale).toHaveBeenCalledWith('en-US');
 
     act(() => {
       tree!.root
-        .findByProps({testID: 'settings-language-menu-item-en-US'})
+        .findByProps({ testID: 'settings-language-item' })
+        .props.onPress();
+    });
+
+    expect(
+      tree!.root.findByProps({ testID: 'settings-language-menu-item-zh-CN' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'settings-language-menu-item-en-US' }),
+    ).toBeTruthy();
+
+    act(() => {
+      tree!.root
+        .findByProps({ testID: 'settings-language-menu-item-en-US' })
         .props.onPress();
     });
 
@@ -758,14 +1098,12 @@ describe('App sidebar history', () => {
   });
 
   test('uses a floating onboarding card on phone layouts', () => {
-    jest
-      .spyOn(require('react-native'), 'useWindowDimensions')
-      .mockReturnValue({
-        fontScale: 1,
-        height: 844,
-        scale: 3,
-        width: 390,
-      });
+    jest.spyOn(require('react-native'), 'useWindowDimensions').mockReturnValue({
+      fontScale: 1,
+      height: 844,
+      scale: 3,
+      width: 390,
+    });
 
     const model = createModel({
       onboarding: {
@@ -783,7 +1121,9 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-sheet-phone'})).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'workspace-onboarding-sheet-phone' }),
+    ).toBeTruthy();
   });
 
   test('keeps the onboarding overlay available when the address target is missing and completes on the last step', () => {
@@ -820,40 +1160,43 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    expect(tree!.root.findByProps({testID: 'service-address-collapsed'})).toBeTruthy();
-
-    act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
-    });
-
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-overlay'})).toBeTruthy();
     expect(
-      tree!.root.findByProps({testID: 'workspace-onboarding-image-shared-files'}),
+      tree!.root.findByProps({ testID: 'home-startup-step' }),
     ).toBeTruthy();
 
     act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'workspace-onboarding-next' })
+        .props.onPress();
     });
 
     expect(
-      tree!.root.findByProps({testID: 'workspace-onboarding-complete'}),
+      tree!.root.findByProps({ testID: 'workspace-onboarding-overlay' }),
     ).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-image-project'})).toBeTruthy();
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-body'}).props.children).toContain(
-      'App Store',
-    );
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-body'}).props.children).toContain(
-      'GitHub',
-    );
+    expect(
+      tree!.root.findByProps({
+        testID: 'workspace-onboarding-image-content-sharing',
+      }),
+    ).toBeTruthy();
+
+    expect(
+      tree!.root.findByProps({ testID: 'workspace-onboarding-complete' }),
+    ).toBeTruthy();
+    expect(
+      tree!.root.findByProps({ testID: 'workspace-onboarding-body' }).props
+        .children,
+    ).toContain('这个工作区');
 
     act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-complete'}).props.onPress();
+      tree!.root
+        .findByProps({ testID: 'workspace-onboarding-complete' })
+        .props.onPress();
     });
 
     expect(model.completeWorkspaceOnboarding).toHaveBeenCalled();
   });
 
-  test('explains that files can be sent into the app through the system share flow', () => {
+  test('explains that received files stay in the content-sharing workspace', () => {
     const model = createModel({
       onboarding: {
         canReopen: true,
@@ -870,12 +1213,9 @@ describe('App sidebar history', () => {
       tree = renderer.create(<App />);
     });
 
-    act(() => {
-      tree!.root.findByProps({testID: 'workspace-onboarding-next'}).props.onPress();
-    });
-
-    expect(tree!.root.findByProps({testID: 'workspace-onboarding-body'}).props.children).toContain(
-      '系统分享',
-    );
+    expect(
+      tree!.root.findByProps({ testID: 'workspace-onboarding-body' }).props
+        .children,
+    ).toContain('别人发送的文件');
   });
 });

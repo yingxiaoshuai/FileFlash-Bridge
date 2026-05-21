@@ -4,7 +4,7 @@ import {theme} from './theme';
 
 export const paperTheme = {
   ...MD3LightTheme,
-  roundness: 7,
+  roundness: theme.tokens.radius.md,
   colors: {
     ...MD3LightTheme.colors,
     background: theme.colors.background,
@@ -24,6 +24,7 @@ export const paperTheme = {
     secondary: theme.colors.secondary,
     secondaryContainer: theme.colors.secondarySoft,
     surface: theme.colors.surface,
+    surfaceDisabled: theme.colors.surfaceMuted,
     surfaceVariant: theme.colors.surfaceMuted,
     tertiary: theme.colors.success,
     tertiaryContainer: theme.colors.successSoft,

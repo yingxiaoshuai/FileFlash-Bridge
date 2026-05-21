@@ -21,10 +21,8 @@ import { theme } from './theme';
 import { FeedbackBanner } from './ui';
 import { useAppModel } from './useAppModel';
 import { WorkspaceOnboardingOverlay } from './workspaceOnboarding';
-import {
-  APP_LOCALE_OPTIONS,
-  createAppTranslator,
-} from '../modules/localization/i18n';
+import { createAppTranslator } from '../modules/localization/i18n';
+import type { AppLocale } from '../modules/localization/i18n';
 import type {
   WorkspaceTourAnchorRect,
   WorkspaceTourStep,
@@ -36,11 +34,11 @@ type TourTargetNode = React.ElementRef<typeof View>;
 export function AppShell(): React.JSX.Element {
   const model = useAppModel();
   const t = createAppTranslator(model.locale);
+  const clearNotice = model.clearNotice;
+  const noticeMessage = model.notice?.message;
+  const noticeTone = model.notice?.tone;
   const skipWorkspaceOnboarding = model.skipWorkspaceOnboarding;
   const [activeTab, setActiveTab] = React.useState<AppTabId>('home');
-  const [isLocaleMenuVisible, setLocaleMenuVisible] = React.useState(false);
-  const [isSettingsQuickLocaleMenuVisible, setSettingsQuickLocaleMenuVisible] =
-    React.useState(false);
   const [isSettingsLocaleMenuVisible, setSettingsLocaleMenuVisible] =
     React.useState(false);
   const [isProjectHistoryOpen, setProjectHistoryOpen] = React.useState(false);
@@ -64,20 +62,18 @@ export function AppShell(): React.JSX.Element {
   const pagePadding = width < 480 ? 12 : 16;
   const stackOverviewCards = width < 1180;
   const stackProjectPanels = width < 1020;
-  const qrSize = width < 480 ? 118 : 156;
-  const serviceCardContentMax = stackOverviewCards
-    ? width - pagePadding * 2 - 36
-    : Math.max(160, Math.floor((width - pagePadding * 2 - 14) / 2) - 36);
-  const serviceQrSize = Math.min(qrSize, Math.max(112, serviceCardContentMax));
   const tabBarPadding = 12;
   const historyDrawerWidth =
     width < 560
       ? Math.min(Math.max(280, Math.floor(width * 0.82)), 340)
       : Math.min(Math.max(304, Math.floor(width * 0.32)), 380);
-  const currentLocaleLabel = t(
-    APP_LOCALE_OPTIONS.find(option => option.value === model.locale)
-      ?.labelKey ?? 'settings.language.option.zh',
-  );
+  const targetLocale =
+    model.locale === 'zh-CN' ? ('en-US' as const) : ('zh-CN' as const);
+  const targetLocaleLabel = targetLocale === 'zh-CN' ? '中文' : 'English';
+  const isServiceReachable =
+    model.serviceState.phase === 'running' &&
+    Boolean(model.serviceState.accessUrl) &&
+    model.serviceState.network.reachable;
   const previousActiveProjectIdRef = React.useRef<string | undefined>(
     model.activeProject?.id,
   );
@@ -188,6 +184,9 @@ export function AppShell(): React.JSX.Element {
 
   const tourTargetCallbacks = React.useMemo(
     () => ({
+      'content-sharing-panel': (node: TourTargetNode | null) => {
+        setTourTargetRef('content-sharing-panel', node);
+      },
       'help-button': (node: TourTargetNode | null) => {
         setTourTargetRef('help-button', node);
       },
@@ -248,22 +247,18 @@ export function AppShell(): React.JSX.Element {
   }, [activeTab]);
 
   React.useEffect(() => {
-    if (!model.notice) {
+    if (!noticeMessage) {
       return;
     }
 
-    const timerId = setTimeout(() => {
-      model.clearNotice();
-    }, 3000);
+    const timerId = setTimeout(clearNotice, 3000);
 
     return () => {
       clearTimeout(timerId);
     };
-  }, [model.notice?.message, model.notice?.tone]);
+  }, [clearNotice, noticeMessage, noticeTone]);
 
   React.useEffect(() => {
-    setLocaleMenuVisible(false);
-    setSettingsQuickLocaleMenuVisible(false);
     setSettingsLocaleMenuVisible(false);
   }, [activeTab]);
 
@@ -275,8 +270,7 @@ export function AppShell(): React.JSX.Element {
     measureTourTarget('help-button');
     measureTourTarget('service-panel');
     measureTourTarget('service-address');
-    measureTourTarget('shared-files-panel');
-    measureTourTarget('project-panel');
+    measureTourTarget('content-sharing-panel');
   }, [
     measureTourTarget,
     model.activeProject?.id,
@@ -348,32 +342,24 @@ export function AppShell(): React.JSX.Element {
     };
   }, [activeTab, isProjectHistoryOpen, model.onboarding.isVisible]);
 
-  const tourSteps: WorkspaceTourStep<WorkspaceTourTargetId>[] = [
-    {
-      body:
-        model.serviceState.phase === 'running'
-          ? t('onboarding.service.body.running')
-          : t('onboarding.service.body.stopped'),
-      id: 'service',
-      target: 'service-panel',
-      title:
-        model.serviceState.phase === 'running'
-          ? t('onboarding.service.title.running')
-          : t('onboarding.service.title.stopped'),
-    },
-    {
-      body: t('onboarding.shared.body'),
-      id: 'shared-files',
-      target: 'shared-files-panel',
-      title: t('onboarding.shared.title'),
-    },
-    {
-      body: t('onboarding.project.body'),
-      id: 'project',
-      target: 'project-panel',
-      title: t('onboarding.project.title'),
-    },
-  ];
+  const contentSharingTourStep: WorkspaceTourStep<WorkspaceTourTargetId> = {
+    body: t('onboarding.contentSharing.body'),
+    id: 'content-sharing',
+    target: 'content-sharing-panel',
+    title: t('onboarding.contentSharing.title'),
+  };
+  const tourSteps: WorkspaceTourStep<WorkspaceTourTargetId>[] =
+    isServiceReachable
+      ? [contentSharingTourStep]
+      : [
+          {
+            body: t('onboarding.service.body.stopped'),
+            id: 'service',
+            target: 'service-panel',
+            title: t('onboarding.service.title.stopped'),
+          },
+          contentSharingTourStep,
+        ];
   const onboardingLabels = {
     close: t('onboarding.close'),
     complete: t('onboarding.complete'),
@@ -394,11 +380,7 @@ export function AppShell(): React.JSX.Element {
     ? tourTargetRects[activeTourTargetId]
     : undefined;
 
-  const handleSelectLocale = (
-    locale: (typeof APP_LOCALE_OPTIONS)[number]['value'],
-  ) => {
-    setLocaleMenuVisible(false);
-    setSettingsQuickLocaleMenuVisible(false);
+  const handleSelectLocale = (locale: AppLocale) => {
     setSettingsLocaleMenuVisible(false);
     void model.setLocale(locale);
   };
@@ -437,18 +419,17 @@ export function AppShell(): React.JSX.Element {
             {activeTab === 'home' ? (
               <HomeScreen
                 activeTourTargetId={activeTourTargetId}
-                currentLocaleLabel={currentLocaleLabel}
                 historyDrawerWidth={historyDrawerWidth}
                 insets={insets}
-                isLocaleMenuVisible={isLocaleMenuVisible}
                 isProjectHistoryOpen={isProjectHistoryOpen}
                 model={model}
                 pagePadding={pagePadding}
                 projectActionMenuId={projectActionMenuId}
-                serviceQrSize={serviceQrSize}
                 stackOverviewCards={stackOverviewCards}
                 stackProjectPanels={stackProjectPanels}
                 tabBarPadding={tabBarPadding}
+                targetLocale={targetLocale}
+                targetLocaleLabel={targetLocaleLabel}
                 t={t}
                 tourTargetCallbacks={tourTargetCallbacks}
                 width={width}
@@ -456,32 +437,25 @@ export function AppShell(): React.JSX.Element {
                   void model.openWorkspaceOnboarding();
                 }}
                 onSelectLocale={handleSelectLocale}
-                setLocaleMenuVisible={setLocaleMenuVisible}
                 setProjectActionMenuId={setProjectActionMenuId}
                 setProjectHistoryOpen={setProjectHistoryOpen}
               />
             ) : (
               <SettingsScreen
-                currentLocaleLabel={currentLocaleLabel}
                 isBusy={Boolean(model.busyAction)}
                 isLocaleMenuVisible={isSettingsLocaleMenuVisible}
-                isQuickLocaleMenuVisible={isSettingsQuickLocaleMenuVisible}
                 locale={model.locale}
                 onDismissLocaleMenu={() => {
                   setSettingsLocaleMenuVisible(false);
                 }}
-                onDismissQuickLocaleMenu={() => {
-                  setSettingsQuickLocaleMenuVisible(false);
-                }}
                 onOpenLocaleMenu={() => {
                   setSettingsLocaleMenuVisible(true);
-                }}
-                onOpenQuickLocaleMenu={() => {
-                  setSettingsQuickLocaleMenuVisible(true);
                 }}
                 onSelectLocale={handleSelectLocale}
                 pagePadding={pagePadding}
                 tabBarPadding={tabBarPadding}
+                targetLocale={targetLocale}
+                targetLocaleLabel={targetLocaleLabel}
                 t={t}
               />
             )}

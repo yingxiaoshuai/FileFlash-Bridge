@@ -1,7 +1,10 @@
 import React from 'react';
-import { StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import type { AccessibilityState, StyleProp, ViewStyle } from 'react-native';
 import { Button, IconButton, Surface } from 'react-native-paper';
 
+import { AppIcon } from './icons/AppIcons';
+import type { AppIconName } from './icons/AppIcons';
 import { theme } from './theme';
 
 type ButtonTone = 'primary' | 'secondary' | 'danger';
@@ -80,8 +83,9 @@ export function ActionButton({
 
 type GlyphIconButtonProps = {
   accessibilityLabel?: string;
+  accessibilityState?: AccessibilityState;
   disabled?: boolean;
-  glyph: string;
+  iconName: AppIconName;
   onPress: () => void;
   selected?: boolean;
   testID?: string;
@@ -89,8 +93,9 @@ type GlyphIconButtonProps = {
 
 export function GlyphIconButton({
   accessibilityLabel,
+  accessibilityState,
   disabled,
-  glyph,
+  iconName,
   onPress,
   selected,
   testID,
@@ -98,26 +103,24 @@ export function GlyphIconButton({
   return (
     <IconButton
       accessibilityLabel={accessibilityLabel}
+      accessibilityState={
+        accessibilityState ?? (disabled ? { disabled: true } : undefined)
+      }
       containerColor={
         selected ? theme.colors.primarySoft : theme.colors.surfaceGlassStrong
       }
       disabled={disabled}
       icon={({ size, color }) => (
-        <Text
-          style={[
-            styles.iconGlyph,
-            {
-              color,
-              fontSize: size * 0.88,
-            },
-          ]}
-        >
-          {glyph}
-        </Text>
+        <AppIcon
+          color={color}
+          name={iconName}
+          size={Math.min(size, theme.tokens.iconSize.lg)}
+          strokeWidth={selected ? 2.15 : 1.85}
+        />
       )}
       iconColor={selected ? theme.colors.primaryStrong : theme.colors.ink}
       onPress={onPress}
-      size={22}
+      size={theme.tokens.iconSize.md}
       style={styles.iconButton}
       testID={testID}
     />
@@ -192,18 +195,11 @@ export function InlineMeta({ children, style }: InlineMetaProps) {
 const styles = StyleSheet.create({
   button: {
     borderRadius: theme.radius.pill,
-    elevation: 3,
-    shadowColor: theme.colors.shadowStrong,
-    shadowOffset: {
-      height: 8,
-      width: 0,
-    },
-    shadowOpacity: 0.35,
-    shadowRadius: 14,
+    ...theme.tokens.shadow.action,
   },
   buttonContent: {
     minHeight: 44,
-    paddingHorizontal: 8,
+    paddingHorizontal: theme.tokens.spacing.sm,
   },
   buttonContentCompact: {
     minHeight: 36,
@@ -216,15 +212,8 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.border,
     borderRadius: theme.radius.card,
     borderWidth: 1,
-    elevation: 10,
     position: 'relative',
-    shadowColor: theme.colors.shadow,
-    shadowOffset: {
-      height: 20,
-      width: 0,
-    },
-    shadowOpacity: 1,
-    shadowRadius: 32,
+    ...theme.tokens.shadow.card,
   },
   fullWidth: {
     width: '100%',
@@ -232,20 +221,10 @@ const styles = StyleSheet.create({
   iconButton: {
     borderColor: theme.colors.border,
     borderWidth: 1,
+    height: 44,
     margin: 0,
-    shadowColor: theme.colors.shadowStrong,
-    shadowOffset: {
-      height: 7,
-      width: 0,
-    },
-    shadowOpacity: 0.22,
-    shadowRadius: 12,
-  },
-  iconGlyph: {
-    fontWeight: '700',
-    lineHeight: 22,
-    marginTop: -1,
-    textAlign: 'center',
+    width: 44,
+    ...theme.tokens.shadow.subtle,
   },
   panelSheen: {
     backgroundColor: theme.colors.highlight,
@@ -260,10 +239,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: theme.radius.card,
     flexDirection: 'row',
-    gap: 14,
+    gap: theme.tokens.spacing.md - 2,
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
-    paddingVertical: 16,
+    paddingHorizontal: theme.tokens.spacing.md + 2,
+    paddingVertical: theme.tokens.spacing.md,
   },
   bannerInfo: {
     backgroundColor: theme.colors.secondarySoft,
@@ -284,10 +263,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surfaceMuted,
     borderColor: theme.colors.border,
     borderRadius: theme.radius.card,
-    borderStyle: 'dashed',
     borderWidth: 1,
-    paddingHorizontal: 18,
-    paddingVertical: 24,
+    paddingHorizontal: theme.tokens.spacing.md + 2,
+    paddingVertical: theme.tokens.spacing.lg,
   },
   emptyStateTitle: {
     color: theme.colors.inkSoft,
@@ -296,6 +274,6 @@ const styles = StyleSheet.create({
   inlineMeta: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: theme.tokens.spacing.sm + 2,
   },
 });

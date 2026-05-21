@@ -79,6 +79,12 @@ export interface RuntimeRestoreResult {
   state: ServiceState;
 }
 
+function isPortInUseMessage(message: string) {
+  return /EADDRINUSE|address already in use|port(?:\s+\d+)?\s+is already in use|port(?:\s+\d+)?\s+already in use/i.test(
+    message,
+  );
+}
+
 export interface TransferServiceControllerOptions {
   config: ServiceConfig;
   networkProvider: () => Promise<NetworkInterfaceDescriptor[]>;
@@ -262,7 +268,7 @@ export class TransferServiceController {
       const message =
         error instanceof Error ? error.message : t('api.startServiceFailed');
       this.setError({
-        code: /EADDRINUSE/i.test(message) ? 'PORT_IN_USE' : 'SERVICE_STOPPED',
+        code: isPortInUseMessage(message) ? 'PORT_IN_USE' : 'SERVICE_STOPPED',
         message,
         recoverable: true,
         suggestedAction: t('api.changePortOrStopConflict'),
