@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { Drawer, Menu } from 'react-native-paper';
 
 import { styles } from '../appShellStyles';
@@ -136,11 +137,6 @@ export function HomeScreen({
     : localizedServiceError
     ? t('home.service.retryStart')
     : t('home.service.start');
-  const startupStatusText = localizedServiceError?.message
-    ? localizedServiceError.message
-    : model.serviceState.network.reachable
-    ? t('home.service.startStepBody')
-    : t('home.service.networkUnavailable');
   const projectTitleById = React.useMemo(
     () => new Map(model.projects.map(project => [project.id, project.title])),
     [model.projects],
@@ -171,18 +167,6 @@ export function HomeScreen({
     messages: activeProjectMessageCount,
     shared: model.sharedFiles.length,
   });
-  const servicePhaseMetadata: WorkspacePhaseMetadata = {
-    complete: isServiceReachable,
-    id: 'service-startup',
-    shortLabel: t('home.flow.stepService'),
-    summary: isServiceReachable
-      ? t('home.flow.serviceReadySummary', {
-          count: model.serviceState.activeConnections.length,
-          mode: securityModeLabel,
-        })
-      : startupStatusText,
-    title: t('home.service.title'),
-  };
   const contentPhaseMetadata: WorkspacePhaseMetadata = {
     complete: isContentSharingPhase,
     id: 'content-sharing',
@@ -450,16 +434,7 @@ export function HomeScreen({
                     styles.serviceStartupFocusCard,
                   ]}
                 >
-                <View style={styles.serviceHeaderRow}>
-                  <View style={styles.serviceHeaderTitleWrap}>
-                    <Text style={styles.stepEyebrow}>
-                      {servicePhaseMetadata.shortLabel}
-                    </Text>
-                    <SectionTitle title={servicePhaseMetadata.title} />
-                    <Text numberOfLines={2} style={styles.phaseSummaryText}>
-                      {servicePhaseMetadata.summary}
-                    </Text>
-                  </View>
+                <View style={styles.startupNetworkRow}>
                   <NetworkTag
                     label={t('home.service.network')}
                     reachable={model.serviceState.network.reachable}
@@ -469,10 +444,18 @@ export function HomeScreen({
 
                   <View style={styles.startupHero} testID="home-startup-step">
                     <Animated.View
-                      style={{
+                      style={[
+                        styles.startupButtonStage,
+                        {
                         transform: [{ scale: startupScale }],
-                      }}
+                        },
+                      ]}
                     >
+                      <View pointerEvents="none" style={styles.startupHalo} />
+                      <View
+                        pointerEvents="none"
+                        style={styles.startupHaloOuter}
+                      />
                       <Pressable
                         accessibilityLabel={startupActionLabel}
                         accessibilityRole="button"
@@ -499,6 +482,14 @@ export function HomeScreen({
                         ]}
                         testID="home-toggle-service"
                       >
+                        <View
+                          pointerEvents="none"
+                          style={styles.startupCircleShine}
+                        />
+                        <View
+                          pointerEvents="none"
+                          style={styles.startupCircleOrbit}
+                        />
                         <Text style={styles.startupCircleKicker}>
                           {t('home.service.startStepKicker')}
                         </Text>
@@ -507,14 +498,6 @@ export function HomeScreen({
                         </Text>
                       </Pressable>
                     </Animated.View>
-                    <Text style={styles.startupStatusText}>
-                      {startupStatusText}
-                    </Text>
-                    {localizedServiceError?.suggestedAction ? (
-                      <Text style={styles.startupSuggestionText}>
-                        {localizedServiceError.suggestedAction}
-                      </Text>
-                    ) : null}
                   </View>
 
                   <View style={styles.serviceSecondaryPanel}>
@@ -586,9 +569,6 @@ export function HomeScreen({
                   >
                     <View style={styles.contentWorkspaceHeader}>
                     <View style={styles.contentWorkspaceHeaderMain}>
-                      <Text style={styles.stepEyebrow}>
-                        {contentPhaseMetadata.shortLabel}
-                      </Text>
                       <SectionTitle title={contentPhaseMetadata.title} />
                       <Text
                         numberOfLines={2}
@@ -598,34 +578,41 @@ export function HomeScreen({
                       </Text>
                     </View>
                     <View style={styles.sharedFilesHeaderActions}>
-                      <IconButton
+                      <GhostButton
                         accessibilityLabel={t('home.shared.importFiles')}
+                        compact
                         disabled={isBusy}
-                        icon="add"
+                        label={t('home.shared.importFiles')}
                         onPress={() => {
                           void model.importFilesForShare();
                         }}
+                        style={styles.sharedHeaderActionButton}
                         testID="home-import-files"
                       />
-                      <IconButton
+                      <GhostButton
                         accessibilityLabel={t('home.shared.importMedia')}
+                        compact
                         disabled={isBusy}
-                        icon="image"
+                        label={t('home.shared.importMedia')}
                         onPress={() => {
                           void model.importMediaForShare();
                         }}
+                        style={styles.sharedHeaderActionButton}
                         testID="home-import-media"
                       />
                       {model.sharedFiles.length > 0 ? (
-                        <IconButton
+                        <GhostButton
                           accessibilityLabel={
                             isSharedDownloadSelectionMode
                               ? t('home.shared.cancelSelection')
                               : t('home.shared.selectDownloads')
                           }
+                          compact
                           disabled={isBusy}
-                          icon={
-                            isSharedDownloadSelectionMode ? 'close' : 'check'
+                          label={
+                            isSharedDownloadSelectionMode
+                              ? t('home.shared.cancelSelection')
+                              : t('home.shared.selectDownloads')
                           }
                           onPress={() => {
                             if (isSharedDownloadSelectionMode) {
@@ -634,6 +621,7 @@ export function HomeScreen({
                               setSharedDownloadSelectionMode(true);
                             }
                           }}
+                          style={styles.sharedHeaderActionButton}
                           testID="home-shared-select-downloads"
                         />
                       ) : null}
@@ -648,8 +636,28 @@ export function HomeScreen({
                       testID="service-address-row"
                     >
                       <View style={styles.contentServiceStrip}>
+                        <View style={styles.contentServiceStopCell}>
+                          <Pressable
+                            accessibilityLabel={t('home.service.stop')}
+                            accessibilityRole="button"
+                            accessibilityState={{ disabled: isBusy }}
+                            disabled={isBusy}
+                            onPress={() => {
+                              void model.toggleService();
+                            }}
+                            style={({ pressed }) => [
+                              styles.contentServiceStopButton,
+                              pressed ? styles.contentServiceStopPressed : null,
+                              isBusy ? styles.contentServiceStopDisabled : null,
+                            ]}
+                            testID="home-toggle-service"
+                          >
+                            <Text style={styles.contentServiceStopLabel}>
+                              {stackActionLabel(t('home.service.stop'))}
+                            </Text>
+                          </Pressable>
+                        </View>
                         <Text
-                          numberOfLines={1}
                           selectable
                           style={styles.contentServiceAddress}
                         >
@@ -673,15 +681,6 @@ export function HomeScreen({
                               void model.refreshAddress();
                             }}
                             testID="service-refresh-address"
-                          />
-                          <PrimaryButton
-                            compact
-                            disabled={isBusy}
-                            label={t('home.service.stop')}
-                            onPress={() => {
-                              void model.toggleService();
-                            }}
-                            testID="home-toggle-service"
                           />
                         </View>
                       </View>
@@ -1096,6 +1095,7 @@ type ButtonProps = {
   fullWidth?: boolean;
   label: string;
   onPress: () => void;
+  style?: StyleProp<ViewStyle>;
   testID?: string;
 };
 
@@ -1106,6 +1106,7 @@ function PrimaryButton({
   fullWidth,
   label,
   onPress,
+  style,
   testID,
 }: ButtonProps) {
   return (
@@ -1116,6 +1117,7 @@ function PrimaryButton({
       fullWidth={fullWidth}
       label={label}
       onPress={onPress}
+      style={style}
       testID={testID}
       tone="primary"
     />
@@ -1129,6 +1131,7 @@ function GhostButton({
   fullWidth,
   label,
   onPress,
+  style,
   testID,
 }: ButtonProps) {
   return (
@@ -1139,6 +1142,7 @@ function GhostButton({
       fullWidth={fullWidth}
       label={label}
       onPress={onPress}
+      style={style}
       testID={testID}
       tone="secondary"
     />
@@ -1152,6 +1156,7 @@ function DangerGhostButton({
   fullWidth,
   label,
   onPress,
+  style,
   testID,
 }: ButtonProps) {
   return (
@@ -1162,6 +1167,7 @@ function DangerGhostButton({
       fullWidth={fullWidth}
       label={label}
       onPress={onPress}
+      style={style}
       testID={testID}
       tone="danger"
     />
@@ -1209,6 +1215,24 @@ function MenuTriggerButton({
       testID={testID}
     />
   );
+}
+
+function stackActionLabel(label: string) {
+  const trimmed = label.trim();
+
+  if (/^[\u4e00-\u9fff]{4}$/.test(trimmed)) {
+    return `${trimmed.slice(0, 2)}\n${trimmed.slice(2)}`;
+  }
+
+  const normalized = trimmed.replace(/\s+/g, ' ');
+  const firstSpaceIndex = normalized.indexOf(' ');
+  if (firstSpaceIndex > 0) {
+    return `${normalized.slice(0, firstSpaceIndex)}\n${normalized.slice(
+      firstSpaceIndex + 1,
+    )}`;
+  }
+
+  return normalized;
 }
 
 type ProjectHistoryRowProps = {
@@ -1398,44 +1422,48 @@ function FileCard({
             {file.displayName}
           </Text>
           <Text style={styles.fileMeta}>{formatBytes(file.size)}</Text>
-          <Text
-            style={styles.fileReceivedAt}
-            testID={`file-received-at-${file.id}`}
-          >
-            {t('file.receivedAt', {
-              date: formatDateTime(file.createdAt, locale),
-            })}
-          </Text>
-          <Text numberOfLines={2} style={styles.filePath}>
-            {file.relativePath}
-          </Text>
+          <View style={styles.fileMetaRow}>
+            <Text
+              style={styles.fileReceivedAt}
+              testID={`file-received-at-${file.id}`}
+            >
+              {t('file.receivedAt', {
+                date: formatDateTime(file.createdAt, locale),
+              })}
+            </Text>
+            <Text
+              style={[styles.fileTag, isShared ? styles.fileTagShared : null]}
+            >
+              {isShared ? t('file.shared') : t('file.notShared')}
+            </Text>
+          </View>
         </View>
-        <Text style={[styles.fileTag, isShared ? styles.fileTagShared : null]}>
-          {isShared ? t('file.shared') : t('file.notShared')}
-        </Text>
       </View>
-      <View
-        style={[
-          styles.fileCardActionsRow,
-          compact ? styles.fileCardActionsRowCompact : null,
-        ]}
-      >
-        <IconButton
-          accessibilityLabel={
-            isShared ? t('file.removeFromShare') : t('file.addToShare')
-          }
-          disabled={busy}
-          icon={isShared ? 'remove' : 'share'}
-          onPress={onToggleShare}
-          testID={`file-toggle-share-${file.id}`}
-        />
-        <IconButton
-          accessibilityLabel={t('common.export')}
-          disabled={busy}
-          icon="download"
-          onPress={onExport}
-          testID={`file-export-${file.id}`}
-        />
+      <View style={styles.fileCardActionsStack}>
+        <View style={styles.fileCardActionsRow}>
+          <View style={styles.fileCardActionCell}>
+            <GhostButton
+              accessibilityLabel={
+                isShared ? t('file.removeFromShare') : t('file.addToShare')
+              }
+              compact
+              disabled={busy}
+              fullWidth
+              label={
+                isShared ? t('file.removeFromShare') : t('file.addToShare')
+              }
+              onPress={onToggleShare}
+              testID={`file-toggle-share-${file.id}`}
+            />
+          </View>
+          <IconButton
+            accessibilityLabel={t('common.export')}
+            disabled={busy}
+            icon="download"
+            onPress={onExport}
+            testID={`file-export-${file.id}`}
+          />
+        </View>
         <View style={styles.fileCardActionCell}>
           <DangerGhostButton
             compact
@@ -1531,12 +1559,7 @@ function SharedListCard({
         </Pressable>
       </View>
       {!selectionMode ? (
-        <View
-          style={[
-            styles.fileCardActionsRow,
-            compact ? styles.fileCardActionsRowCompact : null,
-          ]}
-        >
+        <View style={styles.fileCardActionsRow}>
           <IconButton
             accessibilityLabel={t('common.download')}
             disabled={busy}
@@ -1544,13 +1567,17 @@ function SharedListCard({
             onPress={onExport}
             testID={`shared-file-download-${file.id}`}
           />
-          <IconButton
-            accessibilityLabel={t('common.remove')}
-            disabled={busy}
-            icon="remove"
-            onPress={onRemoveShare}
-            testID={`shared-file-remove-${file.id}`}
-          />
+          <View style={styles.fileCardActionCell}>
+            <GhostButton
+              accessibilityLabel={t('common.remove')}
+              compact
+              disabled={busy}
+              fullWidth
+              label={t('common.remove')}
+              onPress={onRemoveShare}
+              testID={`shared-file-remove-${file.id}`}
+            />
+          </View>
         </View>
       ) : null}
     </PanelSurface>

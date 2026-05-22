@@ -215,17 +215,40 @@ export class TransferServiceController {
     return this.addressFromOrigin(origin);
   }
 
+  private async startRuntimeWithPortFallback(
+    handler: (request: TransferRequest) => Promise<TransferResponse>,
+  ) {
+    if (!this.options.runtime) {
+      return undefined;
+    }
+
+    try {
+      return await this.options.runtime.start({
+        handler,
+        port: this.state.config.port,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error ?? '');
+      if (this.state.config.port === 0 || !isPortInUseMessage(message)) {
+        throw error;
+      }
+
+      return this.options.runtime.start({
+        handler,
+        port: 0,
+      });
+    }
+  }
+
   async start() {
     await this.initialize();
     const {t} = await this.getTranslator();
 
     try {
-      if (this.options.runtime) {
-        this.runtimeHandle = await this.options.runtime.start({
-          handler: request => this.handleRequest(request),
-          port: this.state.config.port,
-        });
-      }
+      this.runtimeHandle = await this.startRuntimeWithPortFallback(request =>
+        this.handleRequest(request),
+      );
 
       const probed = resolveNetworkSnapshot(await this.options.networkProvider());
       const runtimeAddress = await this.resolveAddressFromRuntime();

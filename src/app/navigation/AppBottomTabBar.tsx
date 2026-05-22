@@ -35,7 +35,7 @@ export function AppBottomTabBar({
         buttons={[
           {
             accessibilityLabel: t('tabs.home'),
-            checkedColor: theme.colors.primaryStrong,
+            checkedColor: theme.colors.primary,
             icon: ({ color, size }) => (
               <HomeTabIcon color={color} size={size * 0.95} />
             ),
@@ -49,7 +49,7 @@ export function AppBottomTabBar({
           },
           {
             accessibilityLabel: t('tabs.settings'),
-            checkedColor: theme.colors.primaryStrong,
+            checkedColor: theme.colors.primary,
             icon: ({ color, size }) => (
               <SettingsTabIcon color={color} size={size * 0.95} />
             ),
@@ -69,7 +69,7 @@ export function AppBottomTabBar({
         style={styles.segmentedTabs}
         theme={{
           colors: {
-            onSecondaryContainer: theme.colors.primaryStrong,
+            onSecondaryContainer: theme.colors.primary,
             onSurface: theme.colors.inkSoft,
             outline: 'transparent',
             secondaryContainer: theme.colors.primarySoft,

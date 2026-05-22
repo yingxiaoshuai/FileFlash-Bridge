@@ -98,6 +98,68 @@ describe('TransferServiceController', () => {
     }
   });
 
+  test('falls back to an available port when the preferred port is already in use', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-port-fallback-'));
+    const storage = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 128,
+      fileSystem: new NodeFileSystemAdapter(),
+      rootDir,
+      sessionId: 'port-fallback-session',
+    });
+    const requestedPorts: number[] = [];
+    const runtime: ServiceRuntime = {
+      async start({ port }) {
+        requestedPorts.push(port);
+
+        if (port === 8668) {
+          throw new Error('bind failed: EADDRINUSE (Address already in use)');
+        }
+
+        return {
+          port: 9150,
+          stop: async () => {},
+        };
+      },
+      async isRunning() {
+        return true;
+      },
+    };
+    const controller = new TransferServiceController({
+      config: {
+        ...DEFAULT_SERVICE_CONFIG,
+        accessKey: 'fallback-key',
+        port: 8668,
+        securityMode: 'secure',
+      },
+      networkProvider: async () => [
+        {
+          address: '192.168.1.20',
+          family: 'IPv4',
+          internal: false,
+          name: 'Wi-Fi',
+        },
+      ],
+      runtime,
+      storage,
+    });
+
+    try {
+      const state = await controller.start();
+      const accessUrl = new URL(state.accessUrl ?? '');
+
+      expect(requestedPorts).toEqual([8668, 0]);
+      expect(state.phase).toBe('running');
+      expect(state.error).toBeUndefined();
+      expect(accessUrl.hostname).toBe('192.168.1.20');
+      expect(accessUrl.port).toBe('9150');
+      expect(accessUrl.searchParams.get('key')).toBe('fallback-key');
+    } finally {
+      await controller.stop();
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
   test('serves secure APIs, accepts text upload, and exposes chunked downloads', async () => {
     const { controller, rootDir, sharedFile, storage } =
       await createController();

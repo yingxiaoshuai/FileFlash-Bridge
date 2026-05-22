@@ -7,7 +7,7 @@ import { AppIcon } from './icons/AppIcons';
 import type { AppIconName } from './icons/AppIcons';
 import { theme } from './theme';
 
-type ButtonTone = 'primary' | 'secondary' | 'danger';
+type ButtonTone = 'primary' | 'secondary' | 'danger' | 'warning';
 
 type ActionButtonProps = {
   accessibilityLabel?: string;
@@ -16,6 +16,7 @@ type ActionButtonProps = {
   fullWidth?: boolean;
   label: string;
   onPress: () => void;
+  style?: StyleProp<ViewStyle>;
   testID?: string;
   tone?: ButtonTone;
 };
@@ -38,9 +39,14 @@ const toneConfig: Record<
     textColor: theme.colors.inkOnStrong,
   },
   secondary: {
-    buttonColor: theme.colors.secondarySoft,
+    buttonColor: theme.colors.surfaceMuted,
     mode: 'contained-tonal',
-    textColor: theme.colors.ink,
+    textColor: theme.colors.primary,
+  },
+  warning: {
+    buttonColor: theme.colors.danger,
+    mode: 'contained',
+    textColor: theme.colors.inkOnStrong,
   },
 };
 
@@ -51,6 +57,7 @@ export function ActionButton({
   fullWidth,
   label,
   onPress,
+  style,
   testID,
   tone = 'secondary',
 }: ActionButtonProps) {
@@ -72,6 +79,7 @@ export function ActionButton({
         styles.button,
         tone === 'danger' ? styles.buttonDanger : null,
         fullWidth ? styles.fullWidth : null,
+        style,
       ]}
       testID={testID}
       textColor={config.textColor}
@@ -107,7 +115,7 @@ export function GlyphIconButton({
         accessibilityState ?? (disabled ? { disabled: true } : undefined)
       }
       containerColor={
-        selected ? theme.colors.primarySoft : theme.colors.surfaceGlassStrong
+        selected ? theme.colors.primarySoft : theme.colors.iconSurface
       }
       disabled={disabled}
       icon={({ size, color }) => (
@@ -118,7 +126,7 @@ export function GlyphIconButton({
           strokeWidth={selected ? 2.15 : 1.85}
         />
       )}
-      iconColor={selected ? theme.colors.primaryStrong : theme.colors.ink}
+      iconColor={selected ? theme.colors.primaryStrong : theme.colors.primary}
       onPress={onPress}
       size={theme.tokens.iconSize.md}
       style={styles.iconButton}
@@ -205,10 +213,11 @@ const styles = StyleSheet.create({
     minHeight: 36,
   },
   buttonDanger: {
-    borderColor: theme.colors.dangerSoft,
+    backgroundColor: theme.colors.dangerSoft,
+    borderColor: theme.colors.danger,
   },
   panel: {
-    backgroundColor: theme.colors.surfaceGlassStrong,
+    backgroundColor: theme.colors.panelWarm,
     borderColor: theme.colors.border,
     borderRadius: theme.radius.card,
     borderWidth: 1,
@@ -245,10 +254,10 @@ const styles = StyleSheet.create({
     paddingVertical: theme.tokens.spacing.md,
   },
   bannerInfo: {
-    backgroundColor: theme.colors.secondarySoft,
+    backgroundColor: theme.colors.skySoft,
   },
   bannerSuccess: {
-    backgroundColor: theme.colors.successSoft,
+    backgroundColor: theme.colors.mintSoft,
   },
   bannerError: {
     backgroundColor: theme.colors.dangerSoft,
@@ -260,7 +269,7 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: 'center',
-    backgroundColor: theme.colors.surfaceMuted,
+    backgroundColor: theme.colors.emptySurface,
     borderColor: theme.colors.border,
     borderRadius: theme.radius.card,
     borderWidth: 1,
@@ -268,7 +277,7 @@ const styles = StyleSheet.create({
     paddingVertical: theme.tokens.spacing.lg,
   },
   emptyStateTitle: {
-    color: theme.colors.inkSoft,
+    color: theme.colors.primary,
     fontWeight: '700',
   },
   inlineMeta: {
