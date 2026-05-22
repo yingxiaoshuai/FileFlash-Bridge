@@ -1079,8 +1079,7 @@ export const styles = StyleSheet.create({
     gap: 12,
   },
   contentWorkspaceCard: {
-    backgroundColor: theme.colors.surfaceElevated,
-    borderColor: theme.colors.border,
+    alignSelf: 'stretch',
     gap: theme.tokens.spacing.md - 4,
     minWidth: 0,
   },
@@ -1115,6 +1114,10 @@ export const styles = StyleSheet.create({
   },
   contentServiceTarget: {
     alignSelf: 'stretch',
+  },
+  contentServiceAccessStack: {
+    alignSelf: 'stretch',
+    gap: 10,
   },
   contentServiceStrip: {
     alignItems: 'stretch',
@@ -1166,6 +1169,28 @@ export const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 18,
     minWidth: 0,
+  },
+  contentServiceQrFrame: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.surfaceElevated,
+    borderColor: theme.colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    height: 180,
+    justifyContent: 'center',
+    padding: 6,
+    width: 180,
+  },
+  contentServiceQrPanel: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: theme.colors.surfaceMuted,
+    borderColor: theme.colors.border,
+    borderRadius: theme.tokens.radius.lg,
+    borderWidth: 1,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    ...theme.tokens.shadow.subtle,
   },
   contentServiceActions: {
     alignItems: 'center',
@@ -1373,10 +1398,6 @@ export const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  fileMeta: {
-    color: theme.colors.inkSoft,
-    lineHeight: 20,
-  },
   fileMetaRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -1386,6 +1407,12 @@ export const styles = StyleSheet.create({
   fileReceivedAt: {
     color: theme.colors.inkSoft,
     fontSize: 12,
+    lineHeight: 18,
+  },
+  fileInlineMeta: {
+    color: theme.colors.inkSoft,
+    fontSize: 12,
+    fontWeight: '700',
     lineHeight: 18,
   },
   fileTag: {

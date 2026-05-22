@@ -13,6 +13,7 @@ import type { StyleProp, ViewStyle } from 'react-native';
 import { Drawer, Menu } from 'react-native-paper';
 
 import { styles } from '../appShellStyles';
+import { PlatformQrCode } from '../components/PlatformQrCode';
 import { setClipboardString } from '../../platform/clipboard';
 import { AppIcon } from '../icons/AppIcons';
 import type { AppIconName } from '../icons/AppIcons';
@@ -128,6 +129,8 @@ export function HomeScreen({
   const hasReachableAddress =
     Boolean(model.serviceState.accessUrl) &&
     model.serviceState.network.reachable;
+  const serviceQrValue =
+    model.serviceState.qrValue ?? model.serviceState.accessUrl;
   const isServiceReachable = isServiceRunning && hasReachableAddress;
   const workspacePhase = resolveWorkspacePhase(isServiceReachable);
   const isServiceStartupPhase = workspacePhase === 'service-startup';
@@ -137,10 +140,6 @@ export function HomeScreen({
     : localizedServiceError
     ? t('home.service.retryStart')
     : t('home.service.start');
-  const projectTitleById = React.useMemo(
-    () => new Map(model.projects.map(project => [project.id, project.title])),
-    [model.projects],
-  );
   const renameTargetProject = React.useMemo(
     () => model.projects.find(project => project.id === renameProjectId),
     [model.projects, renameProjectId],
@@ -563,8 +562,8 @@ export function HomeScreen({
                   captureRef={tourTargetCallbacks['content-sharing-panel']}
                   style={styles.contentWorkspaceTourTarget}
                 >
-                  <PanelSurface
-                    style={[styles.card, styles.contentWorkspaceCard]}
+                  <View
+                    style={styles.contentWorkspaceCard}
                     testID="content-sharing-panel"
                   >
                     <View style={styles.contentWorkspaceHeader}>
@@ -635,54 +634,78 @@ export function HomeScreen({
                       style={styles.contentServiceTarget}
                       testID="service-address-row"
                     >
-                      <View style={styles.contentServiceStrip}>
-                        <View style={styles.contentServiceStopCell}>
-                          <Pressable
-                            accessibilityLabel={t('home.service.stop')}
-                            accessibilityRole="button"
-                            accessibilityState={{ disabled: isBusy }}
-                            disabled={isBusy}
-                            onPress={() => {
-                              void model.toggleService();
-                            }}
-                            style={({ pressed }) => [
-                              styles.contentServiceStopButton,
-                              pressed ? styles.contentServiceStopPressed : null,
-                              isBusy ? styles.contentServiceStopDisabled : null,
-                            ]}
-                            testID="home-toggle-service"
+                      <View style={styles.contentServiceAccessStack}>
+                        <View style={styles.contentServiceStrip}>
+                          <View style={styles.contentServiceStopCell}>
+                            <Pressable
+                              accessibilityLabel={t('home.service.stop')}
+                              accessibilityRole="button"
+                              accessibilityState={{ disabled: isBusy }}
+                              disabled={isBusy}
+                              onPress={() => {
+                                void model.toggleService();
+                              }}
+                              style={({ pressed }) => [
+                                styles.contentServiceStopButton,
+                                pressed
+                                  ? styles.contentServiceStopPressed
+                                  : null,
+                                isBusy
+                                  ? styles.contentServiceStopDisabled
+                                  : null,
+                              ]}
+                              testID="home-toggle-service"
+                            >
+                              <Text style={styles.contentServiceStopLabel}>
+                                {stackActionLabel(t('home.service.stop'))}
+                              </Text>
+                            </Pressable>
+                          </View>
+                          <Text
+                            selectable
+                            style={styles.contentServiceAddress}
                           >
-                            <Text style={styles.contentServiceStopLabel}>
-                              {stackActionLabel(t('home.service.stop'))}
-                            </Text>
-                          </Pressable>
+                            {model.serviceState.accessUrl}
+                          </Text>
+                          <View style={styles.contentServiceActions}>
+                            <IconButton
+                              accessibilityLabel={t('home.service.copyLink')}
+                              disabled={isBusy}
+                              icon="copy"
+                              onPress={handleCopyLink}
+                              testID="service-copy-link"
+                            />
+                            <IconButton
+                              accessibilityLabel={t(
+                                'home.service.refreshAddress',
+                              )}
+                              disabled={isBusy}
+                              icon="refresh"
+                              onPress={() => {
+                                void model.refreshAddress();
+                              }}
+                              testID="service-refresh-address"
+                            />
+                          </View>
                         </View>
-                        <Text
-                          selectable
-                          style={styles.contentServiceAddress}
-                        >
-                          {model.serviceState.accessUrl}
-                        </Text>
-                        <View style={styles.contentServiceActions}>
-                          <IconButton
-                            accessibilityLabel={t('home.service.copyLink')}
-                            disabled={isBusy}
-                            icon="copy"
-                            onPress={handleCopyLink}
-                            testID="service-copy-link"
-                          />
-                          <IconButton
-                            accessibilityLabel={t(
-                              'home.service.refreshAddress',
-                            )}
-                            disabled={isBusy}
-                            icon="refresh"
-                            onPress={() => {
-                              void model.refreshAddress();
-                            }}
-                            testID="service-refresh-address"
-                          />
-                        </View>
+                        {serviceQrValue ? (
+                          <View
+                            accessibilityLabel={model.serviceState.accessUrl}
+                            accessibilityRole="image"
+                            style={styles.contentServiceQrPanel}
+                            testID="service-address-qr"
+                          >
+                            <View style={styles.contentServiceQrFrame}>
+                              <PlatformQrCode
+                                backgroundColor={theme.colors.surfaceElevated}
+                                color={theme.colors.ink}
+                                quietZone={6}
+                                size={168}
+                                value={serviceQrValue}
+                              />
+                            </View>
+                          </View>
+                        ) : null}
                       </View>
                     </GuidedTourTarget>
                     ) : null}
@@ -774,10 +797,6 @@ export function HomeScreen({
                               onToggleSelected={() => {
                                 handleToggleSharedDownloadSelection(file.id);
                               }}
-                              projectTitle={
-                                projectTitleById.get(file.projectId) ??
-                                t('home.shared.unnamedProject')
-                              }
                               selected={selectedSharedFileIds.has(file.id)}
                               selectionMode={isSharedDownloadSelectionMode}
                               t={t}
@@ -892,7 +911,7 @@ export function HomeScreen({
                       )}
                     </View>
                     </View>
-                  </PanelSurface>
+                  </View>
                 </GuidedTourTarget>
               </Animated.View>
             ) : null}
@@ -1421,7 +1440,6 @@ function FileCard({
           <Text numberOfLines={2} style={styles.fileName}>
             {file.displayName}
           </Text>
-          <Text style={styles.fileMeta}>{formatBytes(file.size)}</Text>
           <View style={styles.fileMetaRow}>
             <Text
               style={styles.fileReceivedAt}
@@ -1431,6 +1449,7 @@ function FileCard({
                 date: formatDateTime(file.createdAt, locale),
               })}
             </Text>
+            <Text style={styles.fileInlineMeta}>{formatBytes(file.size)}</Text>
             <Text
               style={[styles.fileTag, isShared ? styles.fileTagShared : null]}
             >
@@ -1487,7 +1506,6 @@ type SharedListCardProps = {
   onExport: () => void;
   onRemoveShare: () => void;
   onToggleSelected?: () => void;
-  projectTitle: string;
   selected?: boolean;
   selectionMode?: boolean;
   t: TranslateApp;
@@ -1501,7 +1519,6 @@ function SharedListCard({
   onExport,
   onRemoveShare,
   onToggleSelected,
-  projectTitle,
   selected,
   selectionMode,
   t,
@@ -1547,26 +1564,19 @@ function SharedListCard({
           <Text numberOfLines={2} style={styles.fileName}>
             {file.displayName}
           </Text>
-          <Text numberOfLines={2} style={styles.fileMeta}>
-            {formatBytes(file.size)} - {projectTitle}
-          </Text>
-          <Text
-            style={styles.fileReceivedAt}
-            testID={`shared-file-received-at-${file.id}`}
-          >
-            {formatDateTime(file.createdAt, locale)}
-          </Text>
+          <View style={styles.fileMetaRow}>
+            <Text style={styles.fileInlineMeta}>{formatBytes(file.size)}</Text>
+            <Text
+              style={styles.fileReceivedAt}
+              testID={`shared-file-received-at-${file.id}`}
+            >
+              {formatDateTime(file.createdAt, locale)}
+            </Text>
+          </View>
         </Pressable>
       </View>
       {!selectionMode ? (
         <View style={styles.fileCardActionsRow}>
-          <IconButton
-            accessibilityLabel={t('common.download')}
-            disabled={busy}
-            icon="download"
-            onPress={onExport}
-            testID={`shared-file-download-${file.id}`}
-          />
           <View style={styles.fileCardActionCell}>
             <GhostButton
               accessibilityLabel={t('common.remove')}
@@ -1578,6 +1588,13 @@ function SharedListCard({
               testID={`shared-file-remove-${file.id}`}
             />
           </View>
+          <IconButton
+            accessibilityLabel={t('common.download')}
+            disabled={busy}
+            icon="download"
+            onPress={onExport}
+            testID={`shared-file-download-${file.id}`}
+          />
         </View>
       ) : null}
     </PanelSurface>
