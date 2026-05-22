@@ -61,7 +61,6 @@ export function AppShell(): React.JSX.Element {
   const tourHostRef = React.useRef<TourTargetNode | null>(null);
   const pagePadding = width < 480 ? 12 : 16;
   const stackOverviewCards = width < 1180;
-  const stackProjectPanels = width < 1020;
   const tabBarPadding = 12;
   const historyDrawerWidth =
     width < 560
@@ -426,7 +425,6 @@ export function AppShell(): React.JSX.Element {
                 pagePadding={pagePadding}
                 projectActionMenuId={projectActionMenuId}
                 stackOverviewCards={stackOverviewCards}
-                stackProjectPanels={stackProjectPanels}
                 tabBarPadding={tabBarPadding}
                 targetLocale={targetLocale}
                 targetLocaleLabel={targetLocaleLabel}

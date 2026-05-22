@@ -50,6 +50,7 @@ export interface CompressionAdapter {
 
 interface SaveInboundFileInputBase {
   createdAt?: string;
+  compressionMode?: CompressionMode;
   mimeType?: string;
   name: string;
   projectId?: string;
@@ -358,6 +359,22 @@ export class InboundStorageGateway {
     return message;
   }
 
+  async saveTextFile(
+    content: string,
+    projectId?: string,
+    options?: { createdAt?: string; source?: 'browser' | 'app' },
+  ) {
+    const createdAt = options?.createdAt ?? new Date().toISOString();
+    return this.saveInboundFile({
+      bytes: encodeUtf8(content),
+      compressionMode: 'none',
+      createdAt,
+      mimeType: 'text/plain',
+      name: createTextFileName(content),
+      projectId,
+    });
+  }
+
   async deleteMessage(projectId: string, messageId: string) {
     const snapshot = await this.requireSnapshot();
     const project = this.resolveProject(snapshot, projectId);
@@ -406,9 +423,12 @@ export class InboundStorageGateway {
     );
     const declaredOriginalSize = this.inputByteLength(input);
     const shouldCompress =
-      declaredOriginalSize < this.options.compressionThreshold &&
-      shouldCompressInboundPayload(input.mimeType, normalizedRelativePath);
-    const compression: CompressionMode = shouldCompress ? 'gzip' : 'none';
+      input.compressionMode != null
+        ? input.compressionMode === 'gzip'
+        : declaredOriginalSize < this.options.compressionThreshold &&
+          shouldCompressInboundPayload(input.mimeType, normalizedRelativePath);
+    const compression: CompressionMode =
+      input.compressionMode ?? (shouldCompress ? 'gzip' : 'none');
     const fileId = createId('file');
     const createdAt = input.createdAt ?? new Date().toISOString();
     const storagePath = `${this.options.rootDir}/projects/${
@@ -640,7 +660,9 @@ export class InboundStorageGateway {
     }
 
     if (totalBytes > MAX_INBOUND_UPLOAD_TOTAL_BYTES) {
-      throw new Error('File exceeds the maximum size allowed for this session.');
+      throw new Error(
+        'File exceeds the maximum size allowed for this session.',
+      );
     }
 
     await this.requireSnapshot();
@@ -668,7 +690,7 @@ export class InboundStorageGateway {
   async appendInboundUpload(
     uploadId: string,
     body: InboundUploadBody,
-    options?: {offset?: number},
+    options?: { offset?: number },
   ): Promise<void> {
     const pending = this.pendingInboundUploads.get(uploadId);
     if (!pending) {
@@ -725,13 +747,17 @@ export class InboundStorageGateway {
 
     if (isBytesBody) {
       if (!this.options.fileSystem.appendFile) {
-        throw new Error('Chunked uploads are not supported in this environment.');
+        throw new Error(
+          'Chunked uploads are not supported in this environment.',
+        );
       }
 
       await this.options.fileSystem.appendFile(pending.tempPath, body);
     } else {
       if (!this.options.fileSystem.appendFileFromPath) {
-        throw new Error('Path-based chunked uploads are not supported in this environment.');
+        throw new Error(
+          'Path-based chunked uploads are not supported in this environment.',
+        );
       }
 
       await this.options.fileSystem.appendFileFromPath(
@@ -742,7 +768,6 @@ export class InboundStorageGateway {
 
     pending.receivedBytes += chunkBytes;
   }
-
 
   async finalizeInboundUpload(uploadId: string): Promise<SharedFileRecord> {
     const pending = this.pendingInboundUploads.get(uploadId);
@@ -1098,6 +1123,45 @@ function shouldCompressInboundPayload(
   return /\.(txt|md|markdown|csv|tsv|json|xml|html|htm|css|js|jsx|ts|tsx|mjs|cjs|yml|yaml|ini|conf|log|svg)$/i.test(
     normalizedPath,
   );
+}
+
+function createTextFileName(content: string) {
+  const preview = Array.from(content.trim().replace(/\s+/g, ' '))
+    .slice(0, 5)
+    .join('');
+  const safePreview = preview
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .split('')
+    .map(character => (character.charCodeAt(0) < 32 ? '_' : character))
+    .join('')
+    .replace(/\.+$/g, '')
+    .trim();
+
+  return `${safePreview || 'text'}\u2026.txt`;
+}
+
+function encodeUtf8(value: string) {
+  if (typeof TextEncoder === 'function') {
+    return new TextEncoder().encode(value);
+  }
+
+  const bufferCtor = (
+    globalThis as {
+      Buffer?: {
+        from(input: string, encoding: 'utf8'): Uint8Array;
+      };
+    }
+  ).Buffer;
+  if (bufferCtor) {
+    return new Uint8Array(bufferCtor.from(value, 'utf8'));
+  }
+
+  const encoded = unescape(encodeURIComponent(value));
+  const bytes = new Uint8Array(encoded.length);
+  for (let index = 0; index < encoded.length; index += 1) {
+    bytes[index] = encoded.charCodeAt(index);
+  }
+  return bytes;
 }
 
 function resolveStorageExtension(

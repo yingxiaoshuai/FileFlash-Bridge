@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AccessibilityState, StyleProp, ViewStyle } from 'react-native';
 import { Button, IconButton, Surface } from 'react-native-paper';
 
@@ -173,8 +173,20 @@ export function FeedbackBanner({
           : styles.bannerInfo,
       ]}
     >
-      <Text style={styles.bannerMessage}>{message}</Text>
-      <ActionButton compact label="关闭" onPress={onDismiss} />
+      <Text numberOfLines={2} style={styles.bannerMessage}>
+        {message}
+      </Text>
+      <Pressable
+        accessibilityLabel="关闭"
+        accessibilityRole="button"
+        onPress={onDismiss}
+        style={({ pressed }) => [
+          styles.bannerClose,
+          pressed ? styles.bannerClosePressed : null,
+        ]}
+      >
+        <Text style={styles.bannerCloseLabel}>关闭</Text>
+      </Pressable>
     </Surface>
   );
 }
@@ -246,12 +258,14 @@ const styles = StyleSheet.create({
   },
   banner: {
     alignItems: 'center',
-    borderRadius: theme.radius.card,
+    alignSelf: 'center',
+    borderRadius: theme.radius.pill,
     flexDirection: 'row',
-    gap: theme.tokens.spacing.md - 2,
+    gap: 8,
     justifyContent: 'space-between',
-    paddingHorizontal: theme.tokens.spacing.md + 2,
-    paddingVertical: theme.tokens.spacing.md,
+    maxWidth: 520,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   bannerInfo: {
     backgroundColor: theme.colors.skySoft,
@@ -265,7 +279,24 @@ const styles = StyleSheet.create({
   bannerMessage: {
     color: theme.colors.ink,
     flex: 1,
-    lineHeight: 20,
+    flexShrink: 1,
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  bannerClose: {
+    borderRadius: theme.radius.pill,
+    minHeight: 22,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  bannerClosePressed: {
+    backgroundColor: theme.colors.surfaceMuted,
+  },
+  bannerCloseLabel: {
+    color: theme.colors.primary,
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 15,
   },
   emptyState: {
     alignItems: 'center',

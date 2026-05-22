@@ -202,6 +202,8 @@ describe('TransferServiceController', () => {
       expect(binaryUploadResponse.status).toBe(200);
       expect((await binaryUploadResponse.json()).files).toHaveLength(1);
 
+      const browserText =
+        '\u6d4f\u89c8\u5668\u7684\u65b0\u6587\u672c\u5185\u5bb9';
       const textResponse = await fetch(
         `${accessUrl.origin}/api/text?key=${key}`,
         {
@@ -210,14 +212,28 @@ describe('TransferServiceController', () => {
             'content-type': 'text/plain; charset=utf-8',
             'x-client-id': 'client-a',
           },
-          body: '来自浏览器的新文本内容',
+          body: browserText,
         },
       );
       expect(textResponse.status).toBe(200);
-      expect((await textResponse.json()).activeProjectTitle).toBeTruthy();
+      const textPayload = await textResponse.json();
+      expect(textPayload.activeProjectTitle).toBeTruthy();
+      expect(textPayload.file.displayName).toBe(
+        `${Array.from(browserText).slice(0, 5).join('')}\u2026.txt`,
+      );
       const snapshot = await storage.getSnapshot();
-      expect(snapshot.projects[0]?.messages.at(-1)?.content).toBe(
-        '来自浏览器的新文本内容',
+      expect(snapshot.projects[0]?.messages).toHaveLength(0);
+      const projectFiles = await storage.listProjectFiles(
+        snapshot.activeProjectId ?? '',
+      );
+      expect(projectFiles.some(file => file.id === textPayload.file.id)).toBe(
+        true,
+      );
+      const savedTextFile = await storage.prepareFileBytes(
+        textPayload.file.id,
+      );
+      expect(Buffer.from(savedTextFile.bytes).toString('utf8')).toBe(
+        browserText,
       );
 
       const sharedResponse = await fetch(
@@ -790,7 +806,21 @@ describe('TransferServiceController', () => {
       }
 
       const snapshot = await storage.getSnapshot();
-      expect(snapshot.projects[0]?.messages.at(-1)?.content).toBe(browserText);
+      expect(snapshot.projects[0]?.messages).toHaveLength(0);
+      const projectFiles = await storage.listProjectFiles(
+        snapshot.activeProjectId ?? '',
+      );
+      const expectedTextFileName = `${Array.from(browserText)
+        .slice(0, 5)
+        .join('')}\u2026.txt`;
+      const savedTextFile = projectFiles.find(
+        file => file.displayName === expectedTextFileName,
+      );
+      expect(savedTextFile?.displayName).toBe(expectedTextFileName);
+      const savedTextBytes = await storage.prepareFileBytes(savedTextFile!.id);
+      expect(Buffer.from(savedTextBytes.bytes).toString('utf8')).toBe(
+        browserText,
+      );
     } finally {
       await controller.stop();
       await rm(rootDir, { force: true, recursive: true });
@@ -873,6 +903,7 @@ describe('TransferServiceController', () => {
       const accessUrl = new URL(controller.getState().accessUrl ?? '');
       const key = accessUrl.searchParams.get('key');
 
+      const browserText = '\u5207\u6362\u540e\u7684\u6587\u672c';
       const textResponse = await fetch(
         `${accessUrl.origin}/api/text?key=${key}`,
         {
@@ -881,10 +912,11 @@ describe('TransferServiceController', () => {
             'content-type': 'text/plain; charset=utf-8',
             'x-client-id': 'client-a',
           },
-          body: '切换后的文本',
+          body: browserText,
         },
       );
       expect(textResponse.status).toBe(200);
+      const textPayload = await textResponse.json();
 
       const uploadResponse = await fetch(
         `${accessUrl.origin}/api/upload?key=${key}&name=${encodeURIComponent(
@@ -913,7 +945,19 @@ describe('TransferServiceController', () => {
       );
 
       expect(firstProject?.messages).toHaveLength(0);
-      expect(activeProject?.messages.at(-1)?.content).toBe('切换后的文本');
+      expect(activeProject?.messages).toHaveLength(0);
+      expect(
+        activeProjectFiles.some(file => file.id === textPayload.file.id),
+      ).toBe(true);
+      expect(textPayload.file.displayName).toBe(
+        `${Array.from(browserText).slice(0, 5).join('')}\u2026.txt`,
+      );
+      const savedTextFile = await storage.prepareFileBytes(
+        textPayload.file.id,
+      );
+      expect(Buffer.from(savedTextFile.bytes).toString('utf8')).toBe(
+        browserText,
+      );
       expect(
         activeProjectFiles.some(
           file => file.displayName === 'after-switch.txt',

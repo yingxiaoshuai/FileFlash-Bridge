@@ -304,10 +304,15 @@ export function useAppModel() {
       let textCount = 0;
 
       for (const text of content.texts) {
-        await gateway.appendTextMessage(text.content, undefined, {
-          createdAt: text.createdAt,
-          source: 'app',
-        });
+        const savedTextFile = await gateway.saveTextFile(
+          text.content,
+          undefined,
+          {
+            createdAt: text.createdAt,
+            source: 'app',
+          },
+        );
+        await gateway.addSharedFile(savedTextFile.id);
         textCount += 1;
       }
 
@@ -944,7 +949,9 @@ export function useAppModel() {
   };
 
   const exportFiles = async (filesToExport: SharedFileRecord[]) => {
-    const t = createAppTranslator(stateRef.current?.locale ?? DEFAULT_APP_LOCALE);
+    const t = createAppTranslator(
+      stateRef.current?.locale ?? DEFAULT_APP_LOCALE,
+    );
     if (filesToExport.length === 0) {
       setState(currentState => ({
         ...currentState,
@@ -969,7 +976,9 @@ export function useAppModel() {
         await exportSharedFileToDevice(file);
         successCount += 1;
       } catch (error) {
-        failures.push(`${file.displayName}: ${resolveCurrentErrorMessage(error)}`);
+        failures.push(
+          `${file.displayName}: ${resolveCurrentErrorMessage(error)}`,
+        );
       }
     }
 

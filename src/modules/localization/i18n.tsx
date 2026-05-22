@@ -7,6 +7,7 @@ export const DEFAULT_APP_LOCALE: AppLocale = 'zh-CN';
 export const SUPPORTED_APP_LOCALES: AppLocale[] = ['zh-CN', 'en-US'];
 
 const zhCN = {
+  'home.flow.fileSharingSummary': '{{shared}} 个已共享 · {{files}} 个文件',
   'app.loading': '正在加载',
   'app.close': '关闭',
   'common.cancel': '取消',
@@ -257,6 +258,7 @@ const zhCN = {
 type TranslationKey = keyof typeof zhCN;
 
 const enUS: Record<TranslationKey, string> = {
+  'home.flow.fileSharingSummary': '{{shared}} shared · {{files}} files',
   'app.loading': 'Loading',
   'app.close': 'Close',
   'common.cancel': 'Cancel',

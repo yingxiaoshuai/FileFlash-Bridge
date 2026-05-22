@@ -1,3 +1,4 @@
+import {Buffer} from 'node:buffer';
 import {createServer, IncomingMessage, ServerResponse} from 'node:http';
 import {
   appendFile as fsAppendFile,

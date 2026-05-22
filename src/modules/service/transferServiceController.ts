@@ -7,8 +7,8 @@ import {
   createAppTranslator,
   DEFAULT_APP_LOCALE,
 } from '../localization/i18n';
-import {buildPortalDocument} from '../portal/portalDocument';
-import {portalTheme} from '../portal/portalTheme';
+import { buildPortalDocument } from '../portal/portalDocument';
+import { portalTheme } from '../portal/portalTheme';
 import {
   ConnectionRegistry,
   authorizeRequest,
@@ -92,7 +92,9 @@ export interface TransferServiceControllerOptions {
    * 浏览器等外部请求写入会话存储后调用，用于宿主 App 刷新 UI（如项目文件列表）。
    * 每次变更时先调用工厂得到当前要执行的回调。
    */
-  resolveInboundStorageChangeHandler?: () => (() => void | Promise<void>) | void;
+  resolveInboundStorageChangeHandler?: () =>
+    | (() => void | Promise<void>)
+    | void;
   runtime?: ServiceRuntime;
   storage: InboundStorageGateway;
 }
@@ -140,7 +142,9 @@ export class TransferServiceController {
           }
         : options.config;
 
-    this.connectionRegistry = new ConnectionRegistry(config.maxActiveConnections);
+    this.connectionRegistry = new ConnectionRegistry(
+      config.maxActiveConnections,
+    );
     this.state = createInitialServiceState(config);
   }
 
@@ -205,7 +209,7 @@ export class TransferServiceController {
     }
   }
 
-  private async resolveAddressFromRuntime(options?: {refresh?: boolean}) {
+  private async resolveAddressFromRuntime(options?: { refresh?: boolean }) {
     let origin = this.runtimeHandle?.origin;
 
     if (options?.refresh && this.runtimeHandle?.refreshOrigin) {
@@ -243,14 +247,16 @@ export class TransferServiceController {
 
   async start() {
     await this.initialize();
-    const {t} = await this.getTranslator();
+    const { t } = await this.getTranslator();
 
     try {
       this.runtimeHandle = await this.startRuntimeWithPortFallback(request =>
         this.handleRequest(request),
       );
 
-      const probed = resolveNetworkSnapshot(await this.options.networkProvider());
+      const probed = resolveNetworkSnapshot(
+        await this.options.networkProvider(),
+      );
       const runtimeAddress = await this.resolveAddressFromRuntime();
       const address = runtimeAddress ?? probed.address;
 
@@ -342,8 +348,8 @@ export class TransferServiceController {
     };
   }
 
-  async refreshAddress(options?: {rotateAccessKey?: boolean}) {
-    const {t} = await this.getTranslator();
+  async refreshAddress(options?: { rotateAccessKey?: boolean }) {
+    const { t } = await this.getTranslator();
     if (options?.rotateAccessKey) {
       this.state = {
         ...this.state,
@@ -416,14 +422,14 @@ export class TransferServiceController {
   }
 
   async rotateAccessKey() {
-    return this.refreshAddress({rotateAccessKey: true});
+    return this.refreshAddress({ rotateAccessKey: true });
   }
 
   async handleRequest(request: TransferRequest): Promise<TransferResponse> {
-    const {locale, t} = await this.getTranslator();
+    const { locale, t } = await this.getTranslator();
 
     if (request.path === '/api/health' && request.method === 'GET') {
-      return this.json(200, {ok: true});
+      return this.json(200, { ok: true });
     }
 
     const authorization = authorizeRequest(
@@ -510,17 +516,19 @@ export class TransferServiceController {
         }
 
         try {
-          const {uploadId} = await this.options.storage.beginInboundUpload({
+          const { uploadId } = await this.options.storage.beginInboundUpload({
             mimeType,
             name,
             relativePath: relativePath ?? name,
             totalBytes,
           });
-          return this.json(200, {uploadId});
+          return this.json(200, { uploadId });
         } catch (error) {
           const message =
-            error instanceof Error ? error.message : t('api.cannotStartChunkedUpload');
-          return this.json(400, {code: 'INVALID_REQUEST', message});
+            error instanceof Error
+              ? error.message
+              : t('api.cannotStartChunkedUpload');
+          return this.json(400, { code: 'INVALID_REQUEST', message });
         }
       }
 
@@ -535,11 +543,10 @@ export class TransferServiceController {
 
         const offsetParam = request.query.get('offset')?.trim();
         const offset =
-          offsetParam && offsetParam.length > 0 ? Number(offsetParam) : undefined;
-        if (
-          offsetParam &&
-          (!Number.isFinite(offset) || (offset ?? 0) < 0)
-        ) {
+          offsetParam && offsetParam.length > 0
+            ? Number(offsetParam)
+            : undefined;
+        if (offsetParam && (!Number.isFinite(offset) || (offset ?? 0) < 0)) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
             message: t('api.invalidUploadBeginFields'),
@@ -554,22 +561,18 @@ export class TransferServiceController {
                   sourcePath: request.bodyFile.path,
                 }
               : request.body instanceof Uint8Array
-                ? request.body
-                : (() => {
-                    throw new Error('Invalid upload chunk data.');
-                  })();
-          await this.options.storage.appendInboundUpload(
-            uploadId,
-            body,
-            {
-              offset,
-            },
-          );
-          return this.json(200, {ok: true});
+              ? request.body
+              : (() => {
+                  throw new Error('Invalid upload chunk data.');
+                })();
+          await this.options.storage.appendInboundUpload(uploadId, body, {
+            offset,
+          });
+          return this.json(200, { ok: true });
         } catch (error) {
           const message =
             error instanceof Error ? error.message : t('api.chunkWriteFailed');
-          return this.json(400, {code: 'INVALID_REQUEST', message});
+          return this.json(400, { code: 'INVALID_REQUEST', message });
         }
       }
 
@@ -601,7 +604,7 @@ export class TransferServiceController {
             error instanceof Error
               ? error.message
               : t('api.finishChunkedUploadFailed');
-          return this.json(400, {code: 'INVALID_REQUEST', message});
+          return this.json(400, { code: 'INVALID_REQUEST', message });
         }
       }
 
@@ -615,7 +618,7 @@ export class TransferServiceController {
           await this.options.storage.abortInboundUpload(uploadId);
         }
 
-        return this.json(200, {ok: true});
+        return this.json(200, { ok: true });
       }
 
       if (request.path === '/api/upload' && request.method === 'POST') {
@@ -672,7 +675,7 @@ export class TransferServiceController {
           });
         }
 
-        const message = await this.options.storage.appendTextMessage(text);
+        const file = await this.options.storage.saveTextFile(text);
         const snapshot = await this.options.storage.getSnapshot();
         const activeProject = snapshot.projects.find(
           project => project.id === snapshot.activeProjectId,
@@ -682,7 +685,7 @@ export class TransferServiceController {
         return this.json(200, {
           activeProjectId: snapshot.activeProjectId,
           activeProjectTitle: activeProject?.title ?? t('project.currentRound'),
-          message,
+          file,
         });
       }
 
@@ -700,7 +703,9 @@ export class TransferServiceController {
         });
       }
 
-      const downloadMatch = request.path.match(/^\/api\/shared\/([^/]+)\/download$/);
+      const downloadMatch = request.path.match(
+        /^\/api\/shared\/([^/]+)\/download$/,
+      );
       if (downloadMatch && request.method === 'GET') {
         const fileId = downloadMatch[1];
         const directDownload = request.query.get('direct') === '1';
@@ -772,7 +777,7 @@ export class TransferServiceController {
   private html(status: number, body: string): TransferResponse {
     return {
       status,
-      headers: {'content-type': 'text/html; charset=utf-8'},
+      headers: { 'content-type': 'text/html; charset=utf-8' },
       body,
     };
   }
@@ -780,7 +785,7 @@ export class TransferServiceController {
   private json(status: number, body: object): TransferResponse {
     return {
       status,
-      headers: {'content-type': 'application/json; charset=utf-8'},
+      headers: { 'content-type': 'application/json; charset=utf-8' },
       body,
     };
   }
@@ -800,8 +805,12 @@ export class TransferServiceController {
           display: grid;
           place-items: center;
           background:
-            radial-gradient(circle at top right, ${portalTheme.glowPrimary}, transparent 30%),
-            radial-gradient(circle at left bottom, ${portalTheme.glowTertiary}, transparent 38%),
+            radial-gradient(circle at top right, ${
+              portalTheme.glowPrimary
+            }, transparent 30%),
+            radial-gradient(circle at left bottom, ${
+              portalTheme.glowTertiary
+            }, transparent 38%),
             ${portalTheme.backdrop};
           font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
           color: ${portalTheme.ink};
@@ -844,7 +853,10 @@ export class TransferServiceController {
       request.headers['x-client-id'] ?? request.remoteAddress ?? 'anonymous';
     const connectionLabel =
       request.headers['user-agent'] ?? request.remoteAddress ?? 'Browser';
-    const decision = this.connectionRegistry.touch(connectionId, connectionLabel);
+    const decision = this.connectionRegistry.touch(
+      connectionId,
+      connectionLabel,
+    );
     this.state = {
       ...this.state,
       activeConnections: this.connectionRegistry.snapshot(),
@@ -854,7 +866,8 @@ export class TransferServiceController {
 
   private async syncStorageState() {
     const snapshot = await this.options.storage.getSnapshot();
-    const activeConnections: ActiveConnection[] = this.connectionRegistry.snapshot();
+    const activeConnections: ActiveConnection[] =
+      this.connectionRegistry.snapshot();
     this.state = {
       ...this.state,
       activeConnections,
@@ -941,7 +954,7 @@ function decodeSubmittedText(body: unknown) {
   }
 
   if (body && typeof body === 'object' && 'text' in body) {
-    const candidate = (body as {text?: unknown}).text;
+    const candidate = (body as { text?: unknown }).text;
     return typeof candidate === 'string' ? candidate : undefined;
   }
 
@@ -952,7 +965,7 @@ function decodeUtf8(bytes: Uint8Array) {
   const bufferCtor = (
     globalThis as {
       Buffer?: {
-        from(input: Uint8Array): {toString(encoding: 'utf8'): string};
+        from(input: Uint8Array): { toString(encoding: 'utf8'): string };
       };
     }
   ).Buffer;

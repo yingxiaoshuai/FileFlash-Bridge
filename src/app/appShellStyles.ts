@@ -31,16 +31,17 @@ export const styles = StyleSheet.create({
     flex: 1,
   },
   noticeOverlay: {
-    bottom: 74,
+    alignItems: 'center',
     elevation: 24,
     position: 'absolute',
     shadowColor: theme.colors.shadowStrong,
     shadowOffset: {
-      height: 12,
+      height: 4,
       width: 0,
     },
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    top: 8,
     zIndex: 32,
   },
   screenSection: {
@@ -1281,6 +1282,19 @@ export const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  workspaceFileGroups: {
+    gap: 12,
+  },
+  fileGroup: {
+    gap: 10,
+  },
+  fileGroupTitle: {
+    color: theme.colors.inkSoft,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
   activeProjectHeaderMain: {
     gap: 4,
   },
@@ -1351,6 +1365,12 @@ export const styles = StyleSheet.create({
     },
     shadowOpacity: 0.12,
     shadowRadius: 12,
+  },
+  fileCardShared: {
+    borderColor: theme.colors.success,
+  },
+  fileCardUnshared: {
+    borderColor: theme.colors.warning,
   },
   sharedFileCardSelected: {
     backgroundColor: theme.colors.primarySoft,
@@ -1429,13 +1449,14 @@ export const styles = StyleSheet.create({
     backgroundColor: theme.colors.mintSoft,
     color: theme.colors.mint,
   },
+  fileTagUnshared: {
+    backgroundColor: theme.colors.warningSoft,
+    color: theme.colors.warningStrong,
+  },
   inlineActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
-  },
-  fileCardActionsStack: {
-    gap: 8,
   },
   fileCardActionsRow: {
     alignItems: 'center',
@@ -1446,5 +1467,9 @@ export const styles = StyleSheet.create({
   fileCardActionCell: {
     flex: 1,
     minWidth: 0,
+  },
+  fileCardDeleteActionCell: {
+    flexBasis: 92,
+    flexShrink: 0,
   },
 });

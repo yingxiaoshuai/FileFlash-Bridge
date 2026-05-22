@@ -630,6 +630,12 @@ describe('App sidebar history', () => {
       tree!.root.findByProps({ testID: 'shared-files-panel' }),
     ).toBeTruthy();
     expect(tree!.root.findByProps({ testID: 'project-panel' })).toBeTruthy();
+    const workspaceActionOrder = tree!.root
+      .findAll(node => typeof node.props.testID === 'string')
+      .map(node => node.props.testID);
+    expect(
+      workspaceActionOrder.indexOf('shared-file-remove-file-b'),
+    ).toBeLessThan(workspaceActionOrder.indexOf('file-toggle-share-file-a'));
 
     await act(async () => {
       tree!.root.findByProps({ testID: 'home-import-files' }).props.onPress();
@@ -644,9 +650,6 @@ describe('App sidebar history', () => {
       tree!.root
         .findByProps({ testID: 'service-refresh-address' })
         .props.onPress();
-    });
-    act(() => {
-      tree!.root.findByProps({ testID: 'message-copy-msg-a' }).props.onPress();
     });
     await act(async () => {
       tree!.root.findByProps({ testID: 'file-export-file-a' }).props.onPress();
@@ -665,9 +668,6 @@ describe('App sidebar history', () => {
     expect(model.importFilesForShare).toHaveBeenCalled();
     expect(model.importMediaForShare).toHaveBeenCalled();
     expect(model.refreshAddress).toHaveBeenCalled();
-    expect(model.copyMessage).toHaveBeenCalledWith(
-      model.activeProject!.messages[0],
-    );
     expect(model.exportFile).toHaveBeenCalledWith(receivedFile);
     expect(model.toggleSharedFile).toHaveBeenCalledWith('file-a');
     expect(model.toggleSharedFile).toHaveBeenCalledWith('file-b');
@@ -712,10 +712,6 @@ describe('App sidebar history', () => {
       tree!.root.findByProps({ testID: 'home-shared-select-downloads' }).props
         .accessibilityLabel,
     ).toBe('选择下载');
-    expect(
-      tree!.root.findByProps({ testID: 'message-copy-msg-a' }).props
-        .accessibilityLabel,
-    ).toBe('复制');
     expect(
       tree!.root.findByProps({ testID: 'file-toggle-share-file-a' }).props
         .accessibilityLabel,
