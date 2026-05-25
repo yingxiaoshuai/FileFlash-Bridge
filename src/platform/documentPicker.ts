@@ -20,8 +20,8 @@ export type DocumentPickerOptions = {
 };
 
 export type SaveDocumentsOptions = {
-  fileName: string;
-  mimeType: string;
+  fileName?: string;
+  mimeType?: string;
   sourceUris: string[];
 };
 

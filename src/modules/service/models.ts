@@ -113,7 +113,7 @@ export const DEFAULT_SERVICE_CONFIG: ServiceConfig = {
   compressionThreshold: 2 * 1024 * 1024,
   securityMode: 'secure',
   accessKey: 'replace-me',
-  maxActiveConnections: 3,
+  maxActiveConnections: 0,
   deviceName: '文件闪传桥',
   maxTextLength: 200_000,
   sessionId: 'default-session',

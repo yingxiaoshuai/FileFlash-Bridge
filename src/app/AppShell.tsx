@@ -476,6 +476,7 @@ export function AppShell(): React.JSX.Element {
                 ]}
               >
                 <FeedbackBanner
+                  closeLabel={t('app.close')}
                   message={model.notice.message}
                   onDismiss={model.clearNotice}
                   tone={model.notice.tone}

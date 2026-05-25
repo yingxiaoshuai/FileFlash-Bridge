@@ -49,8 +49,11 @@ type TcpSocketModule = {
 const HEADER_DELIMITER = encodeUtf8('\r\n\r\n');
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 const SOCKET_READ_COPY_CHUNK_BYTES = 512 * 1024;
+const SOCKET_FILE_READ_CHUNK_BYTES = 512 * 1024;
 const SOCKET_WRITE_CHUNK_BYTES = 64 * 1024;
 const SOCKET_WRITE_CALLBACK_FALLBACK_MS = 100;
+const BASE64_ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
 const STATUS_TEXT_BY_CODE: Record<number, string> = {
   200: 'OK',
@@ -61,6 +64,7 @@ const STATUS_TEXT_BY_CODE: Record<number, string> = {
   401: 'Unauthorized',
   404: 'Not Found',
   413: 'Payload Too Large',
+  416: 'Range Not Satisfiable',
   429: 'Too Many Requests',
   500: 'Internal Server Error',
 };
@@ -75,6 +79,33 @@ type HttpRequestHeaderInfo = {
   headers: Record<string, string>;
   requestLine: string;
 };
+
+type RNFSLike = {
+  read: (
+    path: string,
+    length: number,
+    position: number,
+    encoding: 'base64',
+  ) => Promise<string>;
+};
+
+type ReactNativeLike = {
+  NativeModules?: Record<string, unknown>;
+  Platform?: {
+    OS?: string;
+  };
+};
+
+type NativeFileReaderLike = {
+  readChunkBase64?: (
+    path: string,
+    offset: number,
+    length: number,
+  ) => Promise<string>;
+};
+
+let cachedRNFS: RNFSLike | null | undefined;
+let cachedReactNative: ReactNativeLike | null | undefined;
 
 function encodeUtf8(value: string) {
   if (typeof TextEncoder === 'function') {
@@ -115,6 +146,56 @@ function concatBytes(parts: Uint8Array[]) {
   }
 
   return combined;
+}
+
+function base64ToBytes(base64: string) {
+  const bufferCtor = (
+    globalThis as {
+      Buffer?: {
+        from(input: string, encoding: 'base64'): Uint8Array;
+      };
+    }
+  ).Buffer;
+
+  if (bufferCtor) {
+    return new Uint8Array(bufferCtor.from(base64, 'base64'));
+  }
+
+  const sanitized = base64.replace(/[^A-Za-z0-9+/=]/g, '');
+  const padding = sanitized.endsWith('==')
+    ? 2
+    : sanitized.endsWith('=')
+    ? 1
+    : 0;
+  const bytes = new Uint8Array((sanitized.length / 4) * 3 - padding);
+  let byteIndex = 0;
+
+  for (let index = 0; index < sanitized.length; index += 4) {
+    const first = BASE64_ALPHABET.indexOf(sanitized[index]);
+    const second = BASE64_ALPHABET.indexOf(sanitized[index + 1]);
+    const third =
+      sanitized[index + 2] === '='
+        ? 0
+        : BASE64_ALPHABET.indexOf(sanitized[index + 2]);
+    const fourth =
+      sanitized[index + 3] === '='
+        ? 0
+        : BASE64_ALPHABET.indexOf(sanitized[index + 3]);
+    const triple = (first << 18) | (second << 12) | (third << 6) | fourth;
+
+    bytes[byteIndex] = (triple >> 16) & 0xff;
+    byteIndex += 1;
+    if (sanitized[index + 2] !== '=' && byteIndex < bytes.length) {
+      bytes[byteIndex] = (triple >> 8) & 0xff;
+      byteIndex += 1;
+    }
+    if (sanitized[index + 3] !== '=' && byteIndex < bytes.length) {
+      bytes[byteIndex] = triple & 0xff;
+      byteIndex += 1;
+    }
+  }
+
+  return bytes;
 }
 
 function indexOfBytes(value: Uint8Array, needle: Uint8Array) {
@@ -321,15 +402,6 @@ function readHttpRequestHeaderFromParts(
   );
 }
 
-function readHttpRequestFrameByteLength(buffer: Uint8Array) {
-  const header = readHttpRequestHeader(buffer);
-  if (!header) {
-    return null;
-  }
-
-  return header.frameByteLength;
-}
-
 function shouldPreserveRawBody(path: string) {
   return path === '/api/upload' || path === '/api/upload/part';
 }
@@ -438,6 +510,27 @@ function resolveResponsePayload(response: TransferResponse) {
   };
 }
 
+function encodeHttpResponseHead(
+  status: number,
+  headers: Record<string, string>,
+) {
+  const finalHeaders = {...headers};
+
+  if (!finalHeaders.connection) {
+    finalHeaders.connection = 'close';
+  }
+
+  const statusText = STATUS_TEXT_BY_CODE[status] ?? 'OK';
+  const headerText =
+    `HTTP/1.1 ${status} ${statusText}\r\n` +
+    Object.entries(finalHeaders)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\r\n') +
+    '\r\n\r\n';
+
+  return encodeUtf8(headerText);
+}
+
 export function encodeHttpResponse(response: TransferResponse) {
   const {bodyBytes, headers} = resolveResponsePayload(response);
   const finalHeaders = {...headers};
@@ -446,19 +539,10 @@ export function encodeHttpResponse(response: TransferResponse) {
     finalHeaders['content-length'] = String(bodyBytes.byteLength);
   }
 
-  if (!finalHeaders.connection) {
-    finalHeaders.connection = 'close';
-  }
-
-  const statusText = STATUS_TEXT_BY_CODE[response.status] ?? 'OK';
-  const headerText =
-    `HTTP/1.1 ${response.status} ${statusText}\r\n` +
-    Object.entries(finalHeaders)
-      .map(([key, value]) => `${key}: ${value}`)
-      .join('\r\n') +
-    '\r\n\r\n';
-
-  return concatBytes([encodeUtf8(headerText), bodyBytes]);
+  return concatBytes([
+    encodeHttpResponseHead(response.status, finalHeaders),
+    bodyBytes,
+  ]);
 }
 
 function writeSocketPayload(
@@ -502,8 +586,120 @@ function writeSocketPayload(
   writeNext();
 }
 
+function writeSocketPayloadAsync(socket: TcpSocketLike, payload: Uint8Array) {
+  return new Promise<void>(resolve => {
+    writeSocketPayload(socket, payload, resolve);
+  });
+}
+
+async function readBodyFileChunk(
+  path: string,
+  offset: number,
+  length: number,
+) {
+  const reactNative = loadReactNative();
+  if (reactNative?.Platform?.OS === 'ios') {
+    const nativeFileReader = reactNative.NativeModules
+      ?.FPFileReader as NativeFileReaderLike | undefined;
+    if (nativeFileReader?.readChunkBase64) {
+      return base64ToBytes(
+        await nativeFileReader.readChunkBase64(path, offset, length),
+      );
+    }
+  }
+
+  const rnfs = loadRNFS();
+  if (!rnfs?.read) {
+    throw new Error('Native file streaming is unavailable.');
+  }
+
+  return base64ToBytes(await rnfs.read(path, length, offset, 'base64'));
+}
+
+async function writeSocketBodyFile(
+  socket: TcpSocketLike,
+  bodyFile: NonNullable<TransferResponse['bodyFile']>,
+) {
+  let offset = Math.max(0, Math.trunc(bodyFile.offset));
+  let remaining = Math.max(0, Math.trunc(bodyFile.length));
+
+  while (remaining > 0) {
+    const length = Math.min(SOCKET_FILE_READ_CHUNK_BYTES, remaining);
+    const chunk = await readBodyFileChunk(bodyFile.path, offset, length);
+    if (chunk.byteLength === 0) {
+      throw new Error('Unable to read response file.');
+    }
+
+    await writeSocketPayloadAsync(socket, chunk);
+    offset += chunk.byteLength;
+    remaining -= chunk.byteLength;
+    if (remaining > 0) {
+      await waitForEventLoopTurn();
+    }
+  }
+}
+
+async function writeSocketResponse(
+  socket: TcpSocketLike,
+  response: TransferResponse,
+) {
+  if (response.bodyFile) {
+    const headers = {...(response.headers ?? {})};
+    if (!headers['content-length']) {
+      headers['content-length'] = String(Math.max(0, response.bodyFile.length));
+    }
+
+    await writeSocketPayloadAsync(
+      socket,
+      encodeHttpResponseHead(response.status, headers),
+    );
+    await writeSocketBodyFile(socket, response.bodyFile);
+    return;
+  }
+
+  await writeSocketPayloadAsync(socket, encodeHttpResponse(response));
+}
+
 function waitForEventLoopTurn() {
   return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function loadReactNative() {
+  if (cachedReactNative !== undefined) {
+    return cachedReactNative;
+  }
+
+  try {
+    cachedReactNative = require('react-native') as ReactNativeLike;
+  } catch {
+    cachedReactNative = null;
+  }
+
+  return cachedReactNative;
+}
+
+function loadRNFS() {
+  if (cachedRNFS !== undefined) {
+    return cachedRNFS;
+  }
+
+  try {
+    const loaded = require('react-native-fs') as unknown;
+    const candidate =
+      loaded && typeof loaded === 'object'
+        ? (loaded as RNFSLike & { default?: RNFSLike })
+        : undefined;
+    cachedRNFS =
+      candidate && typeof candidate.read === 'function'
+        ? candidate
+        : candidate?.default && typeof candidate.default.read === 'function'
+        ? candidate.default
+        : null;
+  } catch {
+    cachedRNFS = null;
+  }
+
+  return cachedRNFS;
 }
 
 function loadTcpSocketModule() {
@@ -602,6 +798,8 @@ export function resolveTcpServerPort(
 }
 
 export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
+  readonly supportsFileResponses = true;
+
   private activeSockets = new Set<TcpSocketLike>();
 
   private server?: TcpServerLike;
@@ -698,8 +896,7 @@ export class ReactNativeTcpHttpRuntime implements ServiceRuntime {
     };
 
     const sendResponse = (response: TransferResponse) => {
-      const payload = encodeHttpResponse(response);
-      writeSocketPayload(socket, payload, () => {
+      void writeSocketResponse(socket, response).finally(() => {
         socket.end();
       });
     };

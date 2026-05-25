@@ -39,7 +39,14 @@ export interface FileSystemAdapter {
   ): Promise<Uint8Array>;
   readFile(path: string): Promise<Uint8Array>;
   readText(path: string): Promise<string>;
+  moveFile?(sourcePath: string, destinationPath: string): Promise<void>;
   writeFile(path: string, content: Uint8Array): Promise<void>;
+  writeFileFromPathAtOffset?(
+    destinationPath: string,
+    sourcePath: string,
+    offset: number,
+    length: number,
+  ): Promise<void>;
   writeText(path: string, content: string): Promise<void>;
 }
 
@@ -64,6 +71,7 @@ interface SaveInboundBytesInput
 
 interface SaveInboundPathInput extends Omit<SaveInboundFileInputBase, 'bytes'> {
   byteLength: number;
+  consumeSource?: boolean;
   sourcePath: string;
 }
 
@@ -96,10 +104,20 @@ const MAX_INBOUND_UPLOAD_TOTAL_BYTES = 12 * 1024 * 1024 * 1024;
 type PendingInboundUpload = {
   mimeType?: string;
   name: string;
+  parts: PendingInboundUploadPart[];
+  partsDirPath: string;
   receivedBytes: number;
   relativePath: string;
   tempPath: string;
   totalBytes: number;
+  writeMode?: 'direct' | 'parts';
+};
+
+type PendingInboundUploadPart = {
+  byteLength: number;
+  offset: number;
+  path?: string;
+  writePromise?: Promise<void>;
 };
 
 type StoredFileChunk = {
@@ -668,8 +686,11 @@ export class InboundStorageGateway {
     await this.requireSnapshot();
     const uploadId = createId('up');
     const tempPath = `${this.tempDirPath()}/upload-${uploadId}.part`;
+    const partsDirPath = this.uploadPartsDirPath(uploadId);
     await this.options.fileSystem.ensureDir(this.tempDirPath());
     await this.options.fileSystem.deletePath(tempPath).catch(() => {});
+    await this.options.fileSystem.deletePath(partsDirPath).catch(() => {});
+    await this.options.fileSystem.ensureDir(partsDirPath);
 
     const relativePath = (options.relativePath?.trim() || name).replace(
       /\\/g,
@@ -678,6 +699,8 @@ export class InboundStorageGateway {
     this.pendingInboundUploads.set(uploadId, {
       mimeType: options.mimeType,
       name,
+      parts: [],
+      partsDirPath,
       receivedBytes: 0,
       relativePath,
       tempPath,
@@ -723,50 +746,99 @@ export class InboundStorageGateway {
       typeof options?.offset === 'number' && Number.isFinite(options.offset)
         ? Math.trunc(options.offset)
         : undefined;
-    if (expectedOffset != null) {
-      if (expectedOffset < 0) {
-        throw new Error('Invalid upload chunk offset.');
-      }
-
-      if (expectedOffset < pending.receivedBytes) {
-        if (expectedOffset + chunkBytes <= pending.receivedBytes) {
-          return;
-        }
-
-        throw new Error('Upload chunk overlaps already received data.');
-      }
-
-      if (expectedOffset > pending.receivedBytes) {
-        throw new Error('Upload chunk offset is not contiguous.');
-      }
+    const offset = expectedOffset ?? pending.receivedBytes;
+    if (offset < 0) {
+      throw new Error('Invalid upload chunk offset.');
     }
 
-    if (pending.receivedBytes + chunkBytes > pending.totalBytes) {
+    if (offset + chunkBytes > pending.totalBytes) {
       throw new Error('Upload exceeds the declared file size.');
     }
 
-    if (isBytesBody) {
-      if (!this.options.fileSystem.appendFile) {
-        throw new Error(
-          'Chunked uploads are not supported in this environment.',
-        );
+    const existingPart = pending.parts.find(part => part.offset === offset);
+    if (existingPart) {
+      if (existingPart.byteLength === chunkBytes) {
+        await existingPart.writePromise;
+        return;
       }
 
-      await this.options.fileSystem.appendFile(pending.tempPath, body);
-    } else {
-      if (!this.options.fileSystem.appendFileFromPath) {
-        throw new Error(
-          'Path-based chunked uploads are not supported in this environment.',
-        );
-      }
-
-      await this.options.fileSystem.appendFileFromPath(
-        pending.tempPath,
-        body.sourcePath,
-      );
+      throw new Error('Upload chunk overlaps already received data.');
     }
 
+    if (
+      pending.parts.some(
+        part =>
+          offset < part.offset + part.byteLength && offset + chunkBytes > part.offset,
+      )
+    ) {
+      throw new Error('Upload chunk overlaps already received data.');
+    }
+
+    const shouldWriteDirectly =
+      isPathBody &&
+      expectedOffset != null &&
+      Boolean(this.options.fileSystem.writeFileFromPathAtOffset);
+    const writeMode = shouldWriteDirectly ? 'direct' : 'parts';
+    if (pending.writeMode && pending.writeMode !== writeMode) {
+      throw new Error('Upload chunk transport changed during this session.');
+    }
+    pending.writeMode = writeMode;
+
+    const partPath =
+      writeMode === 'parts'
+        ? this.uploadPartPath(uploadId, offset, chunkBytes)
+        : undefined;
+    const part: PendingInboundUploadPart = {
+      byteLength: chunkBytes,
+      offset,
+      path: partPath,
+    };
+    pending.parts.push(part);
     pending.receivedBytes += chunkBytes;
+
+    try {
+      const writePromise = isBytesBody
+        ? Promise.resolve().then(() =>
+            // Bytes bodies are only used by non-native test/fallback runtimes.
+            this.options.fileSystem.writeFile(partPath!, body),
+          )
+        : Promise.resolve().then(() => {
+            if (writeMode === 'direct') {
+              return this.options.fileSystem.writeFileFromPathAtOffset!(
+                pending.tempPath,
+                body.sourcePath,
+                offset,
+                chunkBytes,
+              );
+            }
+
+            if (!this.options.fileSystem.copyFile) {
+              throw new Error(
+                'Path-based chunked uploads are not supported in this environment.',
+              );
+            }
+
+            return this.options.fileSystem.copyFile(body.sourcePath, partPath!);
+          });
+
+      part.writePromise = writePromise;
+      await writePromise;
+      if (writeMode === 'parts' && this.options.fileSystem.getFileSize) {
+        const actualSize = await this.options.fileSystem.getFileSize(partPath!);
+        if (actualSize !== chunkBytes) {
+          throw new Error(
+            `Upload chunk write is incomplete: received ${actualSize} / ${chunkBytes} bytes.`,
+          );
+        }
+      }
+    } catch (error) {
+      pending.parts = pending.parts.filter(candidate => candidate !== part);
+      pending.receivedBytes -= chunkBytes;
+      if (partPath) {
+        await this.options.fileSystem.deletePath(partPath).catch(() => {});
+      }
+      throw error;
+    }
   }
 
   async finalizeInboundUpload(uploadId: string): Promise<SharedFileRecord> {
@@ -784,8 +856,10 @@ export class InboundStorageGateway {
     this.pendingInboundUploads.delete(uploadId);
 
     try {
+      await this.prepareInboundUploadForSave(pending);
       return await this.saveInboundFile({
         byteLength: pending.totalBytes,
+        consumeSource: true,
         mimeType: pending.mimeType,
         name: pending.name,
         relativePath: pending.relativePath,
@@ -794,6 +868,9 @@ export class InboundStorageGateway {
     } finally {
       await this.options.fileSystem
         .deletePath(pending.tempPath)
+        .catch(() => {});
+      await this.options.fileSystem
+        .deletePath(pending.partsDirPath)
         .catch(() => {});
     }
   }
@@ -806,6 +883,7 @@ export class InboundStorageGateway {
 
     this.pendingInboundUploads.delete(uploadId);
     await this.options.fileSystem.deletePath(pending.tempPath).catch(() => {});
+    await this.options.fileSystem.deletePath(pending.partsDirPath).catch(() => {});
   }
 
   private async requireSnapshot() {
@@ -908,6 +986,105 @@ export class InboundStorageGateway {
 
   private tempDirPath() {
     return `${this.options.rootDir}/${TEMP_DIR_NAME}`;
+  }
+
+  private uploadPartsDirPath(uploadId: string) {
+    return `${this.tempDirPath()}/upload-${uploadId}-parts`;
+  }
+
+  private uploadPartPath(uploadId: string, offset: number, byteLength: number) {
+    return `${this.uploadPartsDirPath(uploadId)}/${offset}-${byteLength}.part`;
+  }
+
+  private async prepareInboundUploadForSave(pending: PendingInboundUpload) {
+    await this.awaitContiguousInboundUploadParts(pending);
+
+    if (pending.writeMode === 'direct') {
+      if (this.options.fileSystem.getFileSize) {
+        const actualSize = await this.options.fileSystem.getFileSize(
+          pending.tempPath,
+        );
+        if (actualSize !== pending.totalBytes) {
+          throw new Error(
+            `Upload is incomplete: received ${actualSize} / ${pending.totalBytes} bytes.`,
+          );
+        }
+      }
+      return;
+    }
+
+    await this.materializeInboundUpload(pending);
+  }
+
+  private async awaitContiguousInboundUploadParts(
+    pending: PendingInboundUpload,
+  ) {
+    const parts = [...pending.parts].sort(
+      (left, right) => left.offset - right.offset,
+    );
+    let expectedOffset = 0;
+
+    for (const part of parts) {
+      await part.writePromise;
+      if (part.offset !== expectedOffset) {
+        throw new Error('Upload chunk offset is not contiguous.');
+      }
+
+      expectedOffset += part.byteLength;
+    }
+
+    if (expectedOffset !== pending.totalBytes) {
+      throw new Error(
+        `Upload is incomplete: received ${expectedOffset} / ${pending.totalBytes} bytes.`,
+      );
+    }
+
+    return expectedOffset;
+  }
+
+  private async materializeInboundUpload(pending: PendingInboundUpload) {
+    const parts = [...pending.parts].sort(
+      (left, right) => left.offset - right.offset,
+    );
+    let expectedOffset = 0;
+
+    await this.options.fileSystem.deletePath(pending.tempPath).catch(() => {});
+    for (const part of parts) {
+      await part.writePromise;
+      if (part.offset !== expectedOffset) {
+        throw new Error('Upload chunk offset is not contiguous.');
+      }
+
+      if (!this.options.fileSystem.appendFileFromPath) {
+        if (!part.path) {
+          throw new Error('Upload chunk file is missing.');
+        }
+        const bytes = await this.options.fileSystem.readFile(part.path);
+        if (!this.options.fileSystem.appendFile) {
+          throw new Error(
+            'Chunked uploads are not supported in this environment.',
+          );
+        }
+
+        await this.options.fileSystem.appendFile(pending.tempPath, bytes);
+      } else {
+        if (!part.path) {
+          throw new Error('Upload chunk file is missing.');
+        }
+        await this.options.fileSystem.appendFileFromPath(
+          pending.tempPath,
+          part.path,
+        );
+      }
+
+      expectedOffset += part.byteLength;
+    }
+
+    if (expectedOffset !== pending.totalBytes) {
+      throw new Error(
+        `Upload is incomplete: received ${expectedOffset} / ${pending.totalBytes} bytes.`,
+      );
+    }
   }
 
   private async pruneMissingFiles() {
@@ -1043,6 +1220,24 @@ export class InboundStorageGateway {
       const storedBytes = await this.options.compression.compress(sourceBytes);
       await this.options.fileSystem.writeFile(storagePath, storedBytes);
       return storedBytes.byteLength;
+    }
+
+    if (
+      'sourcePath' in input &&
+      input.consumeSource &&
+      compression === 'none' &&
+      !shouldCompress &&
+      this.options.fileSystem.moveFile
+    ) {
+      await this.options.fileSystem.moveFile(input.sourcePath, storagePath);
+      if (this.options.fileSystem.getFileSize) {
+        try {
+          return await this.options.fileSystem.getFileSize(storagePath);
+        } catch {
+          throw new Error(`Stored file is missing after write: ${storagePath}`);
+        }
+      }
+      return input.byteLength;
     }
 
     if ('sourcePath' in input && this.options.fileSystem.copyFile) {

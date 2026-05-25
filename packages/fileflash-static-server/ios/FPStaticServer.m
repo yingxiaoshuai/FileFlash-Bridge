@@ -29,6 +29,103 @@ static BOOL FFBShouldForwardAdditionalHeader(NSString *key)
     return ![managedHeaders containsObject:normalizedKey];
 }
 
+static NSData *FFBDataFromBridgeValue(id value)
+{
+    if ([value isKindOfClass:[NSData class]]) {
+        return value;
+    }
+
+    if ([value isKindOfClass:[NSArray class]]) {
+        NSArray *items = (NSArray *)value;
+        NSMutableData *data = [NSMutableData dataWithLength:items.count];
+        uint8_t *bytes = data.mutableBytes;
+        for (NSUInteger index = 0; index < items.count; index += 1) {
+            id item = items[index];
+            bytes[index] = [item respondsToSelector:@selector(unsignedCharValue)]
+                ? [item unsignedCharValue]
+                : 0;
+        }
+        return data;
+    }
+
+    if ([value isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dictionary = (NSDictionary *)value;
+        id data = dictionary[@"data"];
+        if (data != nil) {
+            return FFBDataFromBridgeValue(data);
+        }
+    }
+
+    return [NSData data];
+}
+
+static NSArray<NSNumber *> *FFBByteArrayFromData(NSData *data)
+{
+    if (data.length == 0) {
+        return @[];
+    }
+
+    const uint8_t *bytes = data.bytes;
+    NSMutableArray<NSNumber *> *items =
+        [NSMutableArray arrayWithCapacity:data.length];
+    for (NSUInteger index = 0; index < data.length; index += 1) {
+        [items addObject:@(bytes[index])];
+    }
+    return items;
+}
+
+static NSString *FFBLowercaseHeaderValue(NSDictionary *headers, NSString *key)
+{
+    for (NSString *candidate in headers) {
+        if ([candidate caseInsensitiveCompare:key] == NSOrderedSame) {
+            id value = headers[candidate];
+            return [[NSString stringWithFormat:@"%@", value] lowercaseString];
+        }
+    }
+
+    return @"";
+}
+
+static BOOL FFBShouldStoreRequestBodyInFile(NSString *method, NSString *path, NSDictionary *headers)
+{
+    if (![@[@"POST", @"PUT", @"PATCH"] containsObject:method]) {
+        return NO;
+    }
+
+    if ([path isEqualToString:@"/api/upload/part"]) {
+        return YES;
+    }
+
+    NSString *contentType = FFBLowercaseHeaderValue(headers, @"content-type");
+    if ([path isEqualToString:@"/api/upload"]) {
+        return !([contentType containsString:@"application/json"] || [contentType hasPrefix:@"text/"]);
+    }
+
+    return !([contentType containsString:@"application/json"] || [contentType hasPrefix:@"text/"]);
+}
+
+static void FFBCleanupPreservedBody(NSString *path)
+{
+    if (path.length > 0) {
+        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    }
+}
+
+static unsigned long long FFBRequestBodyLength(GCDWebServerRequest *request, NSString *temporaryPath)
+{
+    if (request.contentLength != NSUIntegerMax) {
+        return (unsigned long long)request.contentLength;
+    }
+
+    if (temporaryPath.length == 0) {
+        return 0;
+    }
+
+    NSDictionary *attributes =
+        [[NSFileManager defaultManager] attributesOfItemAtPath:temporaryPath error:nil];
+    return [attributes[NSFileSize] unsignedLongLongValue];
+}
+
 @interface FPStaticServer()
 
 @property(nonatomic, assign) BOOL hasListeners;
@@ -82,6 +179,28 @@ RCT_EXPORT_MODULE();
 
 - (void)stopObserving {
     self.hasListeners = NO;
+}
+
+- (dispatch_semaphore_t)storePendingResponse:(NSDictionary *)response
+                                 forRequestId:(NSString *)requestId {
+    @synchronized (self) {
+        dispatch_semaphore_t semaphore = self.pendingSemaphores[requestId];
+        if (!semaphore) {
+            return nil;
+        }
+
+        self.pendingResponses[requestId] = response;
+        return semaphore;
+    }
+}
+
+- (NSDictionary *)consumePendingResponseForRequestId:(NSString *)requestId {
+    @synchronized (self) {
+        NSDictionary *responsePayload = self.pendingResponses[requestId];
+        [self.pendingSemaphores removeObjectForKey:requestId];
+        [self.pendingResponses removeObjectForKey:requestId];
+        return responsePayload;
+    }
 }
 
 - (dispatch_queue_t)methodQueue {
@@ -187,21 +306,58 @@ RCT_EXPORT_METHOD(isRunning:(RCTPromiseResolveBlock)resolve
 }
 
 RCT_EXPORT_METHOD(respond:(NSString *)requestId
-                  status:(nonnull NSNumber *)status
-                  headers:(NSDictionary *)headers
-                  bodyEncoding:(NSString *)bodyEncoding
-                  body:(NSString *)body) {
-    dispatch_semaphore_t semaphore = self.pendingSemaphores[requestId];
-    if (!semaphore) {
-        return;
-    }
-
-    self.pendingResponses[requestId] = @{
+                      status:(nonnull NSNumber *)status
+                      headers:(NSDictionary *)headers
+                      bodyEncoding:(NSString *)bodyEncoding
+                      body:(NSString *)body) {
+    dispatch_semaphore_t semaphore = [self storePendingResponse:@{
         @"status": status ?: @500,
         @"headers": headers ?: @{},
         @"bodyEncoding": bodyEncoding ?: @"empty",
         @"body": body ?: @""
-    };
+    } forRequestId:requestId];
+    if (!semaphore) {
+        return;
+    }
+
+    dispatch_semaphore_signal(semaphore);
+}
+
+RCT_EXPORT_METHOD(respondBytes:(NSString *)requestId
+                  status:(nonnull NSNumber *)status
+                  headers:(NSDictionary *)headers
+                  body:(id)body) {
+    dispatch_semaphore_t semaphore = [self storePendingResponse:@{
+        @"status": status ?: @500,
+        @"headers": headers ?: @{},
+        @"bodyEncoding": @"bytes",
+        @"bodyData": FFBDataFromBridgeValue(body)
+    } forRequestId:requestId];
+    if (!semaphore) {
+        return;
+    }
+
+    dispatch_semaphore_signal(semaphore);
+}
+
+RCT_EXPORT_METHOD(respondFile:(NSString *)requestId
+                  status:(nonnull NSNumber *)status
+                  headers:(NSDictionary *)headers
+                  path:(NSString *)path
+                  offset:(nonnull NSNumber *)offset
+                  length:(nonnull NSNumber *)length) {
+    dispatch_semaphore_t semaphore = [self storePendingResponse:@{
+        @"status": status ?: @500,
+        @"headers": headers ?: @{},
+        @"bodyEncoding": @"file",
+        @"path": path ?: @"",
+        @"offset": offset ?: @0,
+        @"length": length ?: @0
+    } forRequestId:requestId];
+    if (!semaphore) {
+        return;
+    }
+
     dispatch_semaphore_signal(semaphore);
 }
 
@@ -323,17 +479,38 @@ RCT_EXPORT_METHOD(respond:(NSString *)requestId
 
 - (void)registerBridgeHandlers {
     NSArray<NSString *> *methods = @[@"GET", @"POST", @"PUT", @"PATCH", @"DELETE", @"OPTIONS", @"HEAD"];
+    __weak typeof(self) weakSelf = self;
 
     for (NSString *method in methods) {
-        Class requestClass =
-            [@[@"POST", @"PUT", @"PATCH"] containsObject:method]
-                ? [GCDWebServerDataRequest class]
-                : [GCDWebServerRequest class];
+        [_webServer addHandlerWithMatchBlock:^GCDWebServerRequest *(NSString *requestMethod,
+                                                                     NSURL *requestURL,
+                                                                     NSDictionary<NSString *, NSString *> *requestHeaders,
+                                                                     NSString *urlPath,
+                                                                     NSDictionary<NSString *, NSString *> *urlQuery) {
+            if (![requestMethod isEqualToString:method]) {
+                return nil;
+            }
 
-        [_webServer addDefaultHandlerForMethod:method
-                                  requestClass:requestClass
-                                  processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
-            return [self handleBridgeRequest:request];
+            Class requestClass = [GCDWebServerRequest class];
+            if (FFBShouldStoreRequestBodyInFile(requestMethod, urlPath, requestHeaders)) {
+                requestClass = [GCDWebServerFileRequest class];
+            } else if ([@[@"POST", @"PUT", @"PATCH"] containsObject:requestMethod]) {
+                requestClass = [GCDWebServerDataRequest class];
+            }
+
+            return [(GCDWebServerRequest *)[requestClass alloc] initWithMethod:requestMethod
+                                                                           url:requestURL
+                                                                       headers:requestHeaders
+                                                                           path:urlPath
+                                                                          query:urlQuery];
+        } asyncProcessBlock:^(GCDWebServerRequest *request, GCDWebServerCompletionBlock completionBlock) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) {
+                completionBlock([GCDWebServerResponse responseWithStatusCode:kGCDWebServerHTTPStatusCode_ServiceUnavailable]);
+                return;
+            }
+
+            completionBlock([strongSelf handleBridgeRequest:request]);
         }];
     }
 }
@@ -346,7 +523,10 @@ RCT_EXPORT_METHOD(respond:(NSString *)requestId
 
     NSString *requestId = [[NSUUID UUID] UUIDString];
     dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
-    self.pendingSemaphores[requestId] = semaphore;
+    @synchronized (self) {
+        self.pendingSemaphores[requestId] = semaphore;
+    }
+    NSString *preservedBodyPath = nil;
 
     NSMutableDictionary *payload = [NSMutableDictionary dictionary];
     payload[@"requestId"] = requestId;
@@ -355,13 +535,41 @@ RCT_EXPORT_METHOD(respond:(NSString *)requestId
     payload[@"headers"] = request.headers ?: @{};
     payload[@"query"] = request.query ?: @{};
 
-    if ([request isKindOfClass:[GCDWebServerDataRequest class]]) {
+    if (request.remoteAddressString.length > 0) {
+        payload[@"remoteAddress"] = request.remoteAddressString;
+    }
+
+    if ([request isKindOfClass:[GCDWebServerFileRequest class]]) {
+        GCDWebServerFileRequest *fileRequest = (GCDWebServerFileRequest *)request;
+        NSString *temporaryPath = fileRequest.temporaryPath;
+        unsigned long long bodyLength = FFBRequestBodyLength(request, temporaryPath);
+        if (temporaryPath.length > 0 && bodyLength > 0) {
+            NSString *preservedPath = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                [NSString stringWithFormat:@"fileflash-http-body-%@.part", requestId]];
+            NSError *moveError = nil;
+            [[NSFileManager defaultManager] removeItemAtPath:preservedPath error:nil];
+            if ([[NSFileManager defaultManager] moveItemAtPath:temporaryPath
+                                                        toPath:preservedPath
+                                                         error:&moveError]) {
+                preservedBodyPath = preservedPath;
+                payload[@"bodyFile"] = @{
+                    @"byteLength": @(bodyLength),
+                    @"path": preservedPath
+                };
+            } else {
+                [self consumePendingResponseForRequestId:requestId];
+                return [self jsonErrorResponseWithStatus:kGCDWebServerHTTPStatusCode_InternalServerError
+                                                 message:moveError.localizedDescription ?: @"Unable to preserve request body file."];
+            }
+        }
+    } else if ([request isKindOfClass:[GCDWebServerDataRequest class]]) {
         NSData *bodyData = ((GCDWebServerDataRequest *)request).data;
         if (bodyData.length > 0) {
-            payload[@"bodyBase64"] = [bodyData base64EncodedStringWithOptions:0];
             NSString *bodyText = [[NSString alloc] initWithData:bodyData encoding:NSUTF8StringEncoding];
             if (bodyText) {
                 payload[@"bodyText"] = bodyText;
+            } else {
+                payload[@"bodyBytes"] = FFBByteArrayFromData(bodyData);
             }
         }
     }
@@ -370,15 +578,14 @@ RCT_EXPORT_METHOD(respond:(NSString *)requestId
 
     dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(60 * NSEC_PER_SEC));
     if (dispatch_semaphore_wait(semaphore, timeout) != 0) {
-        [self.pendingSemaphores removeObjectForKey:requestId];
-        [self.pendingResponses removeObjectForKey:requestId];
+        [self consumePendingResponseForRequestId:requestId];
+        FFBCleanupPreservedBody(preservedBodyPath);
         return [self jsonErrorResponseWithStatus:kGCDWebServerHTTPStatusCode_GatewayTimeout
                                          message:@"Native request bridge timed out."];
     }
 
-    NSDictionary *responsePayload = self.pendingResponses[requestId];
-    [self.pendingSemaphores removeObjectForKey:requestId];
-    [self.pendingResponses removeObjectForKey:requestId];
+    NSDictionary *responsePayload = [self consumePendingResponseForRequestId:requestId];
+    FFBCleanupPreservedBody(preservedBodyPath);
     if (!responsePayload) {
         return [self jsonErrorResponseWithStatus:kGCDWebServerHTTPStatusCode_InternalServerError
                                          message:@"Native request bridge returned no response."];
@@ -395,13 +602,55 @@ RCT_EXPORT_METHOD(respond:(NSString *)requestId
 
     GCDWebServerResponse *response = nil;
 
-    if ([bodyEncoding isEqualToString:@"base64"]) {
+    if ([bodyEncoding isEqualToString:@"bytes"]) {
+        NSData *data = payload[@"bodyData"] ?: [NSData data];
+        NSString *contentType = headers[@"content-type"] ?: @"application/octet-stream";
+        GCDWebServerDataResponse *dataResponse =
+            [GCDWebServerDataResponse responseWithData:data contentType:contentType];
+        dataResponse.statusCode = status;
+        response = dataResponse;
+    } else if ([bodyEncoding isEqualToString:@"base64"]) {
         NSData *data = [[NSData alloc] initWithBase64EncodedString:body options:0] ?: [NSData data];
         NSString *contentType = headers[@"content-type"] ?: @"application/octet-stream";
         GCDWebServerDataResponse *dataResponse =
             [GCDWebServerDataResponse responseWithData:data contentType:contentType];
         dataResponse.statusCode = status;
         response = dataResponse;
+    } else if ([bodyEncoding isEqualToString:@"file"]) {
+        NSString *path = payload[@"path"] ?: @"";
+        NSUInteger offset = [payload[@"offset"] unsignedIntegerValue];
+        NSUInteger length = [payload[@"length"] unsignedIntegerValue];
+        NSDictionary *attributes =
+            [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
+        unsigned long long fileSize = [attributes[NSFileSize] unsignedLongLongValue];
+        if (path.length == 0 || attributes == nil) {
+            return [self jsonErrorResponseWithStatus:kGCDWebServerHTTPStatusCode_NotFound
+                                             message:@"Response file is missing."];
+        }
+        if ((unsigned long long)offset > fileSize ||
+            (unsigned long long)length > fileSize - (unsigned long long)offset) {
+            return [self jsonErrorResponseWithStatus:kGCDWebServerHTTPStatusCode_InternalServerError
+                                             message:@"Response file range is invalid."];
+        }
+        if (length == 0) {
+            GCDWebServerDataResponse *dataResponse =
+                [GCDWebServerDataResponse responseWithData:[NSData data]
+                                                contentType:headers[@"content-type"] ?: @"application/octet-stream"];
+            dataResponse.statusCode = status;
+            response = dataResponse;
+        } else {
+            GCDWebServerFileResponse *fileResponse =
+                [[GCDWebServerFileResponse alloc] initWithFile:path
+                                                     byteRange:NSMakeRange(offset, length)];
+            if (fileResponse == nil) {
+                return [self jsonErrorResponseWithStatus:kGCDWebServerHTTPStatusCode_NotFound
+                                                 message:@"Response file is missing."];
+            } else {
+                fileResponse.statusCode = status;
+                fileResponse.contentType = headers[@"content-type"] ?: @"application/octet-stream";
+                response = fileResponse;
+            }
+        }
     } else if ([bodyEncoding isEqualToString:@"text"]) {
         NSData *data = [body dataUsingEncoding:NSUTF8StringEncoding] ?: [NSData data];
         NSString *contentType = headers[@"content-type"] ?: @"text/plain; charset=utf-8";

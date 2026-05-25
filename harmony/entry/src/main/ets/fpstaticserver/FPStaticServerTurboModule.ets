@@ -25,6 +25,7 @@ const STATUS_TEXT_BY_CODE: Record<number, string> = {
   401: 'Unauthorized',
   404: 'Not Found',
   413: 'Payload Too Large',
+  416: 'Range Not Satisfiable',
   429: 'Too Many Requests',
   500: 'Internal Server Error',
   503: 'Service Unavailable',
@@ -69,6 +70,13 @@ interface NativeResponseBodyFile {
   length: number;
   offset: number;
   path: string;
+}
+
+interface OpenNativeResponseBodyFile {
+  close: () => void;
+  fd: number;
+  offset: number;
+  remaining: number;
 }
 
 interface ParsedTarget {
@@ -363,8 +371,14 @@ function cloneHeaders(input: Record<string, string>): Record<string, string> {
 function buildResponseHeaderBytes(response: NativeResponse): Uint8Array {
   const headers = cloneHeaders(response.headers);
 
-  if (!hasHeader(headers, 'content-length')) {
-    headers['content-length'] = String(response.bodyBytes.byteLength);
+  if (response.bodyFile) {
+    headers['content-length'] = String(
+      Math.max(0, Math.trunc(Number(response.bodyFile.length))),
+    );
+  } else if (!hasHeader(headers, 'content-length')) {
+    headers['content-length'] = String(
+      response.bodyBytes.byteLength,
+    );
   }
 
   if (!hasHeader(headers, 'content-type')) {
@@ -481,45 +495,73 @@ async function writeHttpResponse(
   client: socket.TCPSocketConnection,
   response: NativeResponse,
 ): Promise<void> {
-  await sendBytes(client, buildResponseHeaderBytes(response));
-  if (response.bodyFile) {
-    await sendFileRange(client, response.bodyFile);
-    return;
+  let fileRange: OpenNativeResponseBodyFile | undefined = undefined;
+
+  try {
+    if (response.bodyFile) {
+      fileRange = openFileRange(response.bodyFile);
+    }
+
+    await sendBytes(client, buildResponseHeaderBytes(response));
+    if (fileRange) {
+      await sendOpenFileRange(client, fileRange);
+      return;
+    }
+    await sendBytes(client, response.bodyBytes);
+  } finally {
+    if (fileRange) {
+      fileRange.close();
+    }
   }
-  await sendBytes(client, response.bodyBytes);
 }
 
-async function sendFileRange(
-  client: socket.TCPSocketConnection,
+function openFileRange(
   source: NativeResponseBodyFile,
-): Promise<void> {
-  let remaining = Math.max(0, Math.trunc(Number(source.length)));
-  let offset = Math.max(0, Math.trunc(Number(source.offset)));
-  if (remaining === 0) {
-    return;
-  }
-
+): OpenNativeResponseBodyFile {
+  const remaining = Math.max(0, Math.trunc(Number(source.length)));
+  const offset = Math.max(0, Math.trunc(Number(source.offset)));
   const file = fs.openSync(source.path, fs.OpenMode.READ_ONLY);
   try {
-    while (remaining > 0) {
-      const length = Math.min(RESPONSE_WRITE_CHUNK_BYTES, remaining);
-      const buffer = new ArrayBuffer(length);
-      const readLength = await fs.read(file.fd, buffer, {
-        length,
-        offset,
-      });
-      if (readLength <= 0) {
-        throw new Error('Unable to read HTTP response file.');
-      }
-
-      await client.send({
-        data: readLength === buffer.byteLength ? buffer : buffer.slice(0, readLength),
-      });
-      offset += readLength;
-      remaining -= readLength;
+    const size = fs.statSync(file.fd).size;
+    const available = Math.max(0, size - offset);
+    if (remaining > available) {
+      throw new Error('Response file range is invalid.');
     }
-  } finally {
+
+    return {
+      close: () => fs.closeSync(file),
+      fd: file.fd,
+      offset,
+      remaining,
+    };
+  } catch (error) {
     fs.closeSync(file);
+    throw error;
+  }
+}
+
+async function sendOpenFileRange(
+  client: socket.TCPSocketConnection,
+  source: OpenNativeResponseBodyFile,
+): Promise<void> {
+  let remaining = source.remaining;
+  let offset = source.offset;
+  while (remaining > 0) {
+    const length = Math.min(RESPONSE_WRITE_CHUNK_BYTES, remaining);
+    const buffer = new ArrayBuffer(length);
+    const readLength = await fs.read(source.fd, buffer, {
+      length,
+      offset,
+    });
+    if (readLength <= 0) {
+      throw new Error('Unable to read HTTP response file.');
+    }
+
+    await client.send({
+      data: readLength === buffer.byteLength ? buffer : buffer.slice(0, readLength),
+    });
+    offset += readLength;
+    remaining -= readLength;
   }
 }
 

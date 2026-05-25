@@ -151,12 +151,14 @@ export function PanelSurface({ children, style, testID }: PanelSurfaceProps) {
 }
 
 type FeedbackBannerProps = {
+  closeLabel?: string;
   message: string;
   onDismiss: () => void;
   tone: 'info' | 'success' | 'error';
 };
 
 export function FeedbackBanner({
+  closeLabel = '关闭',
   message,
   onDismiss,
   tone,
@@ -172,20 +174,22 @@ export function FeedbackBanner({
           ? styles.bannerError
           : styles.bannerInfo,
       ]}
+      testID="feedback-banner"
     >
       <Text numberOfLines={2} style={styles.bannerMessage}>
         {message}
       </Text>
       <Pressable
-        accessibilityLabel="关闭"
+        accessibilityLabel={closeLabel}
         accessibilityRole="button"
         onPress={onDismiss}
+        testID="feedback-banner-close"
         style={({ pressed }) => [
           styles.bannerClose,
           pressed ? styles.bannerClosePressed : null,
         ]}
       >
-        <Text style={styles.bannerCloseLabel}>关闭</Text>
+        <Text style={styles.bannerCloseLabel}>{closeLabel}</Text>
       </Pressable>
     </Surface>
   );
@@ -264,8 +268,10 @@ const styles = StyleSheet.create({
     gap: 8,
     justifyContent: 'space-between',
     maxWidth: 520,
+    minHeight: 34,
     paddingHorizontal: 10,
     paddingVertical: 5,
+    width: '100%',
   },
   bannerInfo: {
     backgroundColor: theme.colors.skySoft,
@@ -279,12 +285,14 @@ const styles = StyleSheet.create({
   bannerMessage: {
     color: theme.colors.ink,
     flex: 1,
+    minWidth: 0,
     flexShrink: 1,
     fontSize: 11,
     lineHeight: 15,
   },
   bannerClose: {
     borderRadius: theme.radius.pill,
+    flexShrink: 0,
     minHeight: 22,
     paddingHorizontal: 8,
     paddingVertical: 3,

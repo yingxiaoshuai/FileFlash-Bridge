@@ -26,6 +26,7 @@ import {
   ServiceConfig,
   ServiceError,
   ServiceState,
+  SharedFileRecord,
   createInitialServiceState,
 } from './models';
 
@@ -455,14 +456,6 @@ export class TransferServiceController {
       });
     }
 
-    const connectionDecision = this.touchConnection(request);
-    if (!connectionDecision.accepted) {
-      return this.json(429, {
-        code: 'SESSION_LIMIT_REACHED',
-        message: connectionDecision.reason,
-      });
-    }
-
     try {
       if (request.path === '/' && request.method === 'GET') {
         return this.html(
@@ -475,6 +468,14 @@ export class TransferServiceController {
             securityMode: this.state.config.securityMode,
           }),
         );
+      }
+
+      const connectionDecision = this.touchConnection(request);
+      if (!connectionDecision.accepted) {
+        return this.json(429, {
+          code: 'SESSION_LIMIT_REACHED',
+          message: connectionDecision.reason,
+        });
       }
 
       if (request.path === '/api/status' && request.method === 'GET') {
@@ -706,17 +707,56 @@ export class TransferServiceController {
       const downloadMatch = request.path.match(
         /^\/api\/shared\/([^/]+)\/download$/,
       );
-      if (downloadMatch && request.method === 'GET') {
+      if (
+        downloadMatch &&
+        (request.method === 'GET' || request.method === 'HEAD')
+      ) {
         const fileId = downloadMatch[1];
-        const directDownload = request.query.get('direct') === '1';
-        const offset = directDownload
-          ? 0
-          : Number(request.query.get('offset') ?? '0');
-        const requestedLength = Number(
-          request.query.get('length') ?? `${this.state.config.chunkSize}`,
+        const sharedFile = (await this.options.storage.listSharedFiles()).find(
+          file => file.id === fileId,
         );
+        if (!sharedFile) {
+          return this.json(404, {
+            code: 'INVALID_REQUEST',
+            message: t('api.resourceNotFound'),
+          });
+        }
+
+        const directDownload = request.query.get('direct') === '1';
+        const requestedRange = directDownload
+          ? parseByteRangeHeader(request.headers.range, sharedFile.size)
+          : undefined;
+
+        if (requestedRange === 'unsatisfiable') {
+          return {
+            status: 416,
+            headers: {
+              'accept-ranges': 'bytes',
+              'content-length': '0',
+              'content-range': `bytes */${sharedFile.size}`,
+              'content-type':
+                sharedFile.mimeType ?? 'application/octet-stream',
+              'x-file-size': String(sharedFile.size),
+            },
+          };
+        }
+
+        const offset =
+          directDownload && requestedRange
+            ? requestedRange.start
+            : directDownload
+            ? 0
+            : Number(request.query.get('offset') ?? '0');
+        const requestedLength =
+          directDownload && requestedRange
+            ? requestedRange.end - requestedRange.start + 1
+            : directDownload
+            ? Number.MAX_SAFE_INTEGER
+            : Number(
+                request.query.get('length') ?? `${this.state.config.chunkSize}`,
+              );
         const length = directDownload
-          ? Number.MAX_SAFE_INTEGER
+          ? Math.max(0, requestedLength)
           : Math.max(
               0,
               Math.min(
@@ -728,22 +768,52 @@ export class TransferServiceController {
               ),
             );
         const start = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+
+        if (request.method === 'HEAD') {
+          const contentLength = Math.max(
+            0,
+            Math.min(sharedFile.size - start, length),
+          );
+          const status =
+            requestedRange ||
+            (start !== 0 || contentLength !== sharedFile.size)
+              ? 206
+              : 200;
+
+          return {
+            headers: this.buildDownloadHeaders(
+              sharedFile,
+              contentLength,
+              sharedFile.size,
+              status === 206
+                ? { end: start + contentLength - 1, start }
+                : undefined,
+            ),
+            status,
+          };
+        }
+
         const chunk = await this.options.storage.prepareFileChunk(fileId, {
           length,
           offset: start,
           preferSourceFile: this.options.runtime?.supportsFileResponses,
         });
         const status =
-          start === 0 && chunk.contentLength === chunk.totalSize ? 200 : 206;
-
-        const headers = {
-          'content-disposition': `attachment; filename="${encodeURIComponent(
-            chunk.file.displayName,
-          )}"`,
-          'content-length': String(chunk.contentLength),
-          'content-type': chunk.file.mimeType ?? 'application/octet-stream',
-          'x-file-size': String(chunk.totalSize),
-        };
+          requestedRange ||
+          (start !== 0 || chunk.contentLength !== chunk.totalSize)
+            ? 206
+            : 200;
+        const headers = this.buildDownloadHeaders(
+          chunk.file,
+          chunk.contentLength,
+          chunk.totalSize,
+          status === 206
+            ? {
+                end: start + chunk.contentLength - 1,
+                start,
+              }
+            : undefined,
+        );
 
         if (chunk.sourceFile) {
           return {
@@ -772,6 +842,32 @@ export class TransferServiceController {
         message,
       });
     }
+  }
+
+  private buildDownloadHeaders(
+    file: SharedFileRecord,
+    contentLength: number,
+    totalSize: number,
+    range?: { end: number; start: number },
+  ) {
+    const headers: Record<string, string> = {
+      'accept-ranges': 'bytes',
+      'content-disposition': buildAttachmentContentDisposition(
+        file.displayName,
+      ),
+      'content-length': String(Math.max(0, contentLength)),
+      'content-type': file.mimeType ?? 'application/octet-stream',
+      'x-file-size': String(totalSize),
+    };
+
+    if (range) {
+      headers['content-range'] =
+        contentLength > 0
+          ? `bytes ${range.start}-${range.end}/${totalSize}`
+          : `bytes */${totalSize}`;
+    }
+
+    return headers;
   }
 
   private html(status: number, body: string): TransferResponse {
@@ -850,9 +946,15 @@ export class TransferServiceController {
 
   private touchConnection(request: TransferRequest) {
     const connectionId =
-      request.headers['x-client-id'] ?? request.remoteAddress ?? 'anonymous';
+      request.headers['x-client-id'] ??
+      request.query.get('clientId') ??
+      request.remoteAddress ??
+      'anonymous';
     const connectionLabel =
-      request.headers['user-agent'] ?? request.remoteAddress ?? 'Browser';
+      request.headers['user-agent'] ??
+      request.query.get('clientId') ??
+      request.remoteAddress ??
+      'Browser';
     const decision = this.connectionRegistry.touch(
       connectionId,
       connectionLabel,
@@ -918,18 +1020,18 @@ export class TransferServiceController {
       ];
     }
 
-    if (!(request.body instanceof Uint8Array)) {
-      return [];
+    if (request.body == null) {
+      return [
+        {
+          bytes: new Uint8Array(0),
+          mimeType: normalizeMimeType(request.headers['content-type']),
+          name,
+          relativePath,
+        },
+      ];
     }
 
-    return [
-      {
-        bytes: request.body,
-        mimeType: normalizeMimeType(request.headers['content-type']),
-        name,
-        relativePath,
-      },
-    ];
+    return [];
   }
 }
 
@@ -942,6 +1044,71 @@ function normalizeMimeType(value?: string) {
   const [mimeType] = value.split(';');
   const normalized = mimeType?.trim();
   return normalized ? normalized : undefined;
+}
+
+function parseByteRangeHeader(value: string | undefined, totalSize: number) {
+  if (!value) {
+    return undefined;
+  }
+
+  const match = value.trim().match(/^bytes=(\d*)-(\d*)$/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const [, rawStart, rawEnd] = match;
+  if (!rawStart && !rawEnd) {
+    return undefined;
+  }
+
+  if (totalSize <= 0) {
+    return 'unsatisfiable' as const;
+  }
+
+  if (!rawStart) {
+    const suffixLength = Number(rawEnd);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+      return 'unsatisfiable' as const;
+    }
+
+    const length = Math.min(totalSize, Math.trunc(suffixLength));
+    return {
+      end: totalSize - 1,
+      start: totalSize - length,
+    };
+  }
+
+  const start = Number(rawStart);
+  const requestedEnd = rawEnd ? Number(rawEnd) : totalSize - 1;
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(requestedEnd) ||
+    start < 0 ||
+    requestedEnd < start ||
+    start >= totalSize
+  ) {
+    return 'unsatisfiable' as const;
+  }
+
+  return {
+    end: Math.min(totalSize - 1, Math.trunc(requestedEnd)),
+    start: Math.trunc(start),
+  };
+}
+
+function buildAttachmentContentDisposition(fileName: string) {
+  const fallback = fileName
+    .replace(/[^\x20-\x7e]+/g, '_')
+    .replace(/["\\;]/g, '_')
+    .trim();
+  const safeFallback = fallback || 'download';
+  const encoded = encodeURIComponent(fileName)
+    .replace(/['()]/g, value =>
+      `%${value.charCodeAt(0).toString(16).toUpperCase()}`,
+    )
+    .replace(/\*/g, '%2A');
+
+  return `attachment; filename="${safeFallback}"; filename*=UTF-8''${encoded}`;
 }
 
 function decodeSubmittedText(body: unknown) {

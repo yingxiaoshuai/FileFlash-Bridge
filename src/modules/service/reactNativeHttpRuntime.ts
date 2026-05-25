@@ -32,7 +32,7 @@ type NativeServerModule = {
     requestId: string,
     status: number,
     headers: Record<string, string>,
-    body: Uint8Array,
+    body: number[],
   ) => Promise<void> | void;
   respondFile?: (
     requestId: string,
@@ -47,6 +47,7 @@ type NativeServerModule = {
 };
 
 type NativeServerRequestEvent = {
+  bodyBase64?: string;
   bodyFile?: {
     byteLength?: number;
     path?: string;
@@ -136,6 +137,27 @@ function readNativeBodyBytes(value: NativeServerRequestEvent['bodyBytes']) {
   return undefined;
 }
 
+function base64ToBytes(base64: string) {
+  const bufferCtor = (
+    globalThis as {
+      Buffer?: {
+        from(input: string, encoding: 'base64'): Uint8Array;
+      };
+    }
+  ).Buffer;
+
+  if (bufferCtor) {
+    return new Uint8Array(bufferCtor.from(base64, 'base64'));
+  }
+
+  const binary = globalThis.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index) & 0xff;
+  }
+  return bytes;
+}
+
 function bytesToUtf8(bytes: Uint8Array) {
   const bufferCtor = (
     globalThis as {
@@ -171,6 +193,14 @@ function textToUtf8(value: string) {
     bytes[index] = encoded.charCodeAt(index);
   }
   return bytes;
+}
+
+function bytesToNumberArray(bytes: Uint8Array) {
+  const output = new Array<number>(bytes.byteLength);
+  for (let index = 0; index < bytes.byteLength; index += 1) {
+    output[index] = bytes[index];
+  }
+  return output;
 }
 
 function normalizeHeaders(headers?: Record<string, string>) {
@@ -375,7 +405,7 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
           event.requestId,
           nativeResponse.status,
           nativeResponse.headers,
-          nativeResponse.bodyBytes,
+          bytesToNumberArray(nativeResponse.bodyBytes),
         );
       } else {
         await nativeServer.respond(
@@ -441,7 +471,11 @@ function resolveRequestBody(
   }
 
   const contentType = headers['content-type'] ?? '';
-  const bodyBytes = readNativeBodyBytes(event.bodyBytes);
+  const bodyBytes =
+    readNativeBodyBytes(event.bodyBytes) ??
+    (typeof event.bodyBase64 === 'string'
+      ? base64ToBytes(event.bodyBase64)
+      : undefined);
 
   if (shouldPreserveRawBody(event.path)) {
     if (bodyBytes) {

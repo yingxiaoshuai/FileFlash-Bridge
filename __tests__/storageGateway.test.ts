@@ -553,6 +553,167 @@ describe('InboundStorageGateway', () => {
     }
   });
 
+  test('finalizes concurrent inbound upload chunks by offset order', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-upload-parallel-'));
+    const fileSystem = new NodeFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 0,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-chunked-upload-parallel',
+    });
+
+    try {
+      await gateway.initialize();
+      const firstPath = join(rootDir, 'native-first.part');
+      const secondPath = join(rootDir, 'native-second.part');
+      await fsWriteFile(firstPath, encoder.encode('hello-'));
+      await fsWriteFile(secondPath, encoder.encode('world'));
+      const { uploadId } = await gateway.beginInboundUpload({
+        mimeType: 'application/octet-stream',
+        name: 'parallel.bin',
+        relativePath: 'incoming/parallel.bin',
+        totalBytes: 11,
+      });
+
+      await Promise.all([
+        gateway.appendInboundUpload(
+          uploadId,
+          {
+            byteLength: 5,
+            sourcePath: secondPath,
+          },
+          { offset: 6 },
+        ),
+        gateway.appendInboundUpload(
+          uploadId,
+          {
+            byteLength: 6,
+            sourcePath: firstPath,
+          },
+          { offset: 0 },
+        ),
+      ]);
+
+      const storedFile = await gateway.finalizeInboundUpload(uploadId);
+      const restored = await gateway.prepareFileBytes(storedFile.id);
+
+      expect(decoder.decode(restored.bytes)).toBe('hello-world');
+    } finally {
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  test('writes native upload chunks directly by offset and moves the completed file on finish', async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-upload-direct-'));
+
+    class RecordingFileSystemAdapter extends NodeFileSystemAdapter {
+      appendFileFromPathCalls: Array<{ path: string; sourcePath: string }> = [];
+      copyFileCalls: Array<{ destinationPath: string; sourcePath: string }> = [];
+      moveFileCalls: Array<{ destinationPath: string; sourcePath: string }> = [];
+      writeFileFromPathAtOffsetCalls: Array<{
+        destinationPath: string;
+        length: number;
+        offset: number;
+        sourcePath: string;
+      }> = [];
+
+      override async appendFileFromPath(path: string, sourcePath: string) {
+        this.appendFileFromPathCalls.push({ path, sourcePath });
+        await super.appendFileFromPath(path, sourcePath);
+      }
+
+      override async copyFile(sourcePath: string, destinationPath: string) {
+        this.copyFileCalls.push({ destinationPath, sourcePath });
+        await super.copyFile(sourcePath, destinationPath);
+      }
+
+      override async moveFile(sourcePath: string, destinationPath: string) {
+        this.moveFileCalls.push({ destinationPath, sourcePath });
+        await super.moveFile(sourcePath, destinationPath);
+      }
+
+      override async writeFileFromPathAtOffset(
+        destinationPath: string,
+        sourcePath: string,
+        offset: number,
+        length: number,
+      ) {
+        this.writeFileFromPathAtOffsetCalls.push({
+          destinationPath,
+          length,
+          offset,
+          sourcePath,
+        });
+        await super.writeFileFromPathAtOffset(
+          destinationPath,
+          sourcePath,
+          offset,
+          length,
+        );
+      }
+    }
+
+    const fileSystem = new RecordingFileSystemAdapter();
+    const gateway = new InboundStorageGateway({
+      compression: nodeGzipCompression,
+      compressionThreshold: 0,
+      fileSystem,
+      rootDir,
+      sessionId: 'session-chunked-upload-direct',
+    });
+
+    try {
+      await gateway.initialize();
+      const firstPath = join(rootDir, 'native-first.part');
+      const secondPath = join(rootDir, 'native-second.part');
+      await fsWriteFile(firstPath, encoder.encode('hello-'));
+      await fsWriteFile(secondPath, encoder.encode('world'));
+      const { uploadId } = await gateway.beginInboundUpload({
+        mimeType: 'application/octet-stream',
+        name: 'direct.bin',
+        relativePath: 'incoming/direct.bin',
+        totalBytes: 11,
+      });
+
+      await Promise.all([
+        gateway.appendInboundUpload(
+          uploadId,
+          {
+            byteLength: 5,
+            sourcePath: secondPath,
+          },
+          { offset: 6 },
+        ),
+        gateway.appendInboundUpload(
+          uploadId,
+          {
+            byteLength: 6,
+            sourcePath: firstPath,
+          },
+          { offset: 0 },
+        ),
+      ]);
+
+      const storedFile = await gateway.finalizeInboundUpload(uploadId);
+      const storedBytes = await fsReadFile(storedFile.storagePath);
+
+      expect(Buffer.from(storedBytes).toString('utf8')).toBe('hello-world');
+      expect(fileSystem.writeFileFromPathAtOffsetCalls).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ length: 6, offset: 0, sourcePath: firstPath }),
+          expect.objectContaining({ length: 5, offset: 6, sourcePath: secondPath }),
+        ]),
+      );
+      expect(fileSystem.appendFileFromPathCalls).toHaveLength(0);
+      expect(fileSystem.copyFileCalls).toHaveLength(0);
+      expect(fileSystem.moveFileCalls).toHaveLength(1);
+    } finally {
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
   test('repairs stale uncompressed file sizes from disk metadata during initialization', async () => {
     const rootDir = await mkdtemp(join(tmpdir(), 'ffb-storage-'));
     const fileSystem = new NodeFileSystemAdapter();

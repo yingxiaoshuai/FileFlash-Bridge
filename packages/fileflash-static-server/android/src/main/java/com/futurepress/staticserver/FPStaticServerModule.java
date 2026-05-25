@@ -13,6 +13,7 @@ import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.WritableMap;
@@ -21,8 +22,11 @@ import com.facebook.react.modules.core.DeviceEventManagerModule;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
@@ -36,6 +40,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import fi.iki.elonen.NanoHTTPD;
@@ -48,6 +54,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
   private static final long REQUEST_TIMEOUT_SECONDS = 60L;
 
   private final ReactApplicationContext reactContext;
+  private final ExecutorService fileIoExecutor = Executors.newFixedThreadPool(4);
   private final Map<String, PendingResponse> pendingResponses = new ConcurrentHashMap<>();
 
   private BridgeWebServer server = null;
@@ -155,7 +162,119 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     } else {
       pending.body = new byte[0];
     }
+    pending.bodyFile = null;
     pending.latch.countDown();
+  }
+
+  @ReactMethod
+  public void respondBytes(
+      String requestId,
+      double status,
+      ReadableMap headers,
+      ReadableArray body) {
+    PendingResponse pending = pendingResponses.get(requestId);
+    if (pending == null) {
+      return;
+    }
+
+    pending.statusCode = (int) status;
+    pending.headers = readableMapToHashMap(headers);
+    pending.body = readableArrayToByteArray(body);
+    pending.bodyFile = null;
+    pending.latch.countDown();
+  }
+
+  @ReactMethod
+  public void respondFile(
+      String requestId,
+      double status,
+      ReadableMap headers,
+      String path,
+      double offset,
+      double length) {
+    PendingResponse pending = pendingResponses.get(requestId);
+    if (pending == null) {
+      return;
+    }
+
+    pending.statusCode = (int) status;
+    pending.headers = readableMapToHashMap(headers);
+    pending.body = null;
+    pending.bodyFile =
+        new ResponseBodyFile(
+            path,
+            Math.max(0L, (long) offset),
+            Math.max(0L, (long) length));
+    pending.latch.countDown();
+  }
+
+  @ReactMethod
+  public void writeFileFromPathAtOffset(
+      String destinationPath,
+      String sourcePath,
+      double offset,
+      double length,
+      Promise promise) {
+    fileIoExecutor.execute(
+        () -> writeFileFromPathAtOffsetOnFileThread(
+            destinationPath,
+            sourcePath,
+            offset,
+            length,
+            promise));
+  }
+
+  private void writeFileFromPathAtOffsetOnFileThread(
+      String destinationPath,
+      String sourcePath,
+      double offset,
+      double length,
+      Promise promise) {
+    try {
+      if (destinationPath == null || destinationPath.isEmpty()) {
+        throw new IOException("Destination path is required.");
+      }
+      if (sourcePath == null || sourcePath.isEmpty()) {
+        throw new IOException("Source path is required.");
+      }
+
+      File destination = new File(destinationPath);
+      File destinationDir = destination.getParentFile();
+      if (destinationDir != null && !destinationDir.exists() && !destinationDir.mkdirs()) {
+        throw new IOException("Unable to create destination directory: " + destinationDir);
+      }
+
+      long remaining = Math.max(0L, (long) length);
+      long writeOffset = Math.max(0L, (long) offset);
+      byte[] buffer = new byte[256 * 1024];
+
+      try (FileInputStream inputStream = new FileInputStream(sourcePath);
+          RandomAccessFile outputFile = new RandomAccessFile(destination, "rw")) {
+        outputFile.seek(writeOffset);
+        while (remaining > 0L) {
+          int bytesRead =
+              inputStream.read(buffer, 0, (int) Math.min((long) buffer.length, remaining));
+          if (bytesRead == -1) {
+            break;
+          }
+
+          outputFile.write(buffer, 0, bytesRead);
+          remaining -= bytesRead;
+        }
+      }
+
+      if (remaining > 0L) {
+        throw new IOException(
+            "Source file ended before " + (long) length + " bytes could be written.");
+      }
+
+      promise.resolve(null);
+    } catch (Exception error) {
+      promise.reject(
+          "EUNSPECIFIED",
+          error.getMessage() != null ? error.getMessage() : "Unable to write file chunk.",
+          error);
+    }
   }
 
   @ReactMethod
@@ -183,6 +302,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     String requestId = UUID.randomUUID().toString();
     PendingResponse pending = new PendingResponse();
     pendingResponses.put(requestId, pending);
+    String bodyFilePathToCleanup = null;
 
     try {
       WritableMap payload = Arguments.createMap();
@@ -195,12 +315,23 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
         payload.putString("remoteAddress", session.getRemoteIpAddress());
       }
 
-      byte[] bodyBytes = readRequestBodyBytes(session);
-      if (bodyBytes != null && bodyBytes.length > 0) {
-        payload.putString("bodyBase64", Base64.encodeToString(bodyBytes, Base64.NO_WRAP));
-        String contentType = session.getHeaders().get("content-type");
-        if (isUtf8TextRequest(contentType)) {
-          payload.putString("bodyText", new String(bodyBytes, StandardCharsets.UTF_8));
+      RequestBodyPayload requestBody = readRequestBodyPayload(session);
+      if (requestBody != null) {
+        if (requestBody.filePath != null) {
+          WritableMap bodyFile = Arguments.createMap();
+          bodyFile.putDouble("byteLength", (double) requestBody.byteLength);
+          bodyFile.putString("path", requestBody.filePath);
+          payload.putMap("bodyFile", bodyFile);
+          bodyFilePathToCleanup = requestBody.filePath;
+        } else if (requestBody.bytes != null && requestBody.bytes.length > 0) {
+          String contentType = session.getHeaders().get("content-type");
+          if (isUtf8TextRequest(contentType)) {
+            payload.putString(
+                "bodyText",
+                new String(requestBody.bytes, StandardCharsets.UTF_8));
+          } else {
+            payload.putArray("bodyBytes", byteArrayToWritableArray(requestBody.bytes));
+          }
         }
       }
 
@@ -216,6 +347,11 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     } catch (Exception error) {
       pendingResponses.remove(requestId);
       return jsonErrorResponse(500, error.getMessage() != null ? error.getMessage() : "Unexpected bridge failure.");
+    } finally {
+      if (bodyFilePathToCleanup != null) {
+        //noinspection ResultOfMethodCallIgnored
+        new File(bodyFilePathToCleanup).delete();
+      }
     }
   }
 
@@ -241,6 +377,10 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
           };
     }
 
+    if (pending.bodyFile != null) {
+      return buildFileResponse(status, contentType, pending);
+    }
+
     NanoHTTPD.Response response =
         NanoHTTPD.newFixedLengthResponse(
             status, contentType, pending.body != null ? new String(pending.body, StandardCharsets.ISO_8859_1) : "");
@@ -254,11 +394,81 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
               pending.body.length);
     }
 
+    boolean allowContentLengthHeader = pending.body == null || pending.body.length == 0;
     for (Map.Entry<String, String> header : pending.headers.entrySet()) {
-      response.addHeader(header.getKey(), header.getValue());
+      if (shouldForwardAdditionalHeader(header.getKey(), allowContentLengthHeader)) {
+        response.addHeader(header.getKey(), header.getValue());
+      }
     }
 
     return response;
+  }
+
+  private NanoHTTPD.Response buildFileResponse(
+      NanoHTTPD.Response.IStatus status,
+      String contentType,
+      PendingResponse pending) {
+    ResponseBodyFile bodyFile = pending.bodyFile;
+    File file = new File(bodyFile.path);
+    if (!file.exists() || !file.isFile()) {
+      return jsonErrorResponse(404, "Response file is missing: " + bodyFile.path);
+    }
+
+    long fileLength = file.length();
+    long start = Math.min(bodyFile.offset, fileLength);
+    long responseLength = Math.min(bodyFile.length, Math.max(0L, fileLength - start));
+    if (responseLength != bodyFile.length) {
+      return jsonErrorResponse(500, "Response file range is invalid.");
+    }
+
+    NanoHTTPD.Response response;
+
+    if (responseLength == 0L) {
+      response = NanoHTTPD.newFixedLengthResponse(status, contentType, "");
+    } else {
+      try {
+        FileInputStream inputStream = new FileInputStream(file);
+        skipFully(inputStream, start);
+        response =
+            NanoHTTPD.newFixedLengthResponse(
+                status,
+                contentType,
+                new ClosingInputStream(inputStream),
+                responseLength);
+      } catch (IOException error) {
+        return jsonErrorResponse(
+            500,
+            error.getMessage() != null ? error.getMessage() : "Unable to read response file.");
+      }
+    }
+
+    for (Map.Entry<String, String> header : pending.headers.entrySet()) {
+      if (shouldForwardAdditionalHeader(header.getKey(), false)) {
+        response.addHeader(header.getKey(), header.getValue());
+      }
+    }
+
+    return response;
+  }
+
+  private boolean shouldForwardAdditionalHeader(String key, boolean allowContentLength) {
+    if (key == null || key.trim().isEmpty()) {
+      return false;
+    }
+
+    String normalized = key.toLowerCase(Locale.ROOT);
+    if ("content-length".equals(normalized)) {
+      return allowContentLength;
+    }
+
+    return !("cache-control".equals(normalized)
+        || "connection".equals(normalized)
+        || "content-type".equals(normalized)
+        || "date".equals(normalized)
+        || "etag".equals(normalized)
+        || "last-modified".equals(normalized)
+        || "server".equals(normalized)
+        || "transfer-encoding".equals(normalized));
   }
 
   private NanoHTTPD.Response jsonErrorResponse(int statusCode, String message) {
@@ -281,7 +491,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
         .emit(eventName, payload);
   }
 
-  private byte[] readRequestBodyBytes(NanoHTTPD.IHTTPSession session) throws Exception {
+  private RequestBodyPayload readRequestBodyPayload(NanoHTTPD.IHTTPSession session) throws Exception {
     if (session.getMethod() == NanoHTTPD.Method.GET
         || session.getMethod() == NanoHTTPD.Method.HEAD
         || session.getMethod() == NanoHTTPD.Method.DELETE) {
@@ -289,11 +499,41 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     }
 
     Long contentLength = parseContentLength(session.getHeaders().get("content-length"));
+    if (shouldStoreRequestBodyInFile(session)) {
+      if (contentLength != null) {
+        if (contentLength <= 0L) {
+          return null;
+        }
+
+        File bodyFile =
+            File.createTempFile(
+                "fileflash-http-body-",
+                ".part",
+                reactContext.getCacheDir());
+        readFixedLengthBodyToFile(session.getInputStream(), contentLength, bodyFile);
+        return RequestBodyPayload.fromFile(bodyFile.getAbsolutePath(), contentLength);
+      }
+
+      Map<String, String> files = new HashMap<>();
+      session.parseBody(files);
+
+      String rawContentPath = files.get("content");
+      if (rawContentPath != null && !rawContentPath.isEmpty()) {
+        File rawContentFile = new File(rawContentPath);
+        return RequestBodyPayload.fromFile(rawContentPath, rawContentFile.length());
+      }
+
+      String postData = files.get("postData");
+      return postData == null || postData.isEmpty()
+          ? null
+          : RequestBodyPayload.fromBytes(postData.getBytes(StandardCharsets.UTF_8));
+    }
+
     if (contentLength != null) {
       if (contentLength <= 0L) {
         return null;
       }
-      return readFixedLengthBody(session.getInputStream(), contentLength);
+      return RequestBodyPayload.fromBytes(readFixedLengthBody(session.getInputStream(), contentLength));
     }
 
     Map<String, String> files = new HashMap<>();
@@ -301,13 +541,13 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
 
     String rawContentPath = files.get("content");
     if (rawContentPath != null && !rawContentPath.isEmpty()) {
-      return readBodyFileBytes(rawContentPath);
+      return RequestBodyPayload.fromBytes(readBodyFileBytes(rawContentPath));
     }
 
     String postData = files.get("postData");
     return postData == null || postData.isEmpty()
         ? null
-        : postData.getBytes(StandardCharsets.UTF_8);
+        : RequestBodyPayload.fromBytes(postData.getBytes(StandardCharsets.UTF_8));
   }
 
   private Long parseContentLength(String value) {
@@ -350,6 +590,40 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     return outputStream.toByteArray();
   }
 
+  private void readFixedLengthBodyToFile(
+      InputStream inputStream,
+      long contentLength,
+      File destination)
+      throws IOException {
+    byte[] buffer = new byte[8192];
+    long remaining = contentLength;
+
+    try (FileOutputStream outputStream = new FileOutputStream(destination)) {
+      while (remaining > 0L) {
+        int bytesRead =
+            inputStream.read(buffer, 0, (int) Math.min((long) buffer.length, remaining));
+        if (bytesRead == -1) {
+          break;
+        }
+
+        outputStream.write(buffer, 0, bytesRead);
+        remaining -= bytesRead;
+      }
+    } catch (IOException error) {
+      //noinspection ResultOfMethodCallIgnored
+      destination.delete();
+      throw error;
+    }
+
+    if (remaining > 0L) {
+      //noinspection ResultOfMethodCallIgnored
+      destination.delete();
+      throw new IOException(
+          "Request body ended early. Expected " + contentLength + " bytes but received "
+              + (contentLength - remaining) + ".");
+    }
+  }
+
   private byte[] readBodyFileBytes(String path) throws IOException {
     File bodyFile = new File(path);
     if (!bodyFile.exists()) {
@@ -387,6 +661,42 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     return result;
   }
 
+  private byte[] readableArrayToByteArray(ReadableArray array) {
+    if (array == null) {
+      return new byte[0];
+    }
+
+    byte[] bytes = new byte[array.size()];
+    for (int index = 0; index < array.size(); index += 1) {
+      bytes[index] = (byte) (((int) array.getDouble(index)) & 0xff);
+    }
+    return bytes;
+  }
+
+  private com.facebook.react.bridge.WritableArray byteArrayToWritableArray(byte[] bytes) {
+    com.facebook.react.bridge.WritableArray array = Arguments.createArray();
+    for (byte value : bytes) {
+      array.pushInt(value & 0xff);
+    }
+    return array;
+  }
+
+  private void skipFully(InputStream inputStream, long byteCount) throws IOException {
+    long remaining = byteCount;
+    while (remaining > 0L) {
+      long skipped = inputStream.skip(remaining);
+      if (skipped > 0L) {
+        remaining -= skipped;
+        continue;
+      }
+
+      if (inputStream.read() == -1) {
+        throw new IOException("Unable to seek response file.");
+      }
+      remaining -= 1L;
+    }
+  }
+
   private boolean isUtf8TextRequest(String contentType) {
     if (contentType == null) {
       return false;
@@ -395,6 +705,28 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     String normalized = contentType.toLowerCase(Locale.ROOT);
     return normalized.contains("application/json")
         || normalized.startsWith("text/");
+  }
+
+  private boolean shouldStoreRequestBodyInFile(NanoHTTPD.IHTTPSession session) {
+    NanoHTTPD.Method method = session.getMethod();
+    if (method != NanoHTTPD.Method.POST
+        && method != NanoHTTPD.Method.PUT
+        && method != NanoHTTPD.Method.PATCH) {
+      return false;
+    }
+
+    String path = session.getUri();
+    if ("/api/upload/part".equals(path)) {
+      return true;
+    }
+
+    String contentType = session.getHeaders().get("content-type");
+    String normalized = contentType != null ? contentType.toLowerCase(Locale.ROOT) : "";
+    if ("/api/upload".equals(path)) {
+      return !(normalized.contains("application/json") || normalized.startsWith("text/"));
+    }
+
+    return false;
   }
 
   private void startForegroundService() {
@@ -462,8 +794,47 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
 
   private static class PendingResponse {
     private byte[] body = new byte[0];
+    private ResponseBodyFile bodyFile = null;
     private Map<String, String> headers = new HashMap<>();
     private final CountDownLatch latch = new CountDownLatch(1);
     private int statusCode = 500;
+  }
+
+  private static class ResponseBodyFile {
+    private final long length;
+    private final long offset;
+    private final String path;
+
+    ResponseBodyFile(String path, long offset, long length) {
+      this.path = path != null ? path : "";
+      this.offset = offset;
+      this.length = length;
+    }
+  }
+
+  private static class RequestBodyPayload {
+    private final long byteLength;
+    private final byte[] bytes;
+    private final String filePath;
+
+    private RequestBodyPayload(byte[] bytes, String filePath, long byteLength) {
+      this.bytes = bytes;
+      this.filePath = filePath;
+      this.byteLength = byteLength;
+    }
+
+    static RequestBodyPayload fromBytes(byte[] bytes) {
+      return new RequestBodyPayload(bytes, null, bytes != null ? bytes.length : 0L);
+    }
+
+    static RequestBodyPayload fromFile(String filePath, long byteLength) {
+      return new RequestBodyPayload(null, filePath, byteLength);
+    }
+  }
+
+  private static class ClosingInputStream extends FilterInputStream {
+    ClosingInputStream(InputStream inputStream) {
+      super(inputStream);
+    }
   }
 }

@@ -39,6 +39,7 @@ type NativeFileAccessModule = {
   appendFile?: (path: string, content: Uint8Array | number[]) => Promise<void>;
   appendFileFromPath?: (path: string, sourcePath: string) => Promise<void>;
   copyFile?: (sourcePath: string, destinationPath: string) => Promise<void>;
+  moveFile?: (sourcePath: string, destinationPath: string) => Promise<void>;
   readFile?: (path: string) => Promise<NativeBytesLike>;
   readFileChunk?: (
     path: string,
@@ -50,6 +51,30 @@ type NativeFileAccessModule = {
     displayName?: string,
   ) => Promise<string>;
   writeFile?: (path: string, content: Uint8Array | number[]) => Promise<void>;
+  writeFileFromPathAtOffset?: (
+    destinationPath: string,
+    sourcePath: string,
+    offset: number,
+    length: number,
+  ) => Promise<void>;
+};
+
+type NativeFileReaderModule = {
+  appendFileFromPath?: (
+    path: string,
+    sourcePath: string,
+  ) => Promise<void>;
+  readChunkBase64?: (
+    path: string,
+    offset: number,
+    length: number,
+  ) => Promise<string>;
+  writeFileFromPathAtOffset?: (
+    destinationPath: string,
+    sourcePath: string,
+    offset: number,
+    length: number,
+  ) => Promise<void>;
 };
 
 type NativeImportedDeviceFile = {
@@ -140,7 +165,9 @@ function getOptionalNativeModule<T>(name: string) {
 }
 
 let cachedNativeFileAccess: NativeFileAccessModule | undefined;
+let cachedNativeFileReader: NativeFileReaderModule | undefined;
 let cachedNativeInboundSharing: NativeInboundSharingModule | undefined;
+let cachedNativeStaticServerFileAccess: NativeFileAccessModule | undefined;
 
 function getNativeFileAccess() {
   if (!cachedNativeFileAccess) {
@@ -149,6 +176,24 @@ function getNativeFileAccess() {
   }
 
   return cachedNativeFileAccess;
+}
+
+function getNativeFileReader() {
+  if (!cachedNativeFileReader) {
+    cachedNativeFileReader =
+      getOptionalNativeModule<NativeFileReaderModule>('FPFileReader');
+  }
+
+  return cachedNativeFileReader;
+}
+
+function getNativeStaticServerFileAccess() {
+  if (!cachedNativeStaticServerFileAccess) {
+    cachedNativeStaticServerFileAccess =
+      getOptionalNativeModule<NativeFileAccessModule>('FPStaticServer');
+  }
+
+  return cachedNativeStaticServerFileAccess;
 }
 
 function getNativeInboundSharing() {
@@ -187,15 +232,6 @@ function encodeBytesToBase64(bytes: Uint8Array) {
   }
 
   return output;
-}
-
-function bytesToBase64(bytes: Uint8Array) {
-  const bufferCtor = getBase64BufferCtor();
-  if (bufferCtor) {
-    return bufferCtor.from(bytes).toString('base64');
-  }
-
-  return encodeBytesToBase64(bytes);
 }
 
 function normalizeNativeBytes(value: NativeBytesLike) {
@@ -367,6 +403,42 @@ function sanitizeFileName(fileName: string) {
 }
 
 export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
+  writeFileFromPathAtOffset?: FileSystemAdapter['writeFileFromPathAtOffset'];
+
+  constructor() {
+    const nativeFileAccess = getNativeFileAccess();
+    const nativeFileReader = getNativeFileReader();
+    const nativeStaticServerFileAccess = getNativeStaticServerFileAccess();
+    const writeFileFromPathAtOffset =
+      nativeFileAccess?.writeFileFromPathAtOffset ??
+      nativeFileReader?.writeFileFromPathAtOffset ??
+      nativeStaticServerFileAccess?.writeFileFromPathAtOffset;
+
+    if (writeFileFromPathAtOffset) {
+      this.writeFileFromPathAtOffset = async (
+        destinationPath,
+        sourcePath,
+        offset,
+        length,
+      ) => {
+        const destinationDir = destinationPath
+          .split('/')
+          .slice(0, -1)
+          .join('/');
+        if (destinationDir) {
+          await RNFS.mkdir(destinationDir);
+        }
+
+        await writeFileFromPathAtOffset(
+          destinationPath,
+          sourcePath,
+          offset,
+          length,
+        );
+      };
+    }
+  }
+
   async copyFile(sourcePath: string, destinationPath: string) {
     const destinationDir = destinationPath.split('/').slice(0, -1).join('/');
     if (destinationDir) {
@@ -438,6 +510,40 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
     );
   }
 
+  async moveFile(sourcePath: string, destinationPath: string) {
+    const destinationDir = destinationPath.split('/').slice(0, -1).join('/');
+    if (destinationDir) {
+      await RNFS.mkdir(destinationDir);
+    }
+
+    if (isHarmonyPlatform()) {
+      const moveFile = getNativeFileAccess()?.moveFile;
+      if (moveFile) {
+        await moveFile(sourcePath, destinationPath);
+        return;
+      }
+
+      const copyFile = getNativeFileAccess()?.copyFile;
+      if (!copyFile) {
+        throw createMissingHarmonyFileAccessError();
+      }
+      await copyFile(sourcePath, destinationPath);
+      await this.deletePath(sourcePath);
+      return;
+    }
+
+    const rnfsWithMove = RNFS as typeof RNFS & {
+      moveFile?: (from: string, to: string) => Promise<void>;
+    };
+    if (rnfsWithMove.moveFile) {
+      await rnfsWithMove.moveFile(sourcePath, destinationPath);
+      return;
+    }
+
+    await this.copyFile(sourcePath, destinationPath);
+    await this.deletePath(sourcePath);
+  }
+
   async deletePath(path: string) {
     const exists = await RNFS.exists(path);
     if (!exists) {
@@ -473,6 +579,16 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       }
 
       return normalizeNativeBytes(await readFileChunk(path, offset, length));
+    }
+
+    if (Platform.OS === 'ios') {
+      const readChunkBase64 = getNativeFileReader()?.readChunkBase64;
+      if (!readChunkBase64) {
+        throw new Error('FPFileReader native module is unavailable.');
+      }
+
+      const base64 = await readChunkBase64(path, offset, length);
+      return base64ToBytes(base64);
     }
 
     const base64 = await RNFS.read(path, length, offset, 'base64');
@@ -548,6 +664,12 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
       return;
     }
 
+    const appendFileFromPath = getNativeFileReader()?.appendFileFromPath;
+    if (appendFileFromPath) {
+      await appendFileFromPath(path, sourcePath);
+      return;
+    }
+
     const bytes = await this.readFile(sourcePath);
     await this.appendFile(path, bytes);
   }
@@ -587,6 +709,12 @@ export interface ExportResult {
   destinationUri?: string;
   method: 'android-saf' | 'harmony-files' | 'ios-files' | 'share';
 }
+
+export type ExportFileSource = {
+  bytes?: Uint8Array;
+  file: SharedFileRecord;
+  sourcePath?: string;
+};
 
 export interface ImportedDeviceFile {
   byteLength: number;
@@ -1027,6 +1155,20 @@ function toEncodedFileUri(path: string) {
   return encodeURI(`file://${path}`);
 }
 
+function resolveBatchMimeType(files: SharedFileRecord[]) {
+  const mimeTypes = files
+    .map(file => file.mimeType)
+    .filter((value): value is string => Boolean(value));
+  if (mimeTypes.length === 0) {
+    return 'application/octet-stream';
+  }
+
+  const [firstMimeType] = mimeTypes;
+  return mimeTypes.every(mimeType => mimeType === firstMimeType)
+    ? firstMimeType
+    : '*/*';
+}
+
 async function saveToSystemDocumentUri(
   file: SharedFileRecord,
   sourceUri: string,
@@ -1085,6 +1227,117 @@ export async function exportPreparedFile(
   }
 
   return shareFromTemporaryFile(file, bytes);
+}
+
+async function prepareExportFileSources(items: ExportFileSource[]) {
+  const temporaryDirectory =
+    RNFS.TemporaryDirectoryPath || RNFS.CachesDirectoryPath;
+  const prepared: Array<{
+    cleanupPath?: string;
+    file: SharedFileRecord;
+    sourcePath: string;
+  }> = [];
+
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    if (item.sourcePath) {
+      prepared.push({
+        file: item.file,
+        sourcePath: item.sourcePath,
+      });
+      continue;
+    }
+
+    if (!item.bytes) {
+      throw new Error(`Missing export data for ${item.file.displayName}.`);
+    }
+
+    if (!temporaryDirectory) {
+      throw new Error('No temporary directory is available for export.');
+    }
+
+    const tempFilePath = `${temporaryDirectory}/ffb-export-${Date.now()}-${index}-${sanitizeFileName(
+      item.file.displayName,
+    )}`;
+    await new ReactNativeFileSystemAdapter().writeFile(
+      tempFilePath,
+      item.bytes,
+    );
+    prepared.push({
+      cleanupPath: tempFilePath,
+      file: item.file,
+      sourcePath: tempFilePath,
+    });
+  }
+
+  return prepared;
+}
+
+async function cleanupPreparedExportSources(
+  prepared: Array<{ cleanupPath?: string }>,
+) {
+  await Promise.all(
+    prepared.map(item =>
+      item.cleanupPath ? safeDeletePath(item.cleanupPath) : Promise.resolve(),
+    ),
+  );
+}
+
+async function shareOrSaveMultipleFiles(
+  prepared: Array<{
+    file: SharedFileRecord;
+    sourcePath: string;
+  }>,
+): Promise<ExportResult> {
+  const files = prepared.map(item => item.file);
+  const urls = prepared.map(item => toEncodedFileUri(item.sourcePath));
+  const filenames = files.map(file => file.displayName);
+  const shouldSaveToFiles = Platform.OS === 'ios' || isHarmonyPlatform();
+
+  await openShareSheet({
+    failOnCancel: false,
+    filenames,
+    saveToFiles: shouldSaveToFiles,
+    type: resolveBatchMimeType(files),
+    urls,
+  });
+
+  return {
+    method: isHarmonyPlatform()
+      ? 'harmony-files'
+      : Platform.OS === 'ios'
+      ? 'ios-files'
+      : 'share',
+  };
+}
+
+export async function exportPreparedFiles(items: ExportFileSource[]) {
+  if (items.length === 0) {
+    throw new Error('No files were selected for export.');
+  }
+
+  if (items.length === 1) {
+    const [item] = items;
+    if (item.sourcePath) {
+      return exportStoredFile({
+        ...item.file,
+        storagePath: item.sourcePath,
+      });
+    }
+
+    if (!item.bytes) {
+      throw new Error(`Missing export data for ${item.file.displayName}.`);
+    }
+
+    return exportPreparedFile(item.file, item.bytes);
+  }
+
+  const prepared = await prepareExportFileSources(items);
+  try {
+    return await shareOrSaveMultipleFiles(prepared);
+  } finally {
+    await cleanupPreparedExportSources(prepared);
+  }
 }
 
 export async function exportStoredFile(file: SharedFileRecord) {

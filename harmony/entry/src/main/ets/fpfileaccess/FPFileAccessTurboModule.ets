@@ -283,6 +283,53 @@ export class FPFileAccessTurboModule extends TurboModule {
     }
   }
 
+  async writeFileFromPathAtOffset(
+    destinationPath: string,
+    sourcePath: string,
+    offset: number,
+    length: number,
+  ): Promise<void> {
+    const normalizedDestination = normalizeFilePath(destinationPath);
+    const normalizedSource = normalizeFilePath(sourcePath);
+    const dir = parentDir(normalizedDestination);
+    if (dir) {
+      await fs.mkdir(dir, true).catch(() => {});
+    }
+
+    const source = fs.openSync(normalizedSource, fs.OpenMode.READ_ONLY);
+    const destination = fs.openSync(
+      normalizedDestination,
+      fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE,
+    );
+    const buffer = new ArrayBuffer(FILE_COPY_CHUNK_BYTES);
+    let readOffset = 0;
+    let writeOffset = Math.max(0, Math.trunc(offset));
+    let remaining = Math.max(0, Math.trunc(length));
+
+    try {
+      while (remaining > 0) {
+        const readLength = await fs.read(source.fd, buffer, {
+          length: Math.min(FILE_COPY_CHUNK_BYTES, remaining),
+          offset: readOffset,
+        } as ReadOptions);
+
+        if (readLength <= 0) {
+          throw new Error(`Source file ended before ${length} bytes could be written.`);
+        }
+
+        await writeBufferFully(destination.fd, buffer, readLength, writeOffset);
+        readOffset += readLength;
+        writeOffset += readLength;
+        remaining -= readLength;
+      }
+
+      await fs.fsync(destination.fd);
+    } finally {
+      fs.closeSync(source);
+      fs.closeSync(destination);
+    }
+  }
+
   async saveFileToDocuments(
     sourcePath: string,
     displayName?: string,

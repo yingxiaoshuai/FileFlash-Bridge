@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, Text as RNText } from 'react-native';
+import { Alert, StyleSheet, Text as RNText } from 'react-native';
 import renderer, { act } from 'react-test-renderer';
 
 import App from '../App';
@@ -882,6 +882,14 @@ describe('App sidebar history', () => {
         );
       }).length,
     ).toBeGreaterThan(0);
+    expect(
+      StyleSheet.flatten(
+        tree!.root.findByProps({ testID: 'feedback-banner' }).props.style,
+      ),
+    ).toMatchObject({
+      minHeight: 34,
+      width: '100%',
+    });
   });
 
   test('opens the project history drawer from the toolbar on narrow screens', () => {

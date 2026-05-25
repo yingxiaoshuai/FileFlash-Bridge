@@ -1,4 +1,5 @@
 import {
+  ReactNativeTcpHttpRuntime,
   createTcpServerStartError,
   encodeHttpResponse,
   parseHttpRequestFrame,
@@ -128,6 +129,12 @@ describe('resolveTcpServerPort', () => {
         8668,
       ),
     ).toBe(8877);
+  });
+});
+
+describe('ReactNativeTcpHttpRuntime', () => {
+  test('advertises file response support for direct downloads', () => {
+    expect(new ReactNativeTcpHttpRuntime().supportsFileResponses).toBe(true);
   });
 });
 

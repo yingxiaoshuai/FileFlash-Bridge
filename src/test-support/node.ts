@@ -7,6 +7,7 @@ import {
   open,
   readdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -37,6 +38,16 @@ export class NodeFileSystemAdapter implements FileSystemAdapter {
   async copyFile(sourcePath: string, destinationPath: string) {
     await mkdir(dirname(destinationPath), {recursive: true});
     await copyFile(sourcePath, destinationPath);
+  }
+
+  async moveFile(sourcePath: string, destinationPath: string) {
+    await mkdir(dirname(destinationPath), {recursive: true});
+    try {
+      await rename(sourcePath, destinationPath);
+    } catch {
+      await copyFile(sourcePath, destinationPath);
+      await rm(sourcePath, {force: true, recursive: true});
+    }
   }
 
   async deletePath(path: string) {
@@ -94,12 +105,62 @@ export class NodeFileSystemAdapter implements FileSystemAdapter {
   }
 
   async appendFile(path: string, content: Uint8Array) {
+    await mkdir(dirname(path), {recursive: true});
     await fsAppendFile(path, Buffer.from(content));
   }
 
   async appendFileFromPath(path: string, sourcePath: string) {
     await mkdir(dirname(path), {recursive: true});
     await fsAppendFile(path, await readFile(sourcePath));
+  }
+
+  async writeFileFromPathAtOffset(
+    destinationPath: string,
+    sourcePath: string,
+    offset: number,
+    length: number,
+  ) {
+    await mkdir(dirname(destinationPath), {recursive: true});
+    const sourceHandle = await open(sourcePath, 'r');
+    let destinationHandle;
+    try {
+      try {
+        destinationHandle = await open(destinationPath, 'r+');
+      } catch {
+        destinationHandle = await open(destinationPath, 'w+');
+      }
+
+      const requestedLength = Math.max(0, Math.trunc(length));
+      const buffer = Buffer.alloc(
+        Math.min(256 * 1024, Math.max(1, requestedLength)),
+      );
+      let remaining = requestedLength;
+      let readOffset = 0;
+      let writeOffset = Math.max(0, Math.trunc(offset));
+
+      while (remaining > 0) {
+        const readLength = Math.min(buffer.byteLength, remaining);
+        const {bytesRead} = await sourceHandle.read(
+          buffer,
+          0,
+          readLength,
+          readOffset,
+        );
+        if (bytesRead <= 0) {
+          throw new Error(
+            `Source file ended before ${requestedLength} bytes could be written.`,
+          );
+        }
+
+        await destinationHandle.write(buffer, 0, bytesRead, writeOffset);
+        remaining -= bytesRead;
+        readOffset += bytesRead;
+        writeOffset += bytesRead;
+      }
+    } finally {
+      await sourceHandle.close();
+      await destinationHandle?.close();
+    }
   }
 
   async writeText(path: string, content: string) {
@@ -226,6 +287,25 @@ export class NodeHttpRuntime implements ServiceRuntime {
 
     for (const [key, value] of Object.entries(transferResponse.headers ?? {})) {
       response.setHeader(key, value);
+    }
+
+    if (transferResponse.bodyFile) {
+      void readFile(transferResponse.bodyFile.path)
+        .then(fileBytes => {
+          const start = Math.max(0, transferResponse.bodyFile!.offset);
+          const end = Math.min(
+            fileBytes.byteLength,
+            start + transferResponse.bodyFile!.length,
+          );
+          response.end(fileBytes.subarray(start, end));
+        })
+        .catch(error => {
+          response.statusCode = 500;
+          response.end(
+            error instanceof Error ? error.message : 'Unable to read file',
+          );
+        });
+      return;
     }
 
     if (transferResponse.body instanceof Uint8Array) {

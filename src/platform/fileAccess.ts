@@ -3,6 +3,7 @@ import {
   consumePendingSharedItems,
   createReactNativeInboundStorageGateway,
   exportPreparedFile,
+  exportPreparedFiles,
   exportStoredFile,
   pickDeviceFilesForShare,
   pickDeviceMediaForShare,
@@ -14,10 +15,12 @@ export {
   cleanupImportedDeviceFiles,
   consumePendingSharedItems,
   exportPreparedFile,
+  exportPreparedFiles,
   exportStoredFile,
 };
 
 export type {
+  ExportFileSource,
   ExportResult,
   ImportedDeviceFile,
   ImportedDeviceText,

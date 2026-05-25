@@ -32,7 +32,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
     downloadButtonAgain: t('portal.download.buttonAgain'),
     downloadButtonBusy: t('portal.download.buttonBusy'),
     downloadBatchComplete: t('portal.download.batchComplete'),
-    downloadChunked: t('portal.download.chunked'),
     downloadClearSelection: t('portal.download.clearSelection'),
     downloadComplete: t('portal.download.complete'),
     downloadFailed: t('portal.download.failed'),
@@ -455,7 +454,11 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       .item-status {
         color: var(--muted);
         font-size: 13px;
+        line-height: 1.45;
         margin-top: 6px;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .chip {
@@ -622,17 +625,16 @@ export function buildPortalDocument(model: PortalDocumentModel) {
       const text = ${portalTextJson};
       const authKey = new URL(location.href).searchParams.get('key');
       const chunkSize = ${model.chunkSize};
-      const binaryBridgeChunkSize = ${model.binaryBridgeChunkSize};
-      const downloadChunkSize = Math.max(
-        1,
-        Math.min(chunkSize, binaryBridgeChunkSize || chunkSize),
-      );
-      const uploadChunkSize = chunkSize;
-      const blobDownloadFallbackMaxBytes = 32 * 1024 * 1024;
+      const uploadChunkSize = 8 * 1024 * 1024;
       const transferRequestTimeoutMs = 60000;
-      const maxConcurrentDownloadChunks = Math.max(
+      const maxVisibleErrorMessageLength = 120;
+      const maxConcurrentUploads = Math.max(
         1,
         Math.min(2, Number(navigator.hardwareConcurrency) || 2),
+      );
+      const maxConcurrentUploadParts = Math.max(
+        1,
+        Math.min(4, Number(navigator.hardwareConcurrency) || 4),
       );
       const maxChunkAttempts = 4;
       const activeDownloads = new Map();
@@ -670,6 +672,60 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         return String(template).replace(/\\{\\{\\s*(\\w+)\\s*\\}\\}/g, (_, key) => {
           return params && params[key] != null ? String(params[key]) : '';
         });
+      }
+
+      function readServerErrorMessage(responseText) {
+        const trimmed = String(responseText || '').trim();
+        if (!trimmed) {
+          return text.requestFailed;
+        }
+
+        try {
+          const payload = JSON.parse(trimmed);
+          if (
+            payload &&
+            typeof payload.message === 'string' &&
+            payload.message.trim()
+          ) {
+            return payload.message;
+          }
+          if (
+            payload &&
+            typeof payload.code === 'string' &&
+            payload.code.trim()
+          ) {
+            return payload.code;
+          }
+        } catch {
+          return trimmed;
+        }
+
+        return trimmed;
+      }
+
+      function buildVisibleErrorMessage(error) {
+        const rawMessage =
+          error && typeof error.message === 'string'
+            ? error.message
+            : String(error || '');
+        let message = readServerErrorMessage(rawMessage)
+          .replace(/\\s+/g, ' ')
+          .trim();
+
+        if (
+          !message ||
+          /RNFSManager\\.read\\(\\).*NSInteger.*unsupported/i.test(message)
+        ) {
+          return text.requestFailed;
+        }
+
+        if (message.length > maxVisibleErrorMessageLength) {
+          message =
+            message.slice(0, maxVisibleErrorMessageLength - 3).replace(/\\s+$/, '') +
+            '...';
+        }
+
+        return message;
       }
 
       function formatBytes(size) {
@@ -878,7 +934,6 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               escapeHtmlText(file.displayName) +
               '</div><div class="item-meta">' +
               formatBytes(file.size) +
-              (file.isLargeFile ? ' · ' + escapeHtmlText(text.downloadChunked) : '') +
               '</div></div></div><button class="primary" data-download="' +
               escapeHtmlText(file.id) +
               '"' +
@@ -1191,14 +1246,31 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
           onProgress(0);
           const totalChunks = Math.ceil(file.size / uploadChunkSize);
-          for (let index = 0; index < totalChunks; index += 1) {
-            const start = index * uploadChunkSize;
-            const end = Math.min(file.size, start + uploadChunkSize);
-            const slice = file.slice(start, end);
-            await uploadBinaryPart(uploadId, slice, start);
-            onProgress(end / file.size);
-            await waitForBrowserTurn();
+          let nextChunkIndex = 0;
+          let uploadedBytes = 0;
+          async function uploadPartWorker() {
+            while (nextChunkIndex < totalChunks) {
+              const index = nextChunkIndex;
+              nextChunkIndex += 1;
+              const start = index * uploadChunkSize;
+              const end = Math.min(file.size, start + uploadChunkSize);
+              const slice = file.slice(start, end);
+              await uploadBinaryPart(uploadId, slice, start);
+              uploadedBytes += end - start;
+              onProgress(Math.min(1, uploadedBytes / file.size));
+              await waitForBrowserTurn();
+            }
           }
+
+          const uploadPartWorkers = [];
+          const uploadPartWorkerCount = Math.min(
+            maxConcurrentUploadParts,
+            totalChunks,
+          );
+          for (let index = 0; index < uploadPartWorkerCount; index += 1) {
+            uploadPartWorkers.push(uploadPartWorker());
+          }
+          await Promise.all(uploadPartWorkers);
 
           return await postJson('/api/upload/finish', {uploadId: uploadId});
         } catch (error) {
@@ -1230,8 +1302,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
 
         const filesToUpload = fileQueue.splice(0, fileQueue.length);
         uploadList.innerHTML = '';
-
-        for (const file of filesToUpload) {
+        const uploadEntries = filesToUpload.map(file => {
           const entryId = 'upload-' + Math.random().toString(16).slice(2);
           uploadList.insertAdjacentHTML(
             'beforeend',
@@ -1246,30 +1317,52 @@ export function buildPortalDocument(model: PortalDocumentModel) {
                 : '') +
               '</div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill"></div></div><div class="item-status">0%</div></div>',
           );
+          return { entryId, file };
+        });
 
-          try {
-            await uploadBinaryWithProgress(file, progress => {
-              setUploadProgress(entryId, progress);
-            });
-            setUploadProgress(entryId, 1);
-            setUploadState(
-              entryId,
-              'ok',
-              text.uploadComplete,
-              text.uploadSentToPhone,
-              'ok',
-            );
-          } catch (error) {
-            setUploadState(
-              entryId,
-              'danger',
-              text.uploadFailed,
-              text.requestFailed + ': ' + error.message,
-              'danger',
-            );
-            updateBanner(error.message, 'warn');
+        let nextUploadIndex = 0;
+        async function uploadWorker() {
+          while (nextUploadIndex < uploadEntries.length) {
+            const entry = uploadEntries[nextUploadIndex];
+            nextUploadIndex += 1;
+            const { entryId, file } = entry;
+
+            try {
+              await uploadBinaryWithProgress(file, progress => {
+                setUploadProgress(entryId, progress);
+              });
+              setUploadProgress(entryId, 1);
+              setUploadState(
+                entryId,
+                'ok',
+                text.uploadComplete,
+                text.uploadSentToPhone,
+                'ok',
+              );
+            } catch (error) {
+              setUploadState(
+                entryId,
+                'danger',
+                text.uploadFailed,
+                text.requestFailed + ': ' + error.message,
+                'danger',
+              );
+              updateBanner(error.message, 'warn');
+            }
+
+            await waitForBrowserTurn();
           }
         }
+
+        const uploadWorkers = [];
+        const uploadWorkerCount = Math.min(
+          maxConcurrentUploads,
+          uploadEntries.length,
+        );
+        for (let index = 0; index < uploadWorkerCount; index += 1) {
+          uploadWorkers.push(uploadWorker());
+        }
+        await Promise.all(uploadWorkers);
 
         renderUploadQueue();
         await loadStatus();
@@ -1304,202 +1397,42 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
       }
 
-      async function fetchChunk(fileId, start, end, signal, onChunkProgress) {
-        let lastError = new Error(text.requestFailed);
-        const expectedBytes = Math.max(0, end - start);
-        for (let attempt = 1; attempt <= maxChunkAttempts; attempt += 1) {
-          if (signal && signal.aborted) {
-            throw signal.reason || lastError;
-          }
-
-          try {
-            const url = new URL(withKey('/api/shared/' + fileId + '/download'));
-            url.searchParams.set('offset', String(start));
-            url.searchParams.set('length', String(end - start));
-            const response = await fetchWithTimeout(url.toString(), {
-              headers: {
-                'x-client-id': getClientId(),
-              },
-              signal: signal,
-            });
-
-            if (!response.ok) {
-              const responseText = await response.text();
-              throw new Error(responseText || text.requestFailed);
-            }
-
-            const reader = response.body?.getReader?.();
-            if (!reader) {
-              const chunk = new Uint8Array(await response.arrayBuffer());
-              onChunkProgress?.(chunk.byteLength || expectedBytes, expectedBytes);
-              return chunk;
-            }
-
-            const parts = [];
-            let receivedBytes = 0;
-            while (true) {
-              const result = await reader.read();
-              if (result.done) {
-                break;
-              }
-
-              const value = result.value instanceof Uint8Array
-                ? result.value
-                : new Uint8Array(result.value || 0);
-              parts.push(value);
-              receivedBytes += value.byteLength;
-              onChunkProgress?.(
-                Math.min(expectedBytes || receivedBytes, receivedBytes),
-                expectedBytes,
-              );
-            }
-
-            onChunkProgress?.(
-              Math.max(receivedBytes, expectedBytes),
-              expectedBytes,
-            );
-            const combined = new Uint8Array(receivedBytes);
-            let offset = 0;
-            for (const part of parts) {
-              combined.set(part, offset);
-              offset += part.byteLength;
-            }
-            return combined;
-          } catch (error) {
-            lastError = error;
-            if (signal && signal.aborted) {
-              throw error;
-            }
-            if (attempt === maxChunkAttempts) {
-              break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 260 * attempt));
-          }
-        }
-
-        throw lastError;
+      function startDirectDownload(file) {
+        const url = new URL(withKey('/api/shared/' + file.id + '/download'));
+        url.searchParams.set('direct', '1');
+        url.searchParams.set('clientId', getClientId());
+        const link = document.createElement('a');
+        link.href = url.toString();
+        link.download = file.displayName;
+        link.rel = 'noopener';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
       }
 
-      async function createDownloadTarget(file, totalBytes) {
-        if (typeof window.showSaveFilePicker === 'function') {
-          const handle = await window.showSaveFilePicker({
-            suggestedName: file.displayName,
-          });
-          const writable = await handle.createWritable();
-          return {
-            abort: async () => {
-              await writable.abort?.();
-            },
-            close: async () => {
-              await writable.close();
-            },
-            write: async chunk => {
-              await writable.write(chunk);
-            },
-          };
+      async function verifyDirectDownload(file) {
+        const url = new URL(withKey('/api/shared/' + file.id + '/download'));
+        url.searchParams.set('direct', '1');
+        url.searchParams.set('clientId', getClientId());
+        const response = await fetchWithTimeout(url.toString(), {
+          method: 'HEAD',
+          headers: getClientHeaders(),
+        });
+
+        if (!response.ok) {
+          throw new Error(text.requestFailed + ' (' + response.status + ')');
         }
 
-        if (totalBytes > blobDownloadFallbackMaxBytes) {
-          return {
-            abort: async () => {},
-            close: async () => {
-              const url = new URL(
-                withKey('/api/shared/' + file.id + '/download'),
-              );
-              url.searchParams.set('direct', '1');
-              const link = document.createElement('a');
-              link.href = url.toString();
-              link.download = file.displayName;
-              link.rel = 'noopener';
-              link.style.display = 'none';
-              document.body.appendChild(link);
-              link.click();
-              link.remove();
-            },
-            direct: true,
-            write: async () => {},
-          };
-        }
-
-        const parts = [];
-        return {
-          abort: async () => {
-            parts.length = 0;
-          },
-          close: async () => {
-            const blob = new Blob(parts, {
-              type: file.mimeType || 'application/octet-stream',
-            });
-            const link = document.createElement('a');
-            const objectUrl = URL.createObjectURL(blob);
-            link.href = objectUrl;
-            link.download = file.displayName;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
-          },
-          write: async chunk => {
-            parts.push(chunk);
-          },
-        };
-      }
-
-      async function downloadFileToTarget(file, onProgress) {
-        const totalBytes = Math.max(0, Number(file.size) || 0);
-        const abortController =
-          typeof AbortController === 'function' ? new AbortController() : null;
-        const target = await createDownloadTarget(file, totalBytes);
-        let downloadedBytes = 0;
-
-        onProgress(0);
-
-        try {
-          if (totalBytes === 0) {
-            await target.close();
-            onProgress(1);
-            return;
-          }
-
-          while (downloadedBytes < totalBytes) {
-            const start = downloadedBytes;
-            const end = Math.min(totalBytes, start + downloadChunkSize);
-            let chunkProgress = 0;
-            const chunk = await fetchChunk(
-              file.id,
-              start,
-              end,
-              abortController?.signal,
-              loadedBytes => {
-                chunkProgress = Math.min(
-                  end - start,
-                  Math.max(0, loadedBytes || 0),
-                );
-                onProgress(
-                  totalBytes > 0
-                    ? (downloadedBytes + chunkProgress) / totalBytes
-                    : 1,
-                );
-              },
-            );
-
-            if (abortController?.signal.aborted) {
-              return;
-            }
-
-            await target.write(chunk);
-            downloadedBytes += chunk.byteLength;
-            onProgress(totalBytes > 0 ? downloadedBytes / totalBytes : 1);
-            await waitForBrowserTurn();
-          }
-
-          await target.close();
-          onProgress(1);
-        } catch (error) {
-          abortController?.abort(error);
-          await target.abort().catch(() => {});
-          throw error;
+        const expectedLength = Math.max(0, Number(file.size) || 0);
+        const responseLength = Number(response.headers.get('content-length'));
+        if (
+          expectedLength > 0 &&
+          Number.isFinite(responseLength) &&
+          responseLength > 0 &&
+          responseLength !== expectedLength
+        ) {
+          throw new Error(text.requestFailed);
         }
       }
 
@@ -1516,13 +1449,8 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           renderDownloadState(file.id);
 
           try {
-            await downloadFileToTarget(file, progress => {
-              downloadStateById.set(file.id, {
-                phase: 'downloading',
-                progress: progress,
-              });
-              renderDownloadState(file.id);
-            });
+            await verifyDirectDownload(file);
+            startDirectDownload(file);
 
             downloadStateById.set(file.id, {
               phase: 'completed',
@@ -1531,7 +1459,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
             renderDownloadState(file.id);
           } catch (error) {
             downloadStateById.set(file.id, {
-              error: error.message,
+              error: buildVisibleErrorMessage(error),
               phase: 'failed',
               progress: 0,
             });

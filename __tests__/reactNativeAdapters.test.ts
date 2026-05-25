@@ -6,12 +6,17 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
   const copyFile = jest.fn();
   const exists = jest.fn();
   const mkdir = jest.fn();
+  const moveFile = jest.fn();
   const read = jest.fn();
+  const readChunkBase64 = jest.fn();
   const readFileChunk = jest.fn();
   const readFile = jest.fn();
   const saveFileToDocuments = jest.fn();
+  const shareOpen = jest.fn().mockResolvedValue({ success: true });
   const stat = jest.fn();
+  const unlink = jest.fn();
   const writeFile = jest.fn();
+  const writeFileFromPathAtOffset = jest.fn();
 
   jest.doMock('react-native', () => ({
     NativeModules: {
@@ -21,10 +26,26 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
               appendFile,
               appendFileFromPath,
               copyFile,
+              moveFile,
               readFile,
               readFileChunk,
               saveFileToDocuments,
               writeFile,
+              writeFileFromPathAtOffset,
+            }
+          : undefined,
+      FPFileReader:
+        platformOs === 'ios'
+          ? {
+              appendFileFromPath,
+              readChunkBase64,
+              writeFileFromPathAtOffset,
+            }
+          : undefined,
+      FPStaticServer:
+        platformOs === 'android'
+          ? {
+              writeFileFromPathAtOffset,
             }
           : undefined,
     },
@@ -44,19 +65,26 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
 
   jest.doMock('react-native-share', () => ({
     __esModule: true,
-    default: {},
+    default: {
+      open: shareOpen,
+    },
   }));
 
   jest.doMock('react-native-fs', () => ({
     __esModule: true,
     default: {
       appendFile,
+      CachesDirectoryPath: '/cache',
       copyFile,
+      DocumentDirectoryPath: '/documents',
       exists,
       mkdir,
+      moveFile,
       read,
       readFile,
       stat,
+      TemporaryDirectoryPath: '/tmp',
+      unlink,
       writeFile,
     },
   }));
@@ -75,14 +103,20 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
     appendFileFromPath,
     copyFile,
     exists,
+    exportPreparedFiles: reactNativeAdapters.exportPreparedFiles,
     exportStoredFile: reactNativeAdapters.exportStoredFile,
     mkdir,
+    moveFile,
     read,
+    readChunkBase64,
     readFileChunk,
     readFile,
     saveFileToDocuments,
+    shareOpen,
     stat,
+    unlink,
     writeFile,
+    writeFileFromPathAtOffset,
   };
 }
 
@@ -245,6 +279,21 @@ describe('ReactNativeFileSystemAdapter', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
+  test('uses native file reader chunk reads on iOS', async () => {
+    const { adapter, read, readChunkBase64, readFile } =
+      loadAdapterForPlatform('ios');
+    const chunkBytes = Buffer.from('ios-chunk-data', 'utf8');
+    readChunkBase64.mockResolvedValue(chunkBytes.toString('base64'));
+
+    await expect(
+      adapter.readFileChunk('/tmp/file.bin', 16, 32),
+    ).resolves.toEqual(new Uint8Array(chunkBytes));
+
+    expect(readChunkBase64).toHaveBeenCalledWith('/tmp/file.bin', 16, 32);
+    expect(read).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
   test('passes Harmony appends to native byte file access', async () => {
     const { adapter, appendFile, mkdir } = loadAdapterForPlatform('harmony');
     appendFile.mockResolvedValue(undefined);
@@ -279,6 +328,84 @@ describe('ReactNativeFileSystemAdapter', () => {
     );
   });
 
+  test('passes iOS path appends to native file reader without JS bytes', async () => {
+    const { adapter, appendFileFromPath, mkdir, readFile } =
+      loadAdapterForPlatform('ios');
+    appendFileFromPath.mockResolvedValue(undefined);
+
+    await expect(
+      adapter.appendFileFromPath('/tmp/upload.part', '/cache/request.part'),
+    ).resolves.toBeUndefined();
+
+    expect(mkdir).toHaveBeenCalledWith('/tmp');
+    expect(appendFileFromPath).toHaveBeenCalledWith(
+      '/tmp/upload.part',
+      '/cache/request.part',
+    );
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
+  test('writes iOS path chunks directly by offset through native file reader', async () => {
+    const { adapter, mkdir, writeFileFromPathAtOffset } =
+      loadAdapterForPlatform('ios');
+    writeFileFromPathAtOffset.mockResolvedValue(undefined);
+
+    expect(adapter.writeFileFromPathAtOffset).toBeDefined();
+    await expect(
+      adapter.writeFileFromPathAtOffset(
+        '/tmp/upload.part',
+        '/cache/request.part',
+        1024,
+        4096,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mkdir).toHaveBeenCalledWith('/tmp');
+    expect(writeFileFromPathAtOffset).toHaveBeenCalledWith(
+      '/tmp/upload.part',
+      '/cache/request.part',
+      1024,
+      4096,
+    );
+  });
+
+  test('writes Android path chunks directly by offset through native static server', async () => {
+    const { adapter, mkdir, readFile, writeFileFromPathAtOffset } =
+      loadAdapterForPlatform('android');
+    writeFileFromPathAtOffset.mockResolvedValue(undefined);
+
+    expect(adapter.writeFileFromPathAtOffset).toBeDefined();
+    await expect(
+      adapter.writeFileFromPathAtOffset(
+        '/tmp/upload.part',
+        '/cache/request.part',
+        2048,
+        8192,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mkdir).toHaveBeenCalledWith('/tmp');
+    expect(writeFileFromPathAtOffset).toHaveBeenCalledWith(
+      '/tmp/upload.part',
+      '/cache/request.part',
+      2048,
+      8192,
+    );
+    expect(readFile).not.toHaveBeenCalled();
+  });
+
+  test('moves completed native upload files without copying through JS', async () => {
+    const { adapter, mkdir, moveFile } = loadAdapterForPlatform('ios');
+    moveFile.mockResolvedValue(undefined);
+
+    await expect(
+      adapter.moveFile('/tmp/upload.part', '/tmp/final.bin'),
+    ).resolves.toBeUndefined();
+
+    expect(mkdir).toHaveBeenCalledWith('/tmp');
+    expect(moveFile).toHaveBeenCalledWith('/tmp/upload.part', '/tmp/final.bin');
+  });
+
   test('saves Harmony stored files through native document picker copy', async () => {
     const { exportStoredFile, saveFileToDocuments } =
       loadAdapterForPlatform('harmony');
@@ -307,6 +434,109 @@ describe('ReactNativeFileSystemAdapter', () => {
     expect(saveFileToDocuments).toHaveBeenCalledWith(
       '/app/files/scene.glb',
       'scene.glb',
+    );
+  });
+
+  test('exports multiple iOS files through one save sheet', async () => {
+    const { exportPreparedFiles, shareOpen, writeFile } =
+      loadAdapterForPlatform('ios');
+    const firstFile = {
+      compression: 'none',
+      createdAt: '2026-05-12T00:00:00.000Z',
+      displayName: 'first.txt',
+      id: 'file-first',
+      isLargeFile: false,
+      mimeType: 'text/plain',
+      originalSize: 5,
+      projectId: 'project-a',
+      relativePath: 'first.txt',
+      size: 5,
+      storagePath: '/app/files/first.txt',
+      storedSize: 5,
+    };
+    const secondFile = {
+      ...firstFile,
+      displayName: 'second.txt',
+      id: 'file-second',
+      relativePath: 'second.txt',
+      storagePath: '/app/files/second.txt',
+    };
+
+    await expect(
+      exportPreparedFiles([
+        {
+          file: firstFile,
+          sourcePath: firstFile.storagePath,
+        },
+        {
+          bytes: new TextEncoder().encode('hello'),
+          file: secondFile,
+        },
+      ]),
+    ).resolves.toEqual({
+      method: 'ios-files',
+    });
+
+    expect(shareOpen).toHaveBeenCalledTimes(1);
+    expect(shareOpen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filenames: ['first.txt', 'second.txt'],
+        saveToFiles: true,
+        urls: [
+          'file:///app/files/first.txt',
+          expect.stringContaining('file:///tmp/ffb-export-'),
+        ],
+      }),
+    );
+    expect(writeFile).toHaveBeenCalledTimes(1);
+  });
+
+  test('exports multiple Android files through one multi-file share intent', async () => {
+    const { exportPreparedFiles, shareOpen } = loadAdapterForPlatform('android');
+    const firstFile = {
+      compression: 'none',
+      createdAt: '2026-05-12T00:00:00.000Z',
+      displayName: 'first.txt',
+      id: 'file-first',
+      isLargeFile: false,
+      mimeType: 'text/plain',
+      originalSize: 5,
+      projectId: 'project-a',
+      relativePath: 'first.txt',
+      size: 5,
+      storagePath: '/app/files/first.txt',
+      storedSize: 5,
+    };
+    const secondFile = {
+      ...firstFile,
+      displayName: 'second.txt',
+      id: 'file-second',
+      relativePath: 'second.txt',
+      storagePath: '/app/files/second.txt',
+    };
+
+    await expect(
+      exportPreparedFiles([
+        {
+          file: firstFile,
+          sourcePath: firstFile.storagePath,
+        },
+        {
+          file: secondFile,
+          sourcePath: secondFile.storagePath,
+        },
+      ]),
+    ).resolves.toEqual({
+      method: 'share',
+    });
+
+    expect(shareOpen).toHaveBeenCalledTimes(1);
+    expect(shareOpen).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filenames: ['first.txt', 'second.txt'],
+        saveToFiles: false,
+        urls: ['file:///app/files/first.txt', 'file:///app/files/second.txt'],
+      }),
     );
   });
 

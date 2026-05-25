@@ -90,6 +90,15 @@ export class ConnectionRegistry {
   touch(id: string, label: string, now = Date.now()) {
     this.prune(now);
 
+    if (!Number.isFinite(this.maxConnections) || this.maxConnections <= 0) {
+      this.entries.set(id, {
+        id,
+        label,
+        lastSeenAt: now,
+      });
+      return {accepted: true as const};
+    }
+
     const existing = this.entries.get(id);
     if (existing) {
       existing.lastSeenAt = now;

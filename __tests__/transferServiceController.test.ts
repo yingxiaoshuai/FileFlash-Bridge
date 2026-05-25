@@ -160,7 +160,7 @@ describe('TransferServiceController', () => {
     }
   });
 
-  test('serves secure APIs, accepts text upload, and exposes chunked downloads', async () => {
+  test('serves secure APIs, accepts text upload, and exposes direct downloads', async () => {
     const { controller, rootDir, sharedFile, storage } =
       await createController();
 
@@ -246,15 +246,67 @@ describe('TransferServiceController', () => {
       expect(sharedPayload.files).toHaveLength(1);
 
       const downloadResponse = await fetch(
-        `${accessUrl.origin}/api/shared/${sharedFile.id}/download?key=${key}&offset=0&length=4`,
+        `${accessUrl.origin}/api/shared/${sharedFile.id}/download?key=${key}&direct=1`,
         {
           headers: { 'x-client-id': 'client-a' },
         },
       );
-      expect(downloadResponse.status).toBe(206);
+      expect(downloadResponse.status).toBe(200);
       expect(
         Buffer.from(await downloadResponse.arrayBuffer()).toString('utf8'),
-      ).toBe('demo');
+      ).toBe('demo-shared-payload');
+    } finally {
+      await controller.stop();
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  test('supports browser download probes and byte range requests', async () => {
+    const { controller, rootDir, sharedFile } = await createController();
+
+    try {
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key') ?? '';
+
+      const headResponse = await controller.handleRequest({
+        headers: { 'x-client-id': 'client-a' },
+        method: 'HEAD',
+        path: `/api/shared/${sharedFile.id}/download`,
+        query: new URLSearchParams({
+          direct: '1',
+          key,
+        }),
+      });
+
+      expect(headResponse.status).toBe(200);
+      expect(headResponse.body).toBeUndefined();
+      expect(headResponse.bodyFile).toBeUndefined();
+      expect(headResponse.headers?.['content-length']).toBe(
+        String(sharedFile.size),
+      );
+      expect(headResponse.headers?.['accept-ranges']).toBe('bytes');
+
+      const rangeResponse = await controller.handleRequest({
+        headers: {
+          range: 'bytes=5-10',
+          'x-client-id': 'client-a',
+        },
+        method: 'GET',
+        path: `/api/shared/${sharedFile.id}/download`,
+        query: new URLSearchParams({
+          direct: '1',
+          key,
+        }),
+      });
+
+      expect(rangeResponse.status).toBe(206);
+      expect(rangeResponse.headers?.['content-length']).toBe('6');
+      expect(rangeResponse.headers?.['content-range']).toBe(
+        `bytes 5-10/${sharedFile.size}`,
+      );
+      expect(
+        Buffer.from(rangeResponse.body as Uint8Array).toString('utf8'),
+      ).toBe('shared');
     } finally {
       await controller.stop();
       await rm(rootDir, { force: true, recursive: true });
@@ -316,6 +368,56 @@ describe('TransferServiceController', () => {
       });
       expect(second.status).toBe(429);
       expect((await second.json()).code).toBe('SESSION_LIMIT_REACHED');
+    } finally {
+      await controller.stop();
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  test('does not count the portal page load toward the active session limit', async () => {
+    const { controller, rootDir } = await createController(1);
+
+    try {
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key');
+
+      const page = await fetch(`${accessUrl.origin}/?key=${key}`);
+      expect(page.status).toBe(200);
+
+      const first = await fetch(`${accessUrl.origin}/api/status?key=${key}`, {
+        headers: { 'x-client-id': 'client-a' },
+      });
+      expect(first.status).toBe(200);
+
+      const second = await fetch(`${accessUrl.origin}/api/status?key=${key}`, {
+        headers: { 'x-client-id': 'client-b' },
+      });
+      expect(second.status).toBe(429);
+      expect((await second.json()).code).toBe('SESSION_LIMIT_REACHED');
+    } finally {
+      await controller.stop();
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
+  test('allows one-to-many browsing when the connection limit is disabled', async () => {
+    const { controller, rootDir } = await createController(0);
+
+    try {
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key');
+
+      const clients = ['client-a', 'client-b', 'client-c', 'client-d'];
+      for (const clientId of clients) {
+        const response = await fetch(`${accessUrl.origin}/api/status?key=${key}`, {
+          headers: { 'x-client-id': clientId },
+        });
+        expect(response.status).toBe(200);
+      }
+
+      expect(controller.getState().activeConnections.length).toBeGreaterThanOrEqual(
+        clients.length,
+      );
     } finally {
       await controller.stop();
       await rm(rootDir, { force: true, recursive: true });

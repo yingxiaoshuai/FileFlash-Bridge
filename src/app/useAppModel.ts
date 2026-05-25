@@ -17,8 +17,10 @@ import {
   consumePendingSharedItems,
   exportStoredFile,
   exportPreparedFile,
+  exportPreparedFiles,
 } from '../platform/fileAccess';
 import type {
+  ExportFileSource,
   ExportResult,
   ImportedDeviceFile,
   ImportedDeviceText,
@@ -914,6 +916,23 @@ export function useAppModel() {
         })();
   };
 
+  const prepareSharedFileForExport = async (
+    file: SharedFileRecord,
+  ): Promise<ExportFileSource> => {
+    if (file.compression === 'none') {
+      return {
+        file,
+        sourcePath: file.storagePath,
+      };
+    }
+
+    const preparedFile = await gatewayRef.current!.prepareFileBytes(file.id);
+    return {
+      bytes: preparedFile.bytes,
+      file: preparedFile.file,
+    };
+  };
+
   const exportFile = async (file: SharedFileRecord) => {
     setState(currentState => ({
       ...currentState,
@@ -968,50 +987,37 @@ export function useAppModel() {
       busyAction: 'export:batch',
     }));
 
-    const failures: string[] = [];
-    let successCount = 0;
-
-    for (const file of filesToExport) {
-      try {
-        await exportSharedFileToDevice(file);
-        successCount += 1;
-      } catch (error) {
-        failures.push(
-          `${file.displayName}: ${resolveCurrentErrorMessage(error)}`,
-        );
-      }
-    }
-
     const locale = stateRef.current?.locale ?? DEFAULT_APP_LOCALE;
     const nextTranslator = createAppTranslator(locale);
-    const firstFailure = failures[0] ?? nextTranslator('error.unknown');
-    const notice: AppNotice =
-      failures.length > 0
-        ? {
-            message:
-              successCount > 0
-                ? nextTranslator('notice.export.batchPartial', {
-                    count: successCount,
-                    failureCount: failures.length,
-                    message: firstFailure,
-                  })
-                : nextTranslator('error.exportFailed', {
-                    message: firstFailure,
-                  }),
-            tone: 'error',
-          }
-        : {
-            message: nextTranslator('notice.export.batchSaved', {
-              count: successCount,
-            }),
-            tone: 'success',
-          };
 
-    setState(currentState => ({
-      ...currentState,
-      busyAction: undefined,
-      notice,
-    }));
+    try {
+      const exportSources = await Promise.all(
+        filesToExport.map(file => prepareSharedFileForExport(file)),
+      );
+      await exportPreparedFiles(exportSources);
+      setState(currentState => ({
+        ...currentState,
+        busyAction: undefined,
+        notice: {
+          message: nextTranslator('notice.export.batchSaved', {
+            count: filesToExport.length,
+          }),
+          tone: 'success',
+        },
+      }));
+    } catch (error) {
+      const message = resolveCurrentErrorMessage(error);
+      setState(currentState => ({
+        ...currentState,
+        busyAction: undefined,
+        notice: {
+          message: nextTranslator('error.exportFailed', {
+            message,
+          }),
+          tone: 'error',
+        },
+      }));
+    }
   };
 
   const clearNotice = () => {
