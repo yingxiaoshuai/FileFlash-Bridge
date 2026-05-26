@@ -80,3 +80,6 @@ hs_err_pid*.log
 /.cursor
 /config/harmony-release.local.json
 /harmony/.release-signing/
+/harmony/entry/build-profile.json5
+/harmony/entry/src/main/resources/rawfile/bundle.harmony.js
+/harmony/oh-package.json5
