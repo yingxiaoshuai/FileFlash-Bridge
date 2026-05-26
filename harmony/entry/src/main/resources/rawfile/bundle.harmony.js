@@ -124671,6 +124671,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
               right: pagePadding
             }],
             children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_$$_REQUIRE(_dependencyMap[14], "./ui").FeedbackBanner, {
+              closeLabel: t('app.close'),
               message: model.notice.message,
               onDismiss: model.clearNotice,
               tone: model.notice.tone
@@ -124781,7 +124782,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
   }
   function buildLocalizedExportNotice(file, result, locale) {
     var t = (0, _$$_REQUIRE(_dependencyMap[8], "../modules/localization/i18n").createAppTranslator)(locale);
-    var message = result.method === 'android-saf' || result.method === 'harmony-files' ? t('notice.export.saved', {
+    var message = result.method === 'android-directory' || result.method === 'android-downloads' || result.method === 'android-saf' || result.method === 'harmony-files' ? t('notice.export.saved', {
       name: file.displayName
     }) : result.method === 'ios-files' ? t('notice.export.ios', {
       name: file.displayName
@@ -125459,8 +125460,26 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         return _ref25.apply(this, arguments);
       };
     }();
-    var exportFile = /*#__PURE__*/function () {
+    var prepareSharedFileForExport = /*#__PURE__*/function () {
       var _ref27 = (0, _asyncToGenerator2.default)(function* (file) {
+        if (file.compression === 'none') {
+          return {
+            file: file,
+            sourcePath: file.storagePath
+          };
+        }
+        var preparedFile = yield gatewayRef.current.prepareFileBytes(file.id);
+        return {
+          bytes: preparedFile.bytes,
+          file: preparedFile.file
+        };
+      });
+      return function prepareSharedFileForExport(_x17) {
+        return _ref27.apply(this, arguments);
+      };
+    }();
+    var exportFile = /*#__PURE__*/function () {
+      var _ref28 = (0, _asyncToGenerator2.default)(function* (file) {
         setState(function (currentState) {
           return Object.assign({}, currentState, {
             busyAction: `export:${file.id}`
@@ -125493,13 +125512,13 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           });
         }
       });
-      return function exportFile(_x17) {
-        return _ref27.apply(this, arguments);
+      return function exportFile(_x18) {
+        return _ref28.apply(this, arguments);
       };
     }();
     var exportFiles = /*#__PURE__*/function () {
-      var _ref28 = (0, _asyncToGenerator2.default)(function* (filesToExport) {
-        var _stateRef$current$loc4, _stateRef$current4, _stateRef$current$loc5, _stateRef$current5, _failures$;
+      var _ref29 = (0, _asyncToGenerator2.default)(function* (filesToExport) {
+        var _stateRef$current$loc4, _stateRef$current4, _stateRef$current$loc5, _stateRef$current5;
         var t = (0, _$$_REQUIRE(_dependencyMap[8], "../modules/localization/i18n").createAppTranslator)((_stateRef$current$loc4 = (_stateRef$current4 = stateRef.current) == null ? void 0 : _stateRef$current4.locale) != null ? _stateRef$current$loc4 : _$$_REQUIRE(_dependencyMap[8], "../modules/localization/i18n").DEFAULT_APP_LOCALE);
         if (filesToExport.length === 0) {
           setState(function (currentState) {
@@ -125517,43 +125536,41 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             busyAction: 'export:batch'
           });
         });
-        var failures = [];
-        var successCount = 0;
-        for (var file of filesToExport) {
-          try {
-            yield exportSharedFileToDevice(file);
-            successCount += 1;
-          } catch (error) {
-            failures.push(`${file.displayName}: ${resolveCurrentErrorMessage(error)}`);
-          }
-        }
         var locale = (_stateRef$current$loc5 = (_stateRef$current5 = stateRef.current) == null ? void 0 : _stateRef$current5.locale) != null ? _stateRef$current$loc5 : _$$_REQUIRE(_dependencyMap[8], "../modules/localization/i18n").DEFAULT_APP_LOCALE;
         var nextTranslator = (0, _$$_REQUIRE(_dependencyMap[8], "../modules/localization/i18n").createAppTranslator)(locale);
-        var firstFailure = (_failures$ = failures[0]) != null ? _failures$ : nextTranslator('error.unknown');
-        var notice = failures.length > 0 ? {
-          message: successCount > 0 ? nextTranslator('notice.export.batchPartial', {
-            count: successCount,
-            failureCount: failures.length,
-            message: firstFailure
-          }) : nextTranslator('error.exportFailed', {
-            message: firstFailure
-          }),
-          tone: 'error'
-        } : {
-          message: nextTranslator('notice.export.batchSaved', {
-            count: successCount
-          }),
-          tone: 'success'
-        };
-        setState(function (currentState) {
-          return Object.assign({}, currentState, {
-            busyAction: undefined,
-            notice: notice
+        try {
+          var exportSources = yield Promise.all(filesToExport.map(function (file) {
+            return prepareSharedFileForExport(file);
+          }));
+          yield (0, _$$_REQUIRE(_dependencyMap[10], "../platform/fileAccess").exportPreparedFiles)(exportSources);
+          setState(function (currentState) {
+            return Object.assign({}, currentState, {
+              busyAction: undefined,
+              notice: {
+                message: nextTranslator('notice.export.batchSaved', {
+                  count: filesToExport.length
+                }),
+                tone: 'success'
+              }
+            });
           });
-        });
+        } catch (error) {
+          var message = resolveCurrentErrorMessage(error);
+          setState(function (currentState) {
+            return Object.assign({}, currentState, {
+              busyAction: undefined,
+              notice: {
+                message: nextTranslator('error.exportFailed', {
+                  message: message
+                }),
+                tone: 'error'
+              }
+            });
+          });
+        }
       });
-      return function exportFiles(_x18) {
-        return _ref28.apply(this, arguments);
+      return function exportFiles(_x19) {
+        return _ref29.apply(this, arguments);
       };
     }();
     var clearNotice = function clearNotice() {
@@ -125564,7 +125581,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       });
     };
     var openWorkspaceOnboarding = /*#__PURE__*/function () {
-      var _ref29 = (0, _asyncToGenerator2.default)(function* () {
+      var _ref30 = (0, _asyncToGenerator2.default)(function* () {
         try {
           var onboarding = yield gatewayRef.current.recordManualWorkspaceOnboardingOpen(_$$_REQUIRE(_dependencyMap[9], "../modules/onboarding/models").WORKSPACE_ONBOARDING_VERSION);
           setState(function (currentState) {
@@ -125584,11 +125601,11 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         }
       });
       return function openWorkspaceOnboarding() {
-        return _ref29.apply(this, arguments);
+        return _ref30.apply(this, arguments);
       };
     }();
     var skipWorkspaceOnboarding = /*#__PURE__*/function () {
-      var _ref30 = (0, _asyncToGenerator2.default)(function* () {
+      var _ref31 = (0, _asyncToGenerator2.default)(function* () {
         try {
           var onboarding = yield gatewayRef.current.markWorkspaceOnboardingSkipped(_$$_REQUIRE(_dependencyMap[9], "../modules/onboarding/models").WORKSPACE_ONBOARDING_VERSION);
           setState(function (currentState) {
@@ -125606,11 +125623,11 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         }
       });
       return function skipWorkspaceOnboarding() {
-        return _ref30.apply(this, arguments);
+        return _ref31.apply(this, arguments);
       };
     }();
     var completeWorkspaceOnboarding = /*#__PURE__*/function () {
-      var _ref31 = (0, _asyncToGenerator2.default)(function* () {
+      var _ref32 = (0, _asyncToGenerator2.default)(function* () {
         try {
           var onboarding = yield gatewayRef.current.markWorkspaceOnboardingCompleted(_$$_REQUIRE(_dependencyMap[9], "../modules/onboarding/models").WORKSPACE_ONBOARDING_VERSION);
           setState(function (currentState) {
@@ -125628,11 +125645,11 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         }
       });
       return function completeWorkspaceOnboarding() {
-        return _ref31.apply(this, arguments);
+        return _ref32.apply(this, arguments);
       };
     }();
     var setLocale = /*#__PURE__*/function () {
-      var _ref32 = (0, _asyncToGenerator2.default)(function* (locale) {
+      var _ref33 = (0, _asyncToGenerator2.default)(function* (locale) {
         if (locale === state.locale) {
           return;
         }
@@ -125652,8 +125669,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           });
         }
       });
-      return function setLocale(_x19) {
-        return _ref32.apply(this, arguments);
+      return function setLocale(_x20) {
+        return _ref33.apply(this, arguments);
       };
     }();
     return {
@@ -125712,7 +125729,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     compressionThreshold: 2 * 1024 * 1024,
     securityMode: 'secure',
     accessKey: 'replace-me',
-    maxActiveConnections: 3,
+    maxActiveConnections: 0,
     deviceName: '文件闪传桥',
     maxTextLength: 200000,
     sessionId: 'default-session'
@@ -125819,6 +125836,16 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       value: function touch(id, label) {
         var now = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : Date.now();
         this.prune(now);
+        if (!Number.isFinite(this.maxConnections) || this.maxConnections <= 0) {
+          this.entries.set(id, {
+            id: id,
+            label: label,
+            lastSeenAt: now
+          });
+          return {
+            accepted: true
+          };
+        }
         var existing = this.entries.get(id);
         if (existing) {
           existing.lastSeenAt = now;
@@ -125999,10 +126026,10 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     'home.shared.importMedia': '添加图库',
     'home.shared.empty': '暂无共享文件',
     'home.shared.unnamedProject': '未命名项目',
-    'home.shared.selectDownloads': '选择下载',
+    'home.shared.selectDownloads': '下载',
     'home.shared.cancelSelection': '取消选择',
     'home.shared.clearSelection': '清空',
-    'home.shared.downloadSelected': '下载选中',
+    'home.shared.downloadSelected': '下载',
     'home.shared.selectedCount': '已选 {{count}} 个',
     'home.shared.noSelection': '请先选择要下载的文件。',
     'home.contentSharing.title': '内容与共享',
@@ -126230,10 +126257,10 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     'home.shared.importMedia': 'Add gallery',
     'home.shared.empty': 'No shared files yet',
     'home.shared.unnamedProject': 'Untitled project',
-    'home.shared.selectDownloads': 'Select downloads',
+    'home.shared.selectDownloads': 'Download',
     'home.shared.cancelSelection': 'Cancel selection',
     'home.shared.clearSelection': 'Clear',
-    'home.shared.downloadSelected': 'Download selected',
+    'home.shared.downloadSelected': 'Download',
     'home.shared.selectedCount': '{{count}} selected',
     'home.shared.noSelection': 'Select files to download first.',
     'home.contentSharing.title': 'Content & Sharing',
@@ -126533,6 +126560,12 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       return _$$_REQUIRE(_dependencyMap[1], "../modules/file-access/reactNativeAdapters").exportPreparedFile;
     }
   });
+  Object.defineProperty(exports, "exportPreparedFiles", {
+    enumerable: true,
+    get: function get() {
+      return _$$_REQUIRE(_dependencyMap[1], "../modules/file-access/reactNativeAdapters").exportPreparedFiles;
+    }
+  });
   Object.defineProperty(exports, "exportStoredFile", {
     enumerable: true,
     get: function get() {
@@ -126574,6 +126607,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
   exports.consumePendingSharedItems = consumePendingSharedItems;
   exports.createReactNativeInboundStorageGateway = createReactNativeInboundStorageGateway;
   exports.exportPreparedFile = exportPreparedFile;
+  exports.exportPreparedFiles = exportPreparedFiles;
   exports.exportStoredFile = exportStoredFile;
   exports.pickDeviceFilesForShare = pickDeviceFilesForShare;
   exports.pickDeviceMediaForShare = pickDeviceMediaForShare;
@@ -126627,12 +126661,26 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     }
   }
   var cachedNativeFileAccess;
+  var cachedNativeFileReader;
   var cachedNativeInboundSharing;
+  var cachedNativeStaticServerFileAccess;
   function getNativeFileAccess() {
     if (!cachedNativeFileAccess) {
       cachedNativeFileAccess = getOptionalNativeModule('FPFileAccess');
     }
     return cachedNativeFileAccess;
+  }
+  function getNativeFileReader() {
+    if (!cachedNativeFileReader) {
+      cachedNativeFileReader = getOptionalNativeModule('FPFileReader');
+    }
+    return cachedNativeFileReader;
+  }
+  function getNativeStaticServerFileAccess() {
+    if (!cachedNativeStaticServerFileAccess) {
+      cachedNativeStaticServerFileAccess = getOptionalNativeModule('FPStaticServer');
+    }
+    return cachedNativeStaticServerFileAccess;
   }
   function getNativeInboundSharing() {
     if (!cachedNativeInboundSharing) {
@@ -126658,13 +126706,6 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       output += index + 2 < bytes.length ? BASE64_ALPHABET[triple & 0x3f] : '=';
     }
     return output;
-  }
-  function bytesToBase64(bytes) {
-    var bufferCtor = getBase64BufferCtor();
-    if (bufferCtor) {
-      return bufferCtor.from(bytes).toString('base64');
-    }
-    return encodeBytesToBase64(bytes);
   }
   function normalizeNativeBytes(value) {
     if (value instanceof Uint8Array) {
@@ -126786,7 +126827,26 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
   }
   var ReactNativeFileSystemAdapter = exports.ReactNativeFileSystemAdapter = /*#__PURE__*/function () {
     function ReactNativeFileSystemAdapter() {
+      var _ref, _nativeFileAccess$wri;
       (0, _classCallCheck2.default)(this, ReactNativeFileSystemAdapter);
+      var nativeFileAccess = getNativeFileAccess();
+      var nativeFileReader = getNativeFileReader();
+      var nativeStaticServerFileAccess = getNativeStaticServerFileAccess();
+      var writeFileFromPathAtOffset = (_ref = (_nativeFileAccess$wri = nativeFileAccess == null ? void 0 : nativeFileAccess.writeFileFromPathAtOffset) != null ? _nativeFileAccess$wri : nativeFileReader == null ? void 0 : nativeFileReader.writeFileFromPathAtOffset) != null ? _ref : nativeStaticServerFileAccess == null ? void 0 : nativeStaticServerFileAccess.writeFileFromPathAtOffset;
+      if (writeFileFromPathAtOffset) {
+        this.writeFileFromPathAtOffset = /*#__PURE__*/function () {
+          var _ref2 = (0, _asyncToGenerator2.default)(function* (destinationPath, sourcePath, offset, length) {
+            var destinationDir = destinationPath.split('/').slice(0, -1).join('/');
+            if (destinationDir) {
+              yield _reactNativeFs.default.mkdir(destinationDir);
+            }
+            yield writeFileFromPathAtOffset(destinationPath, sourcePath, offset, length);
+          });
+          return function (_x2, _x3, _x4, _x5) {
+            return _ref2.apply(this, arguments);
+          };
+        }();
+      }
     }
     return (0, _createClass2.default)(ReactNativeFileSystemAdapter, [{
       key: "copyFile",
@@ -126841,10 +126901,46 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           var detail = copyError instanceof Error ? ` ${copyError.message}` : '';
           throw new Error(`Native file copy failed or produced an incomplete file:${detail}`);
         });
-        function copyFile(_x2, _x3) {
+        function copyFile(_x6, _x7) {
           return _copyFile.apply(this, arguments);
         }
         return copyFile;
+      }()
+    }, {
+      key: "moveFile",
+      value: function () {
+        var _moveFile = (0, _asyncToGenerator2.default)(function* (sourcePath, destinationPath) {
+          var destinationDir = destinationPath.split('/').slice(0, -1).join('/');
+          if (destinationDir) {
+            yield _reactNativeFs.default.mkdir(destinationDir);
+          }
+          if ((0, _$$_REQUIRE(_dependencyMap[8], "../../platform/platform").isHarmonyPlatform)()) {
+            var _getNativeFileAccess2, _getNativeFileAccess3;
+            var _moveFile2 = (_getNativeFileAccess2 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess2.moveFile;
+            if (_moveFile2) {
+              yield _moveFile2(sourcePath, destinationPath);
+              return;
+            }
+            var copyFile = (_getNativeFileAccess3 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess3.copyFile;
+            if (!copyFile) {
+              throw createMissingHarmonyFileAccessError();
+            }
+            yield copyFile(sourcePath, destinationPath);
+            yield this.deletePath(sourcePath);
+            return;
+          }
+          var rnfsWithMove = _reactNativeFs.default;
+          if (rnfsWithMove.moveFile) {
+            yield rnfsWithMove.moveFile(sourcePath, destinationPath);
+            return;
+          }
+          yield this.copyFile(sourcePath, destinationPath);
+          yield this.deletePath(sourcePath);
+        });
+        function moveFile(_x8, _x9) {
+          return _moveFile.apply(this, arguments);
+        }
+        return moveFile;
       }()
     }, {
       key: "deletePath",
@@ -126856,7 +126952,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           yield _reactNativeFs.default.unlink(path);
         });
-        function deletePath(_x4) {
+        function deletePath(_x0) {
           return _deletePath.apply(this, arguments);
         }
         return deletePath;
@@ -126867,7 +126963,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         var _ensureDir = (0, _asyncToGenerator2.default)(function* (path) {
           yield _reactNativeFs.default.mkdir(path);
         });
-        function ensureDir(_x5) {
+        function ensureDir(_x1) {
           return _ensureDir.apply(this, arguments);
         }
         return ensureDir;
@@ -126878,7 +126974,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         var _exists = (0, _asyncToGenerator2.default)(function* (path) {
           return _reactNativeFs.default.exists(path);
         });
-        function exists(_x6) {
+        function exists(_x10) {
           return _exists.apply(this, arguments);
         }
         return exists;
@@ -126890,7 +126986,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           var stat = yield _reactNativeFs.default.stat(path);
           return Number(stat.size) || 0;
         });
-        function getFileSize(_x7) {
+        function getFileSize(_x11) {
           return _getFileSize.apply(this, arguments);
         }
         return getFileSize;
@@ -126904,7 +127000,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             return item.name;
           });
         });
-        function listFiles(_x8) {
+        function listFiles(_x12) {
           return _listFiles.apply(this, arguments);
         }
         return listFiles;
@@ -126914,17 +127010,26 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       value: function () {
         var _readFileChunk = (0, _asyncToGenerator2.default)(function* (path, offset, length) {
           if ((0, _$$_REQUIRE(_dependencyMap[8], "../../platform/platform").isHarmonyPlatform)()) {
-            var _getNativeFileAccess2;
-            var _readFileChunk2 = (_getNativeFileAccess2 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess2.readFileChunk;
+            var _getNativeFileAccess4;
+            var _readFileChunk2 = (_getNativeFileAccess4 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess4.readFileChunk;
             if (!_readFileChunk2) {
               throw createMissingHarmonyFileAccessError();
             }
             return normalizeNativeBytes(yield _readFileChunk2(path, offset, length));
           }
+          if ("harmony" === 'ios') {
+            var _getNativeFileReader;
+            var readChunkBase64 = (_getNativeFileReader = getNativeFileReader()) == null ? void 0 : _getNativeFileReader.readChunkBase64;
+            if (!readChunkBase64) {
+              throw new Error('FPFileReader native module is unavailable.');
+            }
+            var _base = yield readChunkBase64(path, offset, length);
+            return base64ToBytes(_base);
+          }
           var base64 = yield _reactNativeFs.default.read(path, length, offset, 'base64');
           return base64ToBytes(base64);
         });
-        function readFileChunk(_x9, _x0, _x1) {
+        function readFileChunk(_x13, _x14, _x15) {
           return _readFileChunk.apply(this, arguments);
         }
         return readFileChunk;
@@ -126934,8 +127039,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       value: function () {
         var _readFile = (0, _asyncToGenerator2.default)(function* (path) {
           if ((0, _$$_REQUIRE(_dependencyMap[8], "../../platform/platform").isHarmonyPlatform)()) {
-            var _getNativeFileAccess3;
-            var _readFile2 = (_getNativeFileAccess3 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess3.readFile;
+            var _getNativeFileAccess5;
+            var _readFile2 = (_getNativeFileAccess5 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess5.readFile;
             if (!_readFile2) {
               throw createMissingHarmonyFileAccessError();
             }
@@ -126944,7 +127049,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           var base64 = yield _reactNativeFs.default.readFile(path, 'base64');
           return base64ToBytes(base64);
         });
-        function readFile(_x10) {
+        function readFile(_x16) {
           return _readFile.apply(this, arguments);
         }
         return readFile;
@@ -126955,7 +127060,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         var _readText = (0, _asyncToGenerator2.default)(function* (path) {
           return _reactNativeFs.default.readFile(path, 'utf8');
         });
-        function readText(_x11) {
+        function readText(_x17) {
           return _readText.apply(this, arguments);
         }
         return readText;
@@ -126966,8 +127071,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         var _writeFile = (0, _asyncToGenerator2.default)(function* (path, content) {
           yield _reactNativeFs.default.mkdir(path.split('/').slice(0, -1).join('/'));
           if ((0, _$$_REQUIRE(_dependencyMap[8], "../../platform/platform").isHarmonyPlatform)()) {
-            var _getNativeFileAccess4;
-            var _writeFile2 = (_getNativeFileAccess4 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess4.writeFile;
+            var _getNativeFileAccess6;
+            var _writeFile2 = (_getNativeFileAccess6 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess6.writeFile;
             if (!_writeFile2) {
               throw createMissingHarmonyFileAccessError();
             }
@@ -126976,7 +127081,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           yield _reactNativeFs.default.writeFile(path, yield bytesToBase64Async(content), 'base64');
         });
-        function writeFile(_x12, _x13) {
+        function writeFile(_x18, _x19) {
           return _writeFile.apply(this, arguments);
         }
         return writeFile;
@@ -126990,8 +127095,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             yield _reactNativeFs.default.mkdir(dir);
           }
           if ((0, _$$_REQUIRE(_dependencyMap[8], "../../platform/platform").isHarmonyPlatform)()) {
-            var _getNativeFileAccess5;
-            var _appendFile2 = (_getNativeFileAccess5 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess5.appendFile;
+            var _getNativeFileAccess7;
+            var _appendFile2 = (_getNativeFileAccess7 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess7.appendFile;
             if (!_appendFile2) {
               throw createMissingHarmonyFileAccessError();
             }
@@ -127000,7 +127105,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           yield _reactNativeFs.default.appendFile(path, yield bytesToBase64Async(content), 'base64');
         });
-        function appendFile(_x14, _x15) {
+        function appendFile(_x20, _x21) {
           return _appendFile.apply(this, arguments);
         }
         return appendFile;
@@ -127009,23 +127114,29 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       key: "appendFileFromPath",
       value: function () {
         var _appendFileFromPath = (0, _asyncToGenerator2.default)(function* (path, sourcePath) {
+          var _getNativeFileReader2;
           var dir = path.split('/').slice(0, -1).join('/');
           if (dir) {
             yield _reactNativeFs.default.mkdir(dir);
           }
           if ((0, _$$_REQUIRE(_dependencyMap[8], "../../platform/platform").isHarmonyPlatform)()) {
-            var _getNativeFileAccess6;
-            var _appendFileFromPath2 = (_getNativeFileAccess6 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess6.appendFileFromPath;
+            var _getNativeFileAccess8;
+            var _appendFileFromPath2 = (_getNativeFileAccess8 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess8.appendFileFromPath;
             if (!_appendFileFromPath2) {
               throw createMissingHarmonyFileAccessError();
             }
             yield _appendFileFromPath2(path, sourcePath);
             return;
           }
+          var appendFileFromPath = (_getNativeFileReader2 = getNativeFileReader()) == null ? void 0 : _getNativeFileReader2.appendFileFromPath;
+          if (appendFileFromPath) {
+            yield appendFileFromPath(path, sourcePath);
+            return;
+          }
           var bytes = yield this.readFile(sourcePath);
           yield this.appendFile(path, bytes);
         });
-        function appendFileFromPath(_x16, _x17) {
+        function appendFileFromPath(_x22, _x23) {
           return _appendFileFromPath.apply(this, arguments);
         }
         return appendFileFromPath;
@@ -127037,7 +127148,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           yield _reactNativeFs.default.mkdir(path.split('/').slice(0, -1).join('/'));
           yield _reactNativeFs.default.writeFile(path, content, 'utf8');
         });
-        function writeText(_x18, _x19) {
+        function writeText(_x24, _x25) {
           return _writeText.apply(this, arguments);
         }
         return writeText;
@@ -127049,7 +127160,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       var _compress = (0, _asyncToGenerator2.default)(function* (content) {
         return (0, _$$_REQUIRE(_dependencyMap[9], "pako").gzip)(content);
       });
-      function compress(_x20) {
+      function compress(_x26) {
         return _compress.apply(this, arguments);
       }
       return compress;
@@ -127058,7 +127169,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       var _decompress = (0, _asyncToGenerator2.default)(function* (content) {
         return (0, _$$_REQUIRE(_dependencyMap[9], "pako").ungzip)(content);
       });
-      function decompress(_x21) {
+      function decompress(_x27) {
         return _decompress.apply(this, arguments);
       }
       return decompress;
@@ -127091,7 +127202,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     var segments = normalized.split('/');
     return segments[segments.length - 1] || 'untitled.bin';
   }
-  function safeDeletePath(_x22) {
+  function safeDeletePath(_x28) {
     return _safeDeletePath.apply(this, arguments);
   }
   function _safeDeletePath() {
@@ -127136,7 +127247,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       createdAt: text.createdAt
     };
   }
-  function delay(_x23) {
+  function delay(_x29) {
     return _delay.apply(this, arguments);
   }
   function _delay() {
@@ -127147,7 +127258,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _delay.apply(this, arguments);
   }
-  function safePathExists(_x24) {
+  function safePathExists(_x30) {
     return _safePathExists.apply(this, arguments);
   }
   function _safePathExists() {
@@ -127217,7 +127328,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _consumeHarmonyPendingSharedItems.apply(this, arguments);
   }
-  function pickDocumentsForShare(_x25) {
+  function pickDocumentsForShare(_x31) {
     return _pickDocumentsForShare.apply(this, arguments);
   }
   function _pickDocumentsForShare() {
@@ -127267,14 +127378,14 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _pickDocumentsForShare.apply(this, arguments);
   }
-  function copyPickedDocumentsToCache(_x26) {
+  function copyPickedDocumentsToCache(_x32) {
     return _copyPickedDocumentsToCache.apply(this, arguments);
   }
   function _copyPickedDocumentsToCache() {
     _copyPickedDocumentsToCache = (0, _asyncToGenerator2.default)(function* (selectedFiles) {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      var _ref = _$$_REQUIRE(_dependencyMap[13], "@react-native-documents/picker"),
-        keepLocalCopy = _ref.keepLocalCopy;
+      var _ref3 = _$$_REQUIRE(_dependencyMap[13], "@react-native-documents/picker"),
+        keepLocalCopy = _ref3.keepLocalCopy;
       var filesToCopy = selectedFiles.map(function (file) {
         var _file$name5, _file$convertibleToMi;
         return Object.assign({
@@ -127350,7 +127461,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _consumePendingSharedItems.apply(this, arguments);
   }
-  function cleanupImportedDeviceFiles(_x27) {
+  function cleanupImportedDeviceFiles(_x33) {
     return _cleanupImportedDeviceFiles.apply(this, arguments);
   }
   function _cleanupImportedDeviceFiles() {
@@ -127361,7 +127472,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _cleanupImportedDeviceFiles.apply(this, arguments);
   }
-  function shareFromTemporaryFile(_x28, _x29) {
+  function shareFromTemporaryFile(_x34, _x35) {
     return _shareFromTemporaryFile.apply(this, arguments);
   }
   function _shareFromTemporaryFile() {
@@ -127394,7 +127505,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _shareFromTemporaryFile.apply(this, arguments);
   }
-  function shareExistingFile(_x30, _x31) {
+  function shareExistingFile(_x36, _x37) {
     return _shareExistingFile.apply(this, arguments);
   }
   function _shareExistingFile() {
@@ -127414,7 +127525,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _shareExistingFile.apply(this, arguments);
   }
-  function openShareSheet(_x32) {
+  function openShareSheet(_x38) {
     return _openShareSheet.apply(this, arguments);
   }
   function _openShareSheet() {
@@ -127430,13 +127541,13 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _openShareSheet.apply(this, arguments);
   }
-  function saveHarmonyFileToDocuments(_x33, _x34) {
+  function saveHarmonyFileToDocuments(_x39, _x40) {
     return _saveHarmonyFileToDocuments.apply(this, arguments);
   }
   function _saveHarmonyFileToDocuments() {
     _saveHarmonyFileToDocuments = (0, _asyncToGenerator2.default)(function* (file, sourcePath) {
-      var _getNativeFileAccess7;
-      var saveFileToDocuments = (_getNativeFileAccess7 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess7.saveFileToDocuments;
+      var _getNativeFileAccess9;
+      var saveFileToDocuments = (_getNativeFileAccess9 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess9.saveFileToDocuments;
       if (!saveFileToDocuments) {
         throw createMissingHarmonyFileAccessError();
       }
@@ -127454,7 +127565,22 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
   function toEncodedFileUri(path) {
     return encodeURI(`file://${path}`);
   }
-  function saveToSystemDocumentUri(_x35, _x36) {
+  function resolveBatchMimeType(files) {
+    var mimeTypes = files.map(function (file) {
+      return file.mimeType;
+    }).filter(function (value) {
+      return Boolean(value);
+    });
+    if (mimeTypes.length === 0) {
+      return 'application/octet-stream';
+    }
+    var _mimeTypes = (0, _slicedToArray2.default)(mimeTypes, 1),
+      firstMimeType = _mimeTypes[0];
+    return mimeTypes.every(function (mimeType) {
+      return mimeType === firstMimeType;
+    }) ? firstMimeType : '*/*';
+  }
+  function saveToSystemDocumentUri(_x41, _x42) {
     return _saveToSystemDocumentUri.apply(this, arguments);
   }
   function _saveToSystemDocumentUri() {
@@ -127480,7 +127606,74 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _saveToSystemDocumentUri.apply(this, arguments);
   }
-  function exportPreparedFile(_x37, _x38) {
+  function toNativeExportFileDescriptor(item) {
+    var descriptor = {
+      displayName: item.file.displayName,
+      sourcePath: item.sourcePath
+    };
+    if (item.file.mimeType) {
+      descriptor.mimeType = item.file.mimeType;
+    }
+    return descriptor;
+  }
+  function createMultiSaveResult(destinationUris, method) {
+    return {
+      destinationUri: destinationUris[destinationUris.length - 1],
+      destinationUris: destinationUris,
+      method: method
+    };
+  }
+  function assertNativeDestinationUris(destinationUris, fallbackMessage) {
+    if (!Array.isArray(destinationUris) || destinationUris.some(function (uri) {
+      return typeof uri !== 'string';
+    }) || destinationUris.length === 0) {
+      throw new Error(fallbackMessage);
+    }
+    return destinationUris;
+  }
+  function saveAndroidFilesToDownloads(_x43) {
+    return _saveAndroidFilesToDownloads.apply(this, arguments);
+  }
+  function _saveAndroidFilesToDownloads() {
+    _saveAndroidFilesToDownloads = (0, _asyncToGenerator2.default)(function* (prepared) {
+      var _getNativeFileAccess0, _getNativeFileAccess1;
+      var saveFilesToDownloads = (_getNativeFileAccess0 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess0.saveFilesToDownloads;
+      if (saveFilesToDownloads) {
+        var _destinationUris = assertNativeDestinationUris(yield saveFilesToDownloads(prepared.map(toNativeExportFileDescriptor)), '未能保存到系统下载目录。');
+        return createMultiSaveResult(_destinationUris, 'android-downloads');
+      }
+      var saveFilesToDirectory = (_getNativeFileAccess1 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess1.saveFilesToDirectory;
+      if (!saveFilesToDirectory) {
+        throw new Error('当前 Android 安装包缺少批量保存模块，请重新打包安装后再试。');
+      }
+      var destinationUris = assertNativeDestinationUris(yield saveFilesToDirectory(prepared.map(toNativeExportFileDescriptor)), '未能保存到所选文件夹。');
+      return createMultiSaveResult(destinationUris, 'android-directory');
+    });
+    return _saveAndroidFilesToDownloads.apply(this, arguments);
+  }
+  function saveHarmonyFilesToDocuments(_x44) {
+    return _saveHarmonyFilesToDocuments.apply(this, arguments);
+  }
+  function _saveHarmonyFilesToDocuments() {
+    _saveHarmonyFilesToDocuments = (0, _asyncToGenerator2.default)(function* (prepared) {
+      var _getNativeFileAccess10;
+      var saveFilesToDocuments = (_getNativeFileAccess10 = getNativeFileAccess()) == null ? void 0 : _getNativeFileAccess10.saveFilesToDocuments;
+      if (!saveFilesToDocuments) {
+        var _destinationUris2 = [];
+        for (var item of prepared) {
+          var result = yield saveHarmonyFileToDocuments(item.file, item.sourcePath);
+          if (result.destinationUri) {
+            _destinationUris2.push(result.destinationUri);
+          }
+        }
+        return createMultiSaveResult(_destinationUris2, 'harmony-files');
+      }
+      var destinationUris = assertNativeDestinationUris(yield saveFilesToDocuments(prepared.map(toNativeExportFileDescriptor)), '未能保存到你选择的位置。');
+      return createMultiSaveResult(destinationUris, 'harmony-files');
+    });
+    return _saveHarmonyFilesToDocuments.apply(this, arguments);
+  }
+  function exportPreparedFile(_x45, _x46) {
     return _exportPreparedFile.apply(this, arguments);
   }
   function _exportPreparedFile() {
@@ -127510,7 +127703,115 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
     return _exportPreparedFile.apply(this, arguments);
   }
-  function exportStoredFile(_x39) {
+  function prepareExportFileSources(_x47) {
+    return _prepareExportFileSources.apply(this, arguments);
+  }
+  function _prepareExportFileSources() {
+    _prepareExportFileSources = (0, _asyncToGenerator2.default)(function* (items) {
+      var temporaryDirectory = _reactNativeFs.default.TemporaryDirectoryPath || _reactNativeFs.default.CachesDirectoryPath;
+      var prepared = [];
+      for (var index = 0; index < items.length; index += 1) {
+        var item = items[index];
+        if (item.sourcePath) {
+          prepared.push({
+            file: item.file,
+            sourcePath: item.sourcePath
+          });
+          continue;
+        }
+        if (!item.bytes) {
+          throw new Error(`Missing export data for ${item.file.displayName}.`);
+        }
+        if (!temporaryDirectory) {
+          throw new Error('No temporary directory is available for export.');
+        }
+        var tempFilePath = `${temporaryDirectory}/ffb-export-${Date.now()}-${index}-${sanitizeFileName(item.file.displayName)}`;
+        yield new ReactNativeFileSystemAdapter().writeFile(tempFilePath, item.bytes);
+        prepared.push({
+          cleanupPath: tempFilePath,
+          file: item.file,
+          sourcePath: tempFilePath
+        });
+      }
+      return prepared;
+    });
+    return _prepareExportFileSources.apply(this, arguments);
+  }
+  function cleanupPreparedExportSources(_x48) {
+    return _cleanupPreparedExportSources.apply(this, arguments);
+  }
+  function _cleanupPreparedExportSources() {
+    _cleanupPreparedExportSources = (0, _asyncToGenerator2.default)(function* (prepared) {
+      yield Promise.all(prepared.map(function (item) {
+        return item.cleanupPath ? safeDeletePath(item.cleanupPath) : Promise.resolve();
+      }));
+    });
+    return _cleanupPreparedExportSources.apply(this, arguments);
+  }
+  function shareOrSaveMultipleFiles(_x49) {
+    return _shareOrSaveMultipleFiles.apply(this, arguments);
+  }
+  function _shareOrSaveMultipleFiles() {
+    _shareOrSaveMultipleFiles = (0, _asyncToGenerator2.default)(function* (prepared) {
+      if ("harmony" === 'android') {
+        return saveAndroidFilesToDownloads(prepared);
+      }
+      if ((0, _$$_REQUIRE(_dependencyMap[8], "../../platform/platform").isHarmonyPlatform)()) {
+        return saveHarmonyFilesToDocuments(prepared);
+      }
+      var files = prepared.map(function (item) {
+        return item.file;
+      });
+      var urls = prepared.map(function (item) {
+        return toEncodedFileUri(item.sourcePath);
+      });
+      var filenames = files.map(function (file) {
+        return file.displayName;
+      });
+      yield openShareSheet({
+        failOnCancel: false,
+        filenames: filenames,
+        saveToFiles: "harmony" === 'ios',
+        type: resolveBatchMimeType(files),
+        urls: urls
+      });
+      return {
+        method: "harmony" === 'ios' ? 'ios-files' : 'share'
+      };
+    });
+    return _shareOrSaveMultipleFiles.apply(this, arguments);
+  }
+  function exportPreparedFiles(_x50) {
+    return _exportPreparedFiles.apply(this, arguments);
+  }
+  function _exportPreparedFiles() {
+    _exportPreparedFiles = (0, _asyncToGenerator2.default)(function* (items) {
+      if (items.length === 0) {
+        throw new Error('No files were selected for export.');
+      }
+      if (items.length === 1) {
+        var _items = (0, _slicedToArray2.default)(items, 1),
+          item = _items[0];
+        if (item.sourcePath) {
+          return exportStoredFile(Object.assign({}, item.file, {
+            storagePath: item.sourcePath
+          }));
+        }
+        if (!item.bytes) {
+          throw new Error(`Missing export data for ${item.file.displayName}.`);
+        }
+        return exportPreparedFile(item.file, item.bytes);
+      }
+      var prepared = yield prepareExportFileSources(items);
+      try {
+        return yield shareOrSaveMultipleFiles(prepared);
+      } finally {
+        yield cleanupPreparedExportSources(prepared);
+      }
+    });
+    return _exportPreparedFiles.apply(this, arguments);
+  }
+  function exportStoredFile(_x51) {
     return _exportStoredFile.apply(this, arguments);
   }
   function _exportStoredFile() {
@@ -135485,9 +135786,10 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
   });
   exports.SESSION_DELETION_WARNING = exports.InboundStorageGateway = void 0;
   var _slicedToArray2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[1], "@babel/runtime/helpers/slicedToArray"));
-  var _asyncToGenerator2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[2], "@babel/runtime/helpers/asyncToGenerator"));
-  var _classCallCheck2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[3], "@babel/runtime/helpers/classCallCheck"));
-  var _createClass2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[4], "@babel/runtime/helpers/createClass"));
+  var _toConsumableArray2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[2], "@babel/runtime/helpers/toConsumableArray"));
+  var _asyncToGenerator2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[3], "@babel/runtime/helpers/asyncToGenerator"));
+  var _classCallCheck2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[4], "@babel/runtime/helpers/classCallCheck"));
+  var _createClass2 = _interopRequireDefault(_$$_REQUIRE(_dependencyMap[5], "@babel/runtime/helpers/createClass"));
   var SESSION_DELETION_WARNING = exports.SESSION_DELETION_WARNING = 'Deleting will clear this session data and related files. Export files first if you need to keep them.';
   var SNAPSHOT_FILE_NAME = 'session-state.json';
   var TEMP_DIR_NAME = 'temp';
@@ -135556,7 +135858,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       value: function () {
         var _getWorkspaceOnboardingState = (0, _asyncToGenerator2.default)(function* (version) {
           yield this.initialize();
-          return (0, _$$_REQUIRE(_dependencyMap[5], "../onboarding/models").deriveWorkspaceOnboardingSnapshot)(version, this.uiMetadata.workspaceOnboarding);
+          return (0, _$$_REQUIRE(_dependencyMap[6], "../onboarding/models").deriveWorkspaceOnboardingSnapshot)(version, this.uiMetadata.workspaceOnboarding);
         });
         function getWorkspaceOnboardingState(_x) {
           return _getWorkspaceOnboardingState.apply(this, arguments);
@@ -135568,9 +135870,9 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       value: function () {
         var _getLocalePreference = (0, _asyncToGenerator2.default)(function* () {
           var _this$uiMetadata$loca;
-          var fallbackLocale = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : _$$_REQUIRE(_dependencyMap[6], "../localization/i18n").DEFAULT_APP_LOCALE;
+          var fallbackLocale = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : _$$_REQUIRE(_dependencyMap[7], "../localization/i18n").DEFAULT_APP_LOCALE;
           yield this.initialize();
-          return (0, _$$_REQUIRE(_dependencyMap[6], "../localization/i18n").resolveAppLocale)((_this$uiMetadata$loca = this.uiMetadata.localePreference) == null ? void 0 : _this$uiMetadata$loca.locale, fallbackLocale);
+          return (0, _$$_REQUIRE(_dependencyMap[7], "../localization/i18n").resolveAppLocale)((_this$uiMetadata$loca = this.uiMetadata.localePreference) == null ? void 0 : _this$uiMetadata$loca.locale, fallbackLocale);
         });
         function getLocalePreference() {
           return _getLocalePreference.apply(this, arguments);
@@ -135583,7 +135885,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         var _hasLocalePreference = (0, _asyncToGenerator2.default)(function* () {
           var _this$uiMetadata$loca2;
           yield this.initialize();
-          return (0, _$$_REQUIRE(_dependencyMap[6], "../localization/i18n").isSupportedAppLocale)((_this$uiMetadata$loca2 = this.uiMetadata.localePreference) == null ? void 0 : _this$uiMetadata$loca2.locale);
+          return (0, _$$_REQUIRE(_dependencyMap[7], "../localization/i18n").isSupportedAppLocale)((_this$uiMetadata$loca2 = this.uiMetadata.localePreference) == null ? void 0 : _this$uiMetadata$loca2.locale);
         });
         function hasLocalePreference() {
           return _hasLocalePreference.apply(this, arguments);
@@ -135771,7 +136073,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           var project = this.resolveProject(snapshot, projectId);
           var createdAt = (_options$createdAt = options == null ? void 0 : options.createdAt) != null ? _options$createdAt : new Date().toISOString();
           var message = {
-            id: (0, _$$_REQUIRE(_dependencyMap[7], "../service/models").createId)('msg'),
+            id: (0, _$$_REQUIRE(_dependencyMap[8], "../service/models").createId)('msg'),
             projectId: project.id,
             content: content,
             createdAt: createdAt,
@@ -135868,7 +136170,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           var declaredOriginalSize = this.inputByteLength(input);
           var shouldCompress = input.compressionMode != null ? input.compressionMode === 'gzip' : declaredOriginalSize < this.options.compressionThreshold && shouldCompressInboundPayload(input.mimeType, normalizedRelativePath);
           var compression = (_input$compressionMod = input.compressionMode) != null ? _input$compressionMod : shouldCompress ? 'gzip' : 'none';
-          var fileId = (0, _$$_REQUIRE(_dependencyMap[7], "../service/models").createId)('file');
+          var fileId = (0, _$$_REQUIRE(_dependencyMap[8], "../service/models").createId)('file');
           var createdAt = (_input$createdAt = input.createdAt) != null ? _input$createdAt : new Date().toISOString();
           var storagePath = `${this.options.rootDir}/projects/${project.id}/${fileId}${resolveStorageExtension(normalizedRelativePath, compression)}`;
           yield this.options.fileSystem.ensureDir(`${this.options.rootDir}/projects/${project.id}`);
@@ -136118,14 +136420,19 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             throw new Error('File exceeds the maximum size allowed for this session.');
           }
           yield this.requireSnapshot();
-          var uploadId = (0, _$$_REQUIRE(_dependencyMap[7], "../service/models").createId)('up');
+          var uploadId = (0, _$$_REQUIRE(_dependencyMap[8], "../service/models").createId)('up');
           var tempPath = `${this.tempDirPath()}/upload-${uploadId}.part`;
+          var partsDirPath = this.uploadPartsDirPath(uploadId);
           yield this.options.fileSystem.ensureDir(this.tempDirPath());
           yield this.options.fileSystem.deletePath(tempPath).catch(function () {});
+          yield this.options.fileSystem.deletePath(partsDirPath).catch(function () {});
+          yield this.options.fileSystem.ensureDir(partsDirPath);
           var relativePath = (((_options$relativePath = options.relativePath) == null ? void 0 : _options$relativePath.trim()) || name).replace(/\\/g, '/');
           this.pendingInboundUploads.set(uploadId, {
             mimeType: options.mimeType,
             name: name,
+            parts: [],
+            partsDirPath: partsDirPath,
             receivedBytes: 0,
             relativePath: relativePath,
             tempPath: tempPath,
@@ -136144,6 +136451,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       key: "appendInboundUpload",
       value: function () {
         var _appendInboundUpload = (0, _asyncToGenerator2.default)(function* (uploadId, body, options) {
+          var _this2 = this;
           var pending = this.pendingInboundUploads.get(uploadId);
           if (!pending) {
             throw new Error('Invalid or expired upload session.');
@@ -136161,35 +136469,75 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             throw new Error('Upload chunk is too large. Refresh the page and retry.');
           }
           var expectedOffset = typeof (options == null ? void 0 : options.offset) === 'number' && Number.isFinite(options.offset) ? Math.trunc(options.offset) : undefined;
-          if (expectedOffset != null) {
-            if (expectedOffset < 0) {
-              throw new Error('Invalid upload chunk offset.');
-            }
-            if (expectedOffset < pending.receivedBytes) {
-              if (expectedOffset + chunkBytes <= pending.receivedBytes) {
-                return;
-              }
-              throw new Error('Upload chunk overlaps already received data.');
-            }
-            if (expectedOffset > pending.receivedBytes) {
-              throw new Error('Upload chunk offset is not contiguous.');
-            }
+          var offset = expectedOffset != null ? expectedOffset : pending.receivedBytes;
+          if (offset < 0) {
+            throw new Error('Invalid upload chunk offset.');
           }
-          if (pending.receivedBytes + chunkBytes > pending.totalBytes) {
+          if (offset + chunkBytes > pending.totalBytes) {
             throw new Error('Upload exceeds the declared file size.');
           }
-          if (isBytesBody) {
-            if (!this.options.fileSystem.appendFile) {
-              throw new Error('Chunked uploads are not supported in this environment.');
+          var existingPart = pending.parts.find(function (part) {
+            return part.offset === offset;
+          });
+          if (existingPart) {
+            if (existingPart.byteLength === chunkBytes) {
+              yield existingPart.writePromise;
+              return;
             }
-            yield this.options.fileSystem.appendFile(pending.tempPath, body);
-          } else {
-            if (!this.options.fileSystem.appendFileFromPath) {
-              throw new Error('Path-based chunked uploads are not supported in this environment.');
-            }
-            yield this.options.fileSystem.appendFileFromPath(pending.tempPath, body.sourcePath);
+            throw new Error('Upload chunk overlaps already received data.');
           }
+          if (pending.parts.some(function (part) {
+            return offset < part.offset + part.byteLength && offset + chunkBytes > part.offset;
+          })) {
+            throw new Error('Upload chunk overlaps already received data.');
+          }
+          var shouldWriteDirectly = isPathBody && expectedOffset != null && Boolean(this.options.fileSystem.writeFileFromPathAtOffset);
+          var writeMode = shouldWriteDirectly ? 'direct' : 'parts';
+          if (pending.writeMode && pending.writeMode !== writeMode) {
+            throw new Error('Upload chunk transport changed during this session.');
+          }
+          pending.writeMode = writeMode;
+          var partPath = writeMode === 'parts' ? this.uploadPartPath(uploadId, offset, chunkBytes) : undefined;
+          var part = {
+            byteLength: chunkBytes,
+            offset: offset,
+            path: partPath
+          };
+          pending.parts.push(part);
           pending.receivedBytes += chunkBytes;
+          try {
+            var writePromise = isBytesBody ? Promise.resolve().then(function () {
+              return (
+                // Bytes bodies are only used by non-native test/fallback runtimes.
+                _this2.options.fileSystem.writeFile(partPath, body)
+              );
+            }) : Promise.resolve().then(function () {
+              if (writeMode === 'direct') {
+                return _this2.options.fileSystem.writeFileFromPathAtOffset(pending.tempPath, body.sourcePath, offset, chunkBytes);
+              }
+              if (!_this2.options.fileSystem.copyFile) {
+                throw new Error('Path-based chunked uploads are not supported in this environment.');
+              }
+              return _this2.options.fileSystem.copyFile(body.sourcePath, partPath);
+            });
+            part.writePromise = writePromise;
+            yield writePromise;
+            if (writeMode === 'parts' && this.options.fileSystem.getFileSize) {
+              var actualSize = yield this.options.fileSystem.getFileSize(partPath);
+              if (actualSize !== chunkBytes) {
+                throw new Error(`Upload chunk write is incomplete: received ${actualSize} / ${chunkBytes} bytes.`);
+              }
+            }
+          } catch (error) {
+            pending.parts = pending.parts.filter(function (candidate) {
+              return candidate !== part;
+            });
+            pending.receivedBytes -= chunkBytes;
+            if (partPath) {
+              yield this.options.fileSystem.deletePath(partPath).catch(function () {});
+            }
+            throw error;
+          }
         });
         function appendInboundUpload(_x28, _x29, _x30) {
           return _appendInboundUpload.apply(this, arguments);
@@ -136209,8 +136557,10 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           this.pendingInboundUploads.delete(uploadId);
           try {
+            yield this.prepareInboundUploadForSave(pending);
             return yield this.saveInboundFile({
               byteLength: pending.totalBytes,
+              consumeSource: true,
               mimeType: pending.mimeType,
               name: pending.name,
               relativePath: pending.relativePath,
@@ -136218,6 +136568,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             });
           } finally {
             yield this.options.fileSystem.deletePath(pending.tempPath).catch(function () {});
+            yield this.options.fileSystem.deletePath(pending.partsDirPath).catch(function () {});
           }
         });
         function finalizeInboundUpload(_x31) {
@@ -136235,6 +136586,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           this.pendingInboundUploads.delete(uploadId);
           yield this.options.fileSystem.deletePath(pending.tempPath).catch(function () {});
+          yield this.options.fileSystem.deletePath(pending.partsDirPath).catch(function () {});
         });
         function abortInboundUpload(_x32) {
           return _abortInboundUpload.apply(this, arguments);
@@ -136261,7 +136613,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       value: function createProjectRecord(title) {
         var now = new Date().toISOString();
         return {
-          id: (0, _$$_REQUIRE(_dependencyMap[7], "../service/models").createId)('project'),
+          id: (0, _$$_REQUIRE(_dependencyMap[8], "../service/models").createId)('project'),
           title: title,
           createdAt: now,
           updatedAt: now,
@@ -136311,7 +136663,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           attempt += 1;
         }
-        return `${dirPrefix}${baseName}-${(0, _$$_REQUIRE(_dependencyMap[7], "../service/models").createId)('copy')}${extension}`;
+        return `${dirPrefix}${baseName}-${(0, _$$_REQUIRE(_dependencyMap[8], "../service/models").createId)('copy')}${extension}`;
       }
     }, {
       key: "fileNameFromRelativePath",
@@ -136349,6 +136701,102 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       value: function tempDirPath() {
         return `${this.options.rootDir}/${TEMP_DIR_NAME}`;
       }
+    }, {
+      key: "uploadPartsDirPath",
+      value: function uploadPartsDirPath(uploadId) {
+        return `${this.tempDirPath()}/upload-${uploadId}-parts`;
+      }
+    }, {
+      key: "uploadPartPath",
+      value: function uploadPartPath(uploadId, offset, byteLength) {
+        return `${this.uploadPartsDirPath(uploadId)}/${offset}-${byteLength}.part`;
+      }
+    }, {
+      key: "prepareInboundUploadForSave",
+      value: function () {
+        var _prepareInboundUploadForSave = (0, _asyncToGenerator2.default)(function* (pending) {
+          yield this.awaitContiguousInboundUploadParts(pending);
+          if (pending.writeMode === 'direct') {
+            if (this.options.fileSystem.getFileSize) {
+              var actualSize = yield this.options.fileSystem.getFileSize(pending.tempPath);
+              if (actualSize !== pending.totalBytes) {
+                throw new Error(`Upload is incomplete: received ${actualSize} / ${pending.totalBytes} bytes.`);
+              }
+            }
+            return;
+          }
+          yield this.materializeInboundUpload(pending);
+        });
+        function prepareInboundUploadForSave(_x33) {
+          return _prepareInboundUploadForSave.apply(this, arguments);
+        }
+        return prepareInboundUploadForSave;
+      }()
+    }, {
+      key: "awaitContiguousInboundUploadParts",
+      value: function () {
+        var _awaitContiguousInboundUploadParts = (0, _asyncToGenerator2.default)(function* (pending) {
+          var parts = (0, _toConsumableArray2.default)(pending.parts).sort(function (left, right) {
+            return left.offset - right.offset;
+          });
+          var expectedOffset = 0;
+          for (var part of parts) {
+            yield part.writePromise;
+            if (part.offset !== expectedOffset) {
+              throw new Error('Upload chunk offset is not contiguous.');
+            }
+            expectedOffset += part.byteLength;
+          }
+          if (expectedOffset !== pending.totalBytes) {
+            throw new Error(`Upload is incomplete: received ${expectedOffset} / ${pending.totalBytes} bytes.`);
+          }
+          return expectedOffset;
+        });
+        function awaitContiguousInboundUploadParts(_x34) {
+          return _awaitContiguousInboundUploadParts.apply(this, arguments);
+        }
+        return awaitContiguousInboundUploadParts;
+      }()
+    }, {
+      key: "materializeInboundUpload",
+      value: function () {
+        var _materializeInboundUpload = (0, _asyncToGenerator2.default)(function* (pending) {
+          var parts = (0, _toConsumableArray2.default)(pending.parts).sort(function (left, right) {
+            return left.offset - right.offset;
+          });
+          var expectedOffset = 0;
+          yield this.options.fileSystem.deletePath(pending.tempPath).catch(function () {});
+          for (var part of parts) {
+            yield part.writePromise;
+            if (part.offset !== expectedOffset) {
+              throw new Error('Upload chunk offset is not contiguous.');
+            }
+            if (!this.options.fileSystem.appendFileFromPath) {
+              if (!part.path) {
+                throw new Error('Upload chunk file is missing.');
+              }
+              var bytes = yield this.options.fileSystem.readFile(part.path);
+              if (!this.options.fileSystem.appendFile) {
+                throw new Error('Chunked uploads are not supported in this environment.');
+              }
+              yield this.options.fileSystem.appendFile(pending.tempPath, bytes);
+            } else {
+              if (!part.path) {
+                throw new Error('Upload chunk file is missing.');
+              }
+              yield this.options.fileSystem.appendFileFromPath(pending.tempPath, part.path);
+            }
+            expectedOffset += part.byteLength;
+          }
+          if (expectedOffset !== pending.totalBytes) {
+            throw new Error(`Upload is incomplete: received ${expectedOffset} / ${pending.totalBytes} bytes.`);
+          }
+        });
+        function materializeInboundUpload(_x35) {
+          return _materializeInboundUpload.apply(this, arguments);
+        }
+        return materializeInboundUpload;
+      }()
     }, {
       key: "pruneMissingFiles",
       value: function () {
@@ -136450,7 +136898,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           var rawMetadata = yield this.options.fileSystem.readText(metadataPath);
           var parsedMetadata = JSON.parse(rawMetadata);
-          var localePreference = (0, _$$_REQUIRE(_dependencyMap[6], "../localization/i18n").isSupportedAppLocale)((_parsedMetadata$local = parsedMetadata.localePreference) == null ? void 0 : _parsedMetadata$local.locale) ? parsedMetadata.localePreference : undefined;
+          var localePreference = (0, _$$_REQUIRE(_dependencyMap[7], "../localization/i18n").isSupportedAppLocale)((_parsedMetadata$local = parsedMetadata.localePreference) == null ? void 0 : _parsedMetadata$local.locale) ? parsedMetadata.localePreference : undefined;
           this.uiMetadata = Object.assign({}, parsedMetadata, {
             localePreference: localePreference,
             securityModePreference: parsedMetadata.securityModePreference ? Object.assign({}, parsedMetadata.securityModePreference, {
@@ -136484,8 +136932,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             yield this.options.fileSystem.writeFile(storagePath, _storedBytes);
             return _storedBytes.byteLength;
           }
-          if ('sourcePath' in input && this.options.fileSystem.copyFile) {
-            yield this.options.fileSystem.copyFile(input.sourcePath, storagePath);
+          if ('sourcePath' in input && input.consumeSource && compression === 'none' && !shouldCompress && this.options.fileSystem.moveFile) {
+            yield this.options.fileSystem.moveFile(input.sourcePath, storagePath);
             if (this.options.fileSystem.getFileSize) {
               try {
                 return yield this.options.fileSystem.getFileSize(storagePath);
@@ -136495,11 +136943,22 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             }
             return input.byteLength;
           }
+          if ('sourcePath' in input && this.options.fileSystem.copyFile) {
+            yield this.options.fileSystem.copyFile(input.sourcePath, storagePath);
+            if (this.options.fileSystem.getFileSize) {
+              try {
+                return yield this.options.fileSystem.getFileSize(storagePath);
+              } catch (_unused3) {
+                throw new Error(`Stored file is missing after write: ${storagePath}`);
+              }
+            }
+            return input.byteLength;
+          }
           var storedBytes = compression === 'none' ? yield this.resolveInputBytes(input) : new Uint8Array(0);
           yield this.options.fileSystem.writeFile(storagePath, storedBytes);
           return storedBytes.byteLength;
         });
-        function writeStoredFile(_x33, _x34, _x35, _x36) {
+        function writeStoredFile(_x36, _x37, _x38, _x39) {
           return _writeStoredFile.apply(this, arguments);
         }
         return writeStoredFile;
@@ -136524,7 +136983,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           }
           throw new Error('Invalid inbound file payload.');
         });
-        function resolveInputBytes(_x37) {
+        function resolveInputBytes(_x40) {
           return _resolveInputBytes.apply(this, arguments);
         }
         return resolveInputBytes;
@@ -136532,7 +136991,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     }]);
   }();
   function resolveSecurityModePreference(value) {
-    return value === 'simple' || value === 'secure' ? value : _$$_REQUIRE(_dependencyMap[7], "../service/models").DEFAULT_SERVICE_CONFIG.securityMode;
+    return value === 'simple' || value === 'secure' ? value : _$$_REQUIRE(_dependencyMap[8], "../service/models").DEFAULT_SERVICE_CONFIG.securityMode;
   }
   function shouldCompressInboundPayload(mimeType, relativePath) {
     var normalizedMimeType = mimeType == null ? void 0 : mimeType.toLowerCase();
@@ -136584,7 +137043,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     var extension = fileName.slice(dotIndex).toLowerCase();
     return /^\.[a-z0-9]{1,16}$/.test(extension) ? extension : '.bin';
   }
-},863,[8,28,78,9,10,844,843,840],"src/modules/file-access/inboundStorageGateway.ts");
+},863,[8,28,40,78,9,10,844,843,840],"src/modules/file-access/inboundStorageGateway.ts");
 __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, exports, _dependencyMap) {
   var _interopRequireDefault = _$$_REQUIRE(_dependencyMap[0], "@babel/runtime/helpers/interopRequireDefault");
   Object.defineProperty(exports, "__esModule", {
@@ -137460,6 +137919,18 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     }
     return undefined;
   }
+  function base64ToBytes(base64) {
+    var bufferCtor = globalThis.Buffer;
+    if (bufferCtor) {
+      return new Uint8Array(bufferCtor.from(base64, 'base64'));
+    }
+    var binary = globalThis.atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index) & 0xff;
+    }
+    return bytes;
+  }
   function bytesToUtf8(bytes) {
     var bufferCtor = globalThis.Buffer;
     if (bufferCtor) {
@@ -137484,6 +137955,13 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       bytes[index] = encoded.charCodeAt(index);
     }
     return bytes;
+  }
+  function bytesToNumberArray(bytes) {
+    var output = new Array(bytes.byteLength);
+    for (var index = 0; index < bytes.byteLength; index += 1) {
+      output[index] = bytes[index];
+    }
+    return output;
   }
   function normalizeHeaders(headers) {
     return Object.fromEntries(Object.entries(headers != null ? headers : {}).map(function (_ref2) {
@@ -137660,7 +138138,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
               if (!nativeServer.respondBytes) {
                 throw new Error('Native HTTP runtime does not support byte responses.');
               }
-              yield nativeServer.respondBytes(event.requestId, nativeResponse.status, nativeResponse.headers, nativeResponse.bodyBytes);
+              yield nativeServer.respondBytes(event.requestId, nativeResponse.status, nativeResponse.headers, bytesToNumberArray(nativeResponse.bodyBytes));
             } else {
               yield nativeServer.respond(event.requestId, nativeResponse.status, nativeResponse.headers, nativeResponse.bodyEncoding, nativeResponse.body);
             }
@@ -137699,12 +138177,12 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     return path === '/api/upload' || path === '/api/upload/part';
   }
   function resolveRequestBody(headers, event) {
-    var _headers$contentType;
+    var _headers$contentType, _readNativeBodyBytes;
     if (event.bodyFile) {
       return undefined;
     }
     var contentType = (_headers$contentType = headers['content-type']) != null ? _headers$contentType : '';
-    var bodyBytes = readNativeBodyBytes(event.bodyBytes);
+    var bodyBytes = (_readNativeBodyBytes = readNativeBodyBytes(event.bodyBytes)) != null ? _readNativeBodyBytes : typeof event.bodyBase64 === 'string' ? base64ToBytes(event.bodyBase64) : undefined;
     if (shouldPreserveRawBody(event.path)) {
       if (bodyBytes) {
         return bodyBytes;
@@ -138093,13 +138571,6 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
               message: authorization.reason
             });
           }
-          var connectionDecision = this.touchConnection(request);
-          if (!connectionDecision.accepted) {
-            return this.json(429, {
-              code: 'SESSION_LIMIT_REACHED',
-              message: connectionDecision.reason
-            });
-          }
           try {
             if (request.path === '/' && request.method === 'GET') {
               return this.html(200, (0, _$$_REQUIRE(_dependencyMap[10], "../portal/portalDocument").buildPortalDocument)({
@@ -138109,6 +138580,13 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
                 locale: locale,
                 securityMode: this.state.config.securityMode
               }));
+            }
+            var connectionDecision = this.touchConnection(request);
+            if (!connectionDecision.accepted) {
+              return this.json(429, {
+                code: 'SESSION_LIMIT_REACHED',
+                message: connectionDecision.reason
+              });
             }
             if (request.path === '/api/status' && request.method === 'GET') {
               yield this.syncStorageState();
@@ -138312,26 +138790,58 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
               });
             }
             var downloadMatch = request.path.match(/^\/api\/shared\/([^/]+)\/download$/);
-            if (downloadMatch && request.method === 'GET') {
-              var _request$query$get5, _request$query$get6, _this$options$runtime, _chunk$file$mimeType;
+            if (downloadMatch && (request.method === 'GET' || request.method === 'HEAD')) {
+              var _request$query$get5, _request$query$get6, _this$options$runtime;
               var fileId = downloadMatch[1];
+              var sharedFile = (yield this.options.storage.listSharedFiles()).find(function (file) {
+                return file.id === fileId;
+              });
+              if (!sharedFile) {
+                return this.json(404, {
+                  code: 'INVALID_REQUEST',
+                  message: t('api.resourceNotFound')
+                });
+              }
               var directDownload = request.query.get('direct') === '1';
-              var _offset = directDownload ? 0 : Number((_request$query$get5 = request.query.get('offset')) != null ? _request$query$get5 : '0');
-              var requestedLength = Number((_request$query$get6 = request.query.get('length')) != null ? _request$query$get6 : `${this.state.config.chunkSize}`);
-              var length = directDownload ? Number.MAX_SAFE_INTEGER : Math.max(0, Math.min(Number.isFinite(requestedLength) ? requestedLength : this.state.config.chunkSize, this.state.config.chunkSize, this.state.config.binaryBridgeChunkSize));
+              var requestedRange = directDownload ? parseByteRangeHeader(request.headers.range, sharedFile.size) : undefined;
+              if (requestedRange === 'unsatisfiable') {
+                var _sharedFile$mimeType;
+                return {
+                  status: 416,
+                  headers: {
+                    'accept-ranges': 'bytes',
+                    'content-length': '0',
+                    'content-range': `bytes */${sharedFile.size}`,
+                    'content-type': (_sharedFile$mimeType = sharedFile.mimeType) != null ? _sharedFile$mimeType : 'application/octet-stream',
+                    'x-file-size': String(sharedFile.size)
+                  }
+                };
+              }
+              var _offset = directDownload && requestedRange ? requestedRange.start : directDownload ? 0 : Number((_request$query$get5 = request.query.get('offset')) != null ? _request$query$get5 : '0');
+              var requestedLength = directDownload && requestedRange ? requestedRange.end - requestedRange.start + 1 : directDownload ? Number.MAX_SAFE_INTEGER : Number((_request$query$get6 = request.query.get('length')) != null ? _request$query$get6 : `${this.state.config.chunkSize}`);
+              var length = directDownload ? Math.max(0, requestedLength) : Math.max(0, Math.min(Number.isFinite(requestedLength) ? requestedLength : this.state.config.chunkSize, this.state.config.chunkSize, this.state.config.binaryBridgeChunkSize));
               var _start2 = Number.isFinite(_offset) ? Math.max(0, _offset) : 0;
+              if (request.method === 'HEAD') {
+                var contentLength = Math.max(0, Math.min(sharedFile.size - _start2, length));
+                var _status = requestedRange || _start2 !== 0 || contentLength !== sharedFile.size ? 206 : 200;
+                return {
+                  headers: this.buildDownloadHeaders(sharedFile, contentLength, sharedFile.size, _status === 206 ? {
+                    end: _start2 + contentLength - 1,
+                    start: _start2
+                  } : undefined),
+                  status: _status
+                };
+              }
               var chunk = yield this.options.storage.prepareFileChunk(fileId, {
                 length: length,
                 offset: _start2,
                 preferSourceFile: (_this$options$runtime = this.options.runtime) == null ? void 0 : _this$options$runtime.supportsFileResponses
               });
-              var status = _start2 === 0 && chunk.contentLength === chunk.totalSize ? 200 : 206;
-              var headers = {
-                'content-disposition': `attachment; filename="${encodeURIComponent(chunk.file.displayName)}"`,
-                'content-length': String(chunk.contentLength),
-                'content-type': (_chunk$file$mimeType = chunk.file.mimeType) != null ? _chunk$file$mimeType : 'application/octet-stream',
-                'x-file-size': String(chunk.totalSize)
-              };
+              var status = requestedRange || _start2 !== 0 || chunk.contentLength !== chunk.totalSize ? 206 : 200;
+              var headers = this.buildDownloadHeaders(chunk.file, chunk.contentLength, chunk.totalSize, status === 206 ? {
+                end: _start2 + chunk.contentLength - 1,
+                start: _start2
+              } : undefined);
               if (chunk.sourceFile) {
                 return {
                   bodyFile: chunk.sourceFile,
@@ -138362,6 +138872,22 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         }
         return handleRequest;
       }()
+    }, {
+      key: "buildDownloadHeaders",
+      value: function buildDownloadHeaders(file, contentLength, totalSize, range) {
+        var _file$mimeType;
+        var headers = {
+          'accept-ranges': 'bytes',
+          'content-disposition': buildAttachmentContentDisposition(file.displayName),
+          'content-length': String(Math.max(0, contentLength)),
+          'content-type': (_file$mimeType = file.mimeType) != null ? _file$mimeType : 'application/octet-stream',
+          'x-file-size': String(totalSize)
+        };
+        if (range) {
+          headers['content-range'] = contentLength > 0 ? `bytes ${range.start}-${range.end}/${totalSize}` : `bytes */${totalSize}`;
+        }
+        return headers;
+      }
     }, {
       key: "html",
       value: function html(status, body) {
@@ -138442,9 +138968,9 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     }, {
       key: "touchConnection",
       value: function touchConnection(request) {
-        var _ref, _request$headers$xCl, _ref2, _request$headers$user;
-        var connectionId = (_ref = (_request$headers$xCl = request.headers['x-client-id']) != null ? _request$headers$xCl : request.remoteAddress) != null ? _ref : 'anonymous';
-        var connectionLabel = (_ref2 = (_request$headers$user = request.headers['user-agent']) != null ? _request$headers$user : request.remoteAddress) != null ? _ref2 : 'Browser';
+        var _ref, _ref2, _request$headers$xCl, _ref3, _ref4, _request$headers$user;
+        var connectionId = (_ref = (_ref2 = (_request$headers$xCl = request.headers['x-client-id']) != null ? _request$headers$xCl : request.query.get('clientId')) != null ? _ref2 : request.remoteAddress) != null ? _ref : 'anonymous';
+        var connectionLabel = (_ref3 = (_ref4 = (_request$headers$user = request.headers['user-agent']) != null ? _request$headers$user : request.query.get('clientId')) != null ? _ref4 : request.remoteAddress) != null ? _ref3 : 'Browser';
         var decision = this.connectionRegistry.touch(connectionId, connectionLabel);
         this.state = Object.assign({}, this.state, {
           activeConnections: this.connectionRegistry.snapshot()
@@ -138502,15 +139028,15 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             relativePath: relativePath
           }];
         }
-        if (!(request.body instanceof Uint8Array)) {
-          return [];
+        if (request.body == null) {
+          return [{
+            bytes: new Uint8Array(0),
+            mimeType: normalizeMimeType(request.headers['content-type']),
+            name: name,
+            relativePath: relativePath
+          }];
         }
-        return [{
-          bytes: request.body,
-          mimeType: normalizeMimeType(request.headers['content-type']),
-          name: name,
-          relativePath: relativePath
-        }];
+        return [];
       }
     }]);
   }();
@@ -138524,6 +139050,52 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       mimeType = _value$split2[0];
     var normalized = mimeType == null ? void 0 : mimeType.trim();
     return normalized ? normalized : undefined;
+  }
+  function parseByteRangeHeader(value, totalSize) {
+    if (!value) {
+      return undefined;
+    }
+    var match = value.trim().match(/^bytes=(\d*)-(\d*)$/i);
+    if (!match) {
+      return undefined;
+    }
+    var _match = (0, _slicedToArray2.default)(match, 3),
+      rawStart = _match[1],
+      rawEnd = _match[2];
+    if (!rawStart && !rawEnd) {
+      return undefined;
+    }
+    if (totalSize <= 0) {
+      return 'unsatisfiable';
+    }
+    if (!rawStart) {
+      var suffixLength = Number(rawEnd);
+      if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+        return 'unsatisfiable';
+      }
+      var length = Math.min(totalSize, Math.trunc(suffixLength));
+      return {
+        end: totalSize - 1,
+        start: totalSize - length
+      };
+    }
+    var start = Number(rawStart);
+    var requestedEnd = rawEnd ? Number(rawEnd) : totalSize - 1;
+    if (!Number.isFinite(start) || !Number.isFinite(requestedEnd) || start < 0 || requestedEnd < start || start >= totalSize) {
+      return 'unsatisfiable';
+    }
+    return {
+      end: Math.min(totalSize - 1, Math.trunc(requestedEnd)),
+      start: Math.trunc(start)
+    };
+  }
+  function buildAttachmentContentDisposition(fileName) {
+    var fallback = fileName.replace(/[^\x20-\x7e]+/g, '_').replace(/["\\;]/g, '_').trim();
+    var safeFallback = fallback || 'download';
+    var encoded = encodeURIComponent(fileName).replace(/['()]/g, function (value) {
+      return `%${value.charCodeAt(0).toString(16).toUpperCase()}`;
+    }).replace(/\*/g, '%2A');
+    return `attachment; filename="${safeFallback}"; filename*=UTF-8''${encoded}`;
   }
   function decodeSubmittedText(body) {
     if (typeof body === 'string') {
@@ -138726,7 +139298,6 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       downloadButtonAgain: t('portal.download.buttonAgain'),
       downloadButtonBusy: t('portal.download.buttonBusy'),
       downloadBatchComplete: t('portal.download.batchComplete'),
-      downloadChunked: t('portal.download.chunked'),
       downloadClearSelection: t('portal.download.clearSelection'),
       downloadComplete: t('portal.download.complete'),
       downloadFailed: t('portal.download.failed'),
@@ -139153,7 +139724,11 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       .item-status {
         color: var(--muted);
         font-size: 13px;
+        line-height: 1.45;
         margin-top: 6px;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        word-break: break-word;
       }
 
       .chip {
@@ -139308,17 +139883,16 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       const text = ${portalTextJson};
       const authKey = new URL(location.href).searchParams.get('key');
       const chunkSize = ${model.chunkSize};
-      const binaryBridgeChunkSize = ${model.binaryBridgeChunkSize};
-      const downloadChunkSize = Math.max(
-        1,
-        Math.min(chunkSize, binaryBridgeChunkSize || chunkSize),
-      );
-      const uploadChunkSize = chunkSize;
-      const blobDownloadFallbackMaxBytes = 32 * 1024 * 1024;
+      const uploadChunkSize = 8 * 1024 * 1024;
       const transferRequestTimeoutMs = 60000;
-      const maxConcurrentDownloadChunks = Math.max(
+      const maxVisibleErrorMessageLength = 120;
+      const maxConcurrentUploads = Math.max(
         1,
         Math.min(2, Number(navigator.hardwareConcurrency) || 2),
+      );
+      const maxConcurrentUploadParts = Math.max(
+        1,
+        Math.min(4, Number(navigator.hardwareConcurrency) || 4),
       );
       const maxChunkAttempts = 4;
       const activeDownloads = new Map();
@@ -139356,6 +139930,60 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         return String(template).replace(/\\{\\{\\s*(\\w+)\\s*\\}\\}/g, (_, key) => {
           return params && params[key] != null ? String(params[key]) : '';
         });
+      }
+
+      function readServerErrorMessage(responseText) {
+        const trimmed = String(responseText || '').trim();
+        if (!trimmed) {
+          return text.requestFailed;
+        }
+
+        try {
+          const payload = JSON.parse(trimmed);
+          if (
+            payload &&
+            typeof payload.message === 'string' &&
+            payload.message.trim()
+          ) {
+            return payload.message;
+          }
+          if (
+            payload &&
+            typeof payload.code === 'string' &&
+            payload.code.trim()
+          ) {
+            return payload.code;
+          }
+        } catch {
+          return trimmed;
+        }
+
+        return trimmed;
+      }
+
+      function buildVisibleErrorMessage(error) {
+        const rawMessage =
+          error && typeof error.message === 'string'
+            ? error.message
+            : String(error || '');
+        let message = readServerErrorMessage(rawMessage)
+          .replace(/\\s+/g, ' ')
+          .trim();
+
+        if (
+          !message ||
+          /RNFSManager\\.read\\(\\).*NSInteger.*unsupported/i.test(message)
+        ) {
+          return text.requestFailed;
+        }
+
+        if (message.length > maxVisibleErrorMessageLength) {
+          message =
+            message.slice(0, maxVisibleErrorMessageLength - 3).replace(/\\s+$/, '') +
+            '...';
+        }
+
+        return message;
       }
 
       function formatBytes(size) {
@@ -139564,7 +140192,6 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
               escapeHtmlText(file.displayName) +
               '</div><div class="item-meta">' +
               formatBytes(file.size) +
-              (file.isLargeFile ? ' · ' + escapeHtmlText(text.downloadChunked) : '') +
               '</div></div></div><button class="primary" data-download="' +
               escapeHtmlText(file.id) +
               '"' +
@@ -139877,14 +140504,31 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
 
           onProgress(0);
           const totalChunks = Math.ceil(file.size / uploadChunkSize);
-          for (let index = 0; index < totalChunks; index += 1) {
-            const start = index * uploadChunkSize;
-            const end = Math.min(file.size, start + uploadChunkSize);
-            const slice = file.slice(start, end);
-            await uploadBinaryPart(uploadId, slice, start);
-            onProgress(end / file.size);
-            await waitForBrowserTurn();
+          let nextChunkIndex = 0;
+          let uploadedBytes = 0;
+          async function uploadPartWorker() {
+            while (nextChunkIndex < totalChunks) {
+              const index = nextChunkIndex;
+              nextChunkIndex += 1;
+              const start = index * uploadChunkSize;
+              const end = Math.min(file.size, start + uploadChunkSize);
+              const slice = file.slice(start, end);
+              await uploadBinaryPart(uploadId, slice, start);
+              uploadedBytes += end - start;
+              onProgress(Math.min(1, uploadedBytes / file.size));
+              await waitForBrowserTurn();
+            }
           }
+
+          const uploadPartWorkers = [];
+          const uploadPartWorkerCount = Math.min(
+            maxConcurrentUploadParts,
+            totalChunks,
+          );
+          for (let index = 0; index < uploadPartWorkerCount; index += 1) {
+            uploadPartWorkers.push(uploadPartWorker());
+          }
+          await Promise.all(uploadPartWorkers);
 
           return await postJson('/api/upload/finish', {uploadId: uploadId});
         } catch (error) {
@@ -139916,8 +140560,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
 
         const filesToUpload = fileQueue.splice(0, fileQueue.length);
         uploadList.innerHTML = '';
-
-        for (const file of filesToUpload) {
+        const uploadEntries = filesToUpload.map(file => {
           const entryId = 'upload-' + Math.random().toString(16).slice(2);
           uploadList.insertAdjacentHTML(
             'beforeend',
@@ -139932,30 +140575,52 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
                 : '') +
               '</div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="progress-fill"></div></div><div class="item-status">0%</div></div>',
           );
+          return { entryId, file };
+        });
 
-          try {
-            await uploadBinaryWithProgress(file, progress => {
-              setUploadProgress(entryId, progress);
-            });
-            setUploadProgress(entryId, 1);
-            setUploadState(
-              entryId,
-              'ok',
-              text.uploadComplete,
-              text.uploadSentToPhone,
-              'ok',
-            );
-          } catch (error) {
-            setUploadState(
-              entryId,
-              'danger',
-              text.uploadFailed,
-              text.requestFailed + ': ' + error.message,
-              'danger',
-            );
-            updateBanner(error.message, 'warn');
+        let nextUploadIndex = 0;
+        async function uploadWorker() {
+          while (nextUploadIndex < uploadEntries.length) {
+            const entry = uploadEntries[nextUploadIndex];
+            nextUploadIndex += 1;
+            const { entryId, file } = entry;
+
+            try {
+              await uploadBinaryWithProgress(file, progress => {
+                setUploadProgress(entryId, progress);
+              });
+              setUploadProgress(entryId, 1);
+              setUploadState(
+                entryId,
+                'ok',
+                text.uploadComplete,
+                text.uploadSentToPhone,
+                'ok',
+              );
+            } catch (error) {
+              setUploadState(
+                entryId,
+                'danger',
+                text.uploadFailed,
+                text.requestFailed + ': ' + error.message,
+                'danger',
+              );
+              updateBanner(error.message, 'warn');
+            }
+
+            await waitForBrowserTurn();
           }
         }
+
+        const uploadWorkers = [];
+        const uploadWorkerCount = Math.min(
+          maxConcurrentUploads,
+          uploadEntries.length,
+        );
+        for (let index = 0; index < uploadWorkerCount; index += 1) {
+          uploadWorkers.push(uploadWorker());
+        }
+        await Promise.all(uploadWorkers);
 
         renderUploadQueue();
         await loadStatus();
@@ -139990,202 +140655,42 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         }
       }
 
-      async function fetchChunk(fileId, start, end, signal, onChunkProgress) {
-        let lastError = new Error(text.requestFailed);
-        const expectedBytes = Math.max(0, end - start);
-        for (let attempt = 1; attempt <= maxChunkAttempts; attempt += 1) {
-          if (signal && signal.aborted) {
-            throw signal.reason || lastError;
-          }
-
-          try {
-            const url = new URL(withKey('/api/shared/' + fileId + '/download'));
-            url.searchParams.set('offset', String(start));
-            url.searchParams.set('length', String(end - start));
-            const response = await fetchWithTimeout(url.toString(), {
-              headers: {
-                'x-client-id': getClientId(),
-              },
-              signal: signal,
-            });
-
-            if (!response.ok) {
-              const responseText = await response.text();
-              throw new Error(responseText || text.requestFailed);
-            }
-
-            const reader = response.body?.getReader?.();
-            if (!reader) {
-              const chunk = new Uint8Array(await response.arrayBuffer());
-              onChunkProgress?.(chunk.byteLength || expectedBytes, expectedBytes);
-              return chunk;
-            }
-
-            const parts = [];
-            let receivedBytes = 0;
-            while (true) {
-              const result = await reader.read();
-              if (result.done) {
-                break;
-              }
-
-              const value = result.value instanceof Uint8Array
-                ? result.value
-                : new Uint8Array(result.value || 0);
-              parts.push(value);
-              receivedBytes += value.byteLength;
-              onChunkProgress?.(
-                Math.min(expectedBytes || receivedBytes, receivedBytes),
-                expectedBytes,
-              );
-            }
-
-            onChunkProgress?.(
-              Math.max(receivedBytes, expectedBytes),
-              expectedBytes,
-            );
-            const combined = new Uint8Array(receivedBytes);
-            let offset = 0;
-            for (const part of parts) {
-              combined.set(part, offset);
-              offset += part.byteLength;
-            }
-            return combined;
-          } catch (error) {
-            lastError = error;
-            if (signal && signal.aborted) {
-              throw error;
-            }
-            if (attempt === maxChunkAttempts) {
-              break;
-            }
-            await new Promise(resolve => setTimeout(resolve, 260 * attempt));
-          }
-        }
-
-        throw lastError;
+      function startDirectDownload(file) {
+        const url = new URL(withKey('/api/shared/' + file.id + '/download'));
+        url.searchParams.set('direct', '1');
+        url.searchParams.set('clientId', getClientId());
+        const link = document.createElement('a');
+        link.href = url.toString();
+        link.download = file.displayName;
+        link.rel = 'noopener';
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
       }
 
-      async function createDownloadTarget(file, totalBytes) {
-        if (typeof window.showSaveFilePicker === 'function') {
-          const handle = await window.showSaveFilePicker({
-            suggestedName: file.displayName,
-          });
-          const writable = await handle.createWritable();
-          return {
-            abort: async () => {
-              await writable.abort?.();
-            },
-            close: async () => {
-              await writable.close();
-            },
-            write: async chunk => {
-              await writable.write(chunk);
-            },
-          };
+      async function verifyDirectDownload(file) {
+        const url = new URL(withKey('/api/shared/' + file.id + '/download'));
+        url.searchParams.set('direct', '1');
+        url.searchParams.set('clientId', getClientId());
+        const response = await fetchWithTimeout(url.toString(), {
+          method: 'HEAD',
+          headers: getClientHeaders(),
+        });
+
+        if (!response.ok) {
+          throw new Error(text.requestFailed + ' (' + response.status + ')');
         }
 
-        if (totalBytes > blobDownloadFallbackMaxBytes) {
-          return {
-            abort: async () => {},
-            close: async () => {
-              const url = new URL(
-                withKey('/api/shared/' + file.id + '/download'),
-              );
-              url.searchParams.set('direct', '1');
-              const link = document.createElement('a');
-              link.href = url.toString();
-              link.download = file.displayName;
-              link.rel = 'noopener';
-              link.style.display = 'none';
-              document.body.appendChild(link);
-              link.click();
-              link.remove();
-            },
-            direct: true,
-            write: async () => {},
-          };
-        }
-
-        const parts = [];
-        return {
-          abort: async () => {
-            parts.length = 0;
-          },
-          close: async () => {
-            const blob = new Blob(parts, {
-              type: file.mimeType || 'application/octet-stream',
-            });
-            const link = document.createElement('a');
-            const objectUrl = URL.createObjectURL(blob);
-            link.href = objectUrl;
-            link.download = file.displayName;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
-            setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
-          },
-          write: async chunk => {
-            parts.push(chunk);
-          },
-        };
-      }
-
-      async function downloadFileToTarget(file, onProgress) {
-        const totalBytes = Math.max(0, Number(file.size) || 0);
-        const abortController =
-          typeof AbortController === 'function' ? new AbortController() : null;
-        const target = await createDownloadTarget(file, totalBytes);
-        let downloadedBytes = 0;
-
-        onProgress(0);
-
-        try {
-          if (totalBytes === 0) {
-            await target.close();
-            onProgress(1);
-            return;
-          }
-
-          while (downloadedBytes < totalBytes) {
-            const start = downloadedBytes;
-            const end = Math.min(totalBytes, start + downloadChunkSize);
-            let chunkProgress = 0;
-            const chunk = await fetchChunk(
-              file.id,
-              start,
-              end,
-              abortController?.signal,
-              loadedBytes => {
-                chunkProgress = Math.min(
-                  end - start,
-                  Math.max(0, loadedBytes || 0),
-                );
-                onProgress(
-                  totalBytes > 0
-                    ? (downloadedBytes + chunkProgress) / totalBytes
-                    : 1,
-                );
-              },
-            );
-
-            if (abortController?.signal.aborted) {
-              return;
-            }
-
-            await target.write(chunk);
-            downloadedBytes += chunk.byteLength;
-            onProgress(totalBytes > 0 ? downloadedBytes / totalBytes : 1);
-            await waitForBrowserTurn();
-          }
-
-          await target.close();
-          onProgress(1);
-        } catch (error) {
-          abortController?.abort(error);
-          await target.abort().catch(() => {});
-          throw error;
+        const expectedLength = Math.max(0, Number(file.size) || 0);
+        const responseLength = Number(response.headers.get('content-length'));
+        if (
+          expectedLength > 0 &&
+          Number.isFinite(responseLength) &&
+          responseLength > 0 &&
+          responseLength !== expectedLength
+        ) {
+          throw new Error(text.requestFailed);
         }
       }
 
@@ -140202,13 +140707,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           renderDownloadState(file.id);
 
           try {
-            await downloadFileToTarget(file, progress => {
-              downloadStateById.set(file.id, {
-                phase: 'downloading',
-                progress: progress,
-              });
-              renderDownloadState(file.id);
-            });
+            await verifyDirectDownload(file);
+            startDirectDownload(file);
 
             downloadStateById.set(file.id, {
               phase: 'completed',
@@ -140217,7 +140717,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             renderDownloadState(file.id);
           } catch (error) {
             downloadStateById.set(file.id, {
-              error: error.message,
+              error: buildVisibleErrorMessage(error),
               phase: 'failed',
               progress: 0,
             });
@@ -143239,14 +143739,14 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     var isBusy = Boolean(model.busyAction);
     var _React$useState = _react.default.useState(false),
       _React$useState2 = (0, _slicedToArray2.default)(_React$useState, 2),
-      isSharedDownloadSelectionMode = _React$useState2[0],
-      setSharedDownloadSelectionMode = _React$useState2[1];
+      isDownloadSelectionMode = _React$useState2[0],
+      setDownloadSelectionMode = _React$useState2[1];
     var _React$useState3 = _react.default.useState(function () {
         return new Set();
       }),
       _React$useState4 = (0, _slicedToArray2.default)(_React$useState3, 2),
-      selectedSharedFileIds = _React$useState4[0],
-      setSelectedSharedFileIds = _React$useState4[1];
+      selectedDownloadFileIds = _React$useState4[0],
+      setSelectedDownloadFileIds = _React$useState4[1];
     var _React$useState5 = _react.default.useState(''),
       _React$useState6 = (0, _slicedToArray2.default)(_React$useState5, 2),
       renameProjectDraft = _React$useState6[0],
@@ -143297,6 +143797,11 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         return right.createdAt.localeCompare(left.createdAt);
       });
     }, [model.activeProjectFiles, model.sharedFiles, sharedFileIdSet]);
+    var workspaceFileIdSet = _react.default.useMemo(function () {
+      return new Set(workspaceFiles.map(function (file) {
+        return file.id;
+      }));
+    }, [workspaceFiles]);
     var sharedWorkspaceFiles = _react.default.useMemo(function () {
       return workspaceFiles.filter(function (file) {
         return sharedFileIdSet.has(file.id);
@@ -143307,12 +143812,12 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         return !sharedFileIdSet.has(file.id);
       });
     }, [sharedFileIdSet, workspaceFiles]);
-    var selectedSharedFiles = _react.default.useMemo(function () {
-      return sharedWorkspaceFiles.filter(function (file) {
-        return selectedSharedFileIds.has(file.id);
+    var selectedDownloadFiles = _react.default.useMemo(function () {
+      return workspaceFiles.filter(function (file) {
+        return selectedDownloadFileIds.has(file.id);
       });
-    }, [selectedSharedFileIds, sharedWorkspaceFiles]);
-    var selectedSharedFileCount = selectedSharedFiles.length;
+    }, [selectedDownloadFileIds, workspaceFiles]);
+    var selectedDownloadFileCount = selectedDownloadFiles.length;
     var workspaceFileCount = workspaceFiles.length;
     var workspaceSharedFileCount = sharedWorkspaceFiles.length;
     var contentSharingSummary = t('home.flow.fileSharingSummary', {
@@ -143345,11 +143850,11 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       }
     }, [renameProjectId, renameTargetProject]);
     _react.default.useEffect(function () {
-      setSelectedSharedFileIds(function (current) {
+      setSelectedDownloadFileIds(function (current) {
         var changed = false;
         var next = new Set();
         for (var fileId of current) {
-          if (sharedFileIdSet.has(fileId)) {
+          if (workspaceFileIdSet.has(fileId)) {
             next.add(fileId);
           } else {
             changed = true;
@@ -143357,10 +143862,10 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         }
         return changed ? next : current;
       });
-      if (sharedWorkspaceFiles.length === 0) {
-        setSharedDownloadSelectionMode(false);
+      if (workspaceFileCount === 0) {
+        setDownloadSelectionMode(false);
       }
-    }, [sharedFileIdSet, sharedWorkspaceFiles.length]);
+    }, [workspaceFileCount, workspaceFileIdSet]);
     _react.default.useEffect(function () {
       _reactNative.Animated.parallel([_reactNative.Animated.timing(contentWorkspaceOpacity, {
         duration: _$$_REQUIRE(_dependencyMap[6], "../theme").theme.tokens.duration.medium,
@@ -143374,8 +143879,8 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         useNativeDriver: true
       })]).start();
     }, [contentWorkspaceOpacity, contentWorkspaceTranslateY, isContentSharingPhase]);
-    var handleToggleSharedDownloadSelection = function handleToggleSharedDownloadSelection(fileId) {
-      setSelectedSharedFileIds(function (current) {
+    var handleToggleDownloadSelection = function handleToggleDownloadSelection(fileId) {
+      setSelectedDownloadFileIds(function (current) {
         var next = new Set(current);
         if (next.has(fileId)) {
           next.delete(fileId);
@@ -143385,20 +143890,20 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
         return next;
       });
     };
-    var handleSelectAllSharedDownloads = function handleSelectAllSharedDownloads() {
-      setSelectedSharedFileIds(new Set(sharedWorkspaceFiles.map(function (file) {
+    var handleSelectAllDownloads = function handleSelectAllDownloads() {
+      setSelectedDownloadFileIds(new Set(workspaceFiles.map(function (file) {
         return file.id;
       })));
     };
-    var handleClearSharedDownloadSelection = function handleClearSharedDownloadSelection() {
-      setSelectedSharedFileIds(new Set());
+    var handleClearDownloadSelection = function handleClearDownloadSelection() {
+      setSelectedDownloadFileIds(new Set());
     };
-    var handleExitSharedDownloadSelection = function handleExitSharedDownloadSelection() {
-      setSharedDownloadSelectionMode(false);
-      handleClearSharedDownloadSelection();
+    var handleExitDownloadSelection = function handleExitDownloadSelection() {
+      setDownloadSelectionMode(false);
+      handleClearDownloadSelection();
     };
-    var handleDownloadSelectedSharedFiles = function handleDownloadSelectedSharedFiles() {
-      void model.exportFiles(selectedSharedFiles);
+    var handleDownloadSelectedFiles = function handleDownloadSelectedFiles() {
+      void model.exportFiles(selectedDownloadFiles);
     };
     var handleCopyLink = function handleCopyLink() {
       if (!model.serviceState.accessUrl) {
@@ -143651,16 +144156,16 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
                         },
                         style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedHeaderActionButton,
                         testID: "home-import-media"
-                      }), workspaceSharedFileCount > 0 ? /*#__PURE__*/(0, _jsxRuntime.jsx)(GhostButton, {
-                        accessibilityLabel: isSharedDownloadSelectionMode ? t('home.shared.cancelSelection') : t('home.shared.selectDownloads'),
+                      }), workspaceFileCount > 0 ? /*#__PURE__*/(0, _jsxRuntime.jsx)(GhostButton, {
+                        accessibilityLabel: isDownloadSelectionMode ? t('home.shared.cancelSelection') : t('home.shared.selectDownloads'),
                         compact: true,
                         disabled: isBusy,
-                        label: isSharedDownloadSelectionMode ? t('home.shared.cancelSelection') : t('home.shared.selectDownloads'),
+                        label: isDownloadSelectionMode ? t('home.shared.cancelSelection') : t('home.shared.selectDownloads'),
                         onPress: function onPress() {
-                          if (isSharedDownloadSelectionMode) {
-                            handleExitSharedDownloadSelection();
+                          if (isDownloadSelectionMode) {
+                            handleExitDownloadSelection();
                           } else {
-                            setSharedDownloadSelectionMode(true);
+                            setDownloadSelectionMode(true);
                           }
                         },
                         style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedHeaderActionButton,
@@ -143749,32 +144254,34 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
                         style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.contentSectionMeta,
                         children: contentSharingSummary
                       })]
-                    }), isSharedDownloadSelectionMode ? /*#__PURE__*/(0, _jsxRuntime.jsxs)(_reactNative.View, {
+                    }), isDownloadSelectionMode ? /*#__PURE__*/(0, _jsxRuntime.jsxs)(_reactNative.View, {
                       style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedSelectionToolbar,
                       children: [/*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.Text, {
                         style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedSelectionCount,
                         children: t('home.shared.selectedCount', {
-                          count: selectedSharedFileCount
+                          count: selectedDownloadFileCount
                         })
                       }), /*#__PURE__*/(0, _jsxRuntime.jsxs)(_reactNative.View, {
                         style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedSelectionActions,
-                        children: [/*#__PURE__*/(0, _jsxRuntime.jsx)(IconButton, {
+                        children: [/*#__PURE__*/(0, _jsxRuntime.jsx)(GhostButton, {
                           accessibilityLabel: t('common.selectAll'),
+                          compact: true,
                           disabled: isBusy,
-                          icon: "check",
-                          onPress: handleSelectAllSharedDownloads,
+                          label: t('common.selectAll'),
+                          onPress: handleSelectAllDownloads,
                           testID: "home-shared-select-all"
-                        }), /*#__PURE__*/(0, _jsxRuntime.jsx)(IconButton, {
+                        }), /*#__PURE__*/(0, _jsxRuntime.jsx)(GhostButton, {
                           accessibilityLabel: t('home.shared.clearSelection'),
-                          disabled: isBusy || selectedSharedFileCount === 0,
-                          icon: "close",
-                          onPress: handleClearSharedDownloadSelection,
+                          compact: true,
+                          disabled: isBusy || selectedDownloadFileCount === 0,
+                          label: t('home.shared.clearSelection'),
+                          onPress: handleClearDownloadSelection,
                           testID: "home-shared-clear-selection"
                         }), /*#__PURE__*/(0, _jsxRuntime.jsx)(PrimaryButton, {
                           compact: true,
                           disabled: isBusy,
                           label: t('home.shared.downloadSelected'),
-                          onPress: handleDownloadSelectedSharedFiles,
+                          onPress: handleDownloadSelectedFiles,
                           testID: "home-shared-download-selected"
                         })]
                       })]
@@ -143800,13 +144307,13 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
                                 void model.exportFile(file);
                               },
                               onToggleSelected: function onToggleSelected() {
-                                handleToggleSharedDownloadSelection(file.id);
+                                handleToggleDownloadSelection(file.id);
                               },
                               onToggleShare: function onToggleShare() {
                                 void model.toggleSharedFile(file.id);
                               },
-                              selected: selectedSharedFileIds.has(file.id),
-                              selectionMode: isSharedDownloadSelectionMode,
+                              selected: selectedDownloadFileIds.has(file.id),
+                              selectionMode: isDownloadSelectionMode,
                               t: t
                             }, file.id);
                           })
@@ -143814,7 +144321,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
                           title: t('file.notShared'),
                           children: unsharedWorkspaceFiles.map(function (file) {
                             return /*#__PURE__*/(0, _jsxRuntime.jsx)(FileCard, {
-                              busy: isBusy && (model.busyAction === 'share' || model.busyAction === 'file' || model.busyAction === `export:${file.id}`),
+                              busy: isBusy && (model.busyAction === 'share' || model.busyAction === 'file' || model.busyAction === 'export:batch' || model.busyAction === `export:${file.id}`),
                               compact: isCompactScreen,
                               file: file,
                               isShared: false,
@@ -143825,9 +144332,14 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
                               onExport: function onExport() {
                                 void model.exportFile(file);
                               },
+                              onToggleSelected: function onToggleSelected() {
+                                handleToggleDownloadSelection(file.id);
+                              },
                               onToggleShare: function onToggleShare() {
                                 void model.toggleSharedFile(file.id);
                               },
+                              selected: selectedDownloadFileIds.has(file.id),
+                              selectionMode: isDownloadSelectionMode,
                               t: t
                             }, file.id);
                           })
@@ -144210,12 +144722,13 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       selected = _ref12.selected,
       selectionMode = _ref12.selectionMode,
       t = _ref12.t;
-    var selectingSharedFile = Boolean(selectionMode && isShared);
+    var selectingFile = Boolean(selectionMode);
+    var selectTestId = isShared ? `shared-file-select-${file.id}` : `file-select-download-${file.id}`;
     return /*#__PURE__*/(0, _jsxRuntime.jsxs)(_$$_REQUIRE(_dependencyMap[10], "../ui").PanelSurface, {
       style: [_$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCard, isShared ? _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCardShared : _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCardUnshared, selected ? _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedFileCardSelected : null],
       children: [/*#__PURE__*/(0, _jsxRuntime.jsxs)(_reactNative.View, {
         style: [_$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCardHeader, compact ? _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCardHeaderCompact : null],
-        children: [selectingSharedFile ? /*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.Pressable, {
+        children: [selectingFile ? /*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.Pressable, {
           accessibilityLabel: t('portal.download.select'),
           accessibilityRole: "checkbox",
           accessibilityState: {
@@ -144225,7 +144738,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
           disabled: busy,
           onPress: onToggleSelected,
           style: [_$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedSelectionBox, selected ? _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.sharedSelectionBoxSelected : null],
-          testID: `shared-file-select-${file.id}`,
+          testID: selectTestId,
           children: selected ? /*#__PURE__*/(0, _jsxRuntime.jsx)(_$$_REQUIRE(_dependencyMap[13], "../icons/AppIcons").AppIcon, {
             color: _$$_REQUIRE(_dependencyMap[6], "../theme").theme.colors.inkOnStrong,
             name: "check",
@@ -144233,7 +144746,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             strokeWidth: 2.2
           }) : null
         }) : null, /*#__PURE__*/(0, _jsxRuntime.jsxs)(_reactNative.Pressable, {
-          disabled: !selectingSharedFile || busy,
+          disabled: !selectingFile || busy,
           onPress: onToggleSelected,
           style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCardHeaderMain,
           children: [/*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.Text, {
@@ -144257,7 +144770,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             })]
           })]
         })]
-      }), !selectingSharedFile ? /*#__PURE__*/(0, _jsxRuntime.jsxs)(_reactNative.View, {
+      }), !selectingFile ? /*#__PURE__*/(0, _jsxRuntime.jsxs)(_reactNative.View, {
         style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCardActionsRow,
         children: [/*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.View, {
           style: _$$_REQUIRE(_dependencyMap[8], "../appShellStyles").styles.fileCardDeleteActionCell,
@@ -144281,7 +144794,7 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
             testID: isShared ? `shared-file-remove-${file.id}` : `file-toggle-share-${file.id}`
           })
         }), /*#__PURE__*/(0, _jsxRuntime.jsx)(IconButton, {
-          accessibilityLabel: isShared ? t('common.download') : t('common.export'),
+          accessibilityLabel: t('common.download'),
           disabled: busy,
           icon: "download",
           onPress: onExport,
@@ -144821,27 +145334,31 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     });
   }
   function FeedbackBanner(_ref5) {
-    var message = _ref5.message,
+    var _ref5$closeLabel = _ref5.closeLabel,
+      closeLabel = _ref5$closeLabel === void 0 ? '关闭' : _ref5$closeLabel,
+      message = _ref5.message,
       onDismiss = _ref5.onDismiss,
       tone = _ref5.tone;
     return /*#__PURE__*/(0, _jsxRuntime.jsxs)(_$$_REQUIRE(_dependencyMap[5], "react-native-paper").Surface, {
       mode: "flat",
       style: [styles.banner, tone === 'success' ? styles.bannerSuccess : tone === 'error' ? styles.bannerError : styles.bannerInfo],
+      testID: "feedback-banner",
       children: [/*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.Text, {
         numberOfLines: 2,
         style: styles.bannerMessage,
         children: message
       }), /*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.Pressable, {
-        accessibilityLabel: "\u5173\u95ED",
+        accessibilityLabel: closeLabel,
         accessibilityRole: "button",
         onPress: onDismiss,
+        testID: "feedback-banner-close",
         style: function style(_ref6) {
           var pressed = _ref6.pressed;
           return [styles.bannerClose, pressed ? styles.bannerClosePressed : null];
         },
         children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNative.Text, {
           style: styles.bannerCloseLabel,
-          children: "\u5173\u95ED"
+          children: closeLabel
         })
       })]
     });
@@ -144914,8 +145431,10 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
       gap: 8,
       justifyContent: 'space-between',
       maxWidth: 520,
+      minHeight: 34,
       paddingHorizontal: 10,
-      paddingVertical: 5
+      paddingVertical: 5,
+      width: '100%'
     },
     bannerInfo: {
       backgroundColor: _$$_REQUIRE(_dependencyMap[4], "./theme").theme.colors.skySoft
@@ -144929,12 +145448,14 @@ __d(function (global, _$$_REQUIRE, _$$_IMPORT_DEFAULT, _$$_IMPORT_ALL, module, e
     bannerMessage: {
       color: _$$_REQUIRE(_dependencyMap[4], "./theme").theme.colors.ink,
       flex: 1,
+      minWidth: 0,
       flexShrink: 1,
       fontSize: 11,
       lineHeight: 15
     },
     bannerClose: {
       borderRadius: _$$_REQUIRE(_dependencyMap[4], "./theme").theme.radius.pill,
+      flexShrink: 0,
       minHeight: 22,
       paddingHorizontal: 8,
       paddingVertical: 3

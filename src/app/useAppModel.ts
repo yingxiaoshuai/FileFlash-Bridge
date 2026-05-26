@@ -172,7 +172,10 @@ function buildLocalizedExportNotice(
 ): AppNotice {
   const t = createAppTranslator(locale);
   const message =
-    result.method === 'android-saf' || result.method === 'harmony-files'
+    result.method === 'android-directory' ||
+    result.method === 'android-downloads' ||
+    result.method === 'android-saf' ||
+    result.method === 'harmony-files'
       ? t('notice.export.saved', {
           name: file.displayName,
         })

@@ -495,6 +495,35 @@ const command =
     ? path.join(process.cwd(), 'node_modules', '.bin', 'react-native.cmd')
     : path.join(process.cwd(), 'node_modules', '.bin', 'react-native');
 
+function formatErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function runHarmonyBundle() {
+  console.log('[harmony-bundle] rebuilding JS bundle before run...');
+  execFileSync(command, ['bundle-harmony', '--config', 'metro.config.js'], {
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      FILEFLASH_HARMONY_BUNDLE: '1',
+    },
+    stdio: 'inherit',
+  });
+}
+
+function ensureHarmonyBundleReady() {
+  try {
+    ensureHarmonyBundleFresh();
+    return;
+  } catch (error) {
+    console.warn('[harmony-bundle] bundle check failed; auto rebuilding.');
+    console.warn(formatErrorMessage(error));
+  }
+
+  runHarmonyBundle();
+  ensureHarmonyBundleFresh();
+}
+
 function readHarmonyBuildLog() {
   if (!fs.existsSync(harmonyBuildLogPath)) {
     return '';
@@ -597,7 +626,7 @@ async function main() {
       console.log('[harmony-build] signing source=existing');
     }
 
-    ensureHarmonyBundleFresh();
+    ensureHarmonyBundleReady();
 
     const firstExitCode = await runHarmony(buildJobs, linkJobs, abiFilters);
 

@@ -1,5 +1,6 @@
 function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
   jest.resetModules();
+  jest.dontMock('../src/platform/documentPicker');
 
   const appendFile = jest.fn();
   const appendFileFromPath = jest.fn();
@@ -11,7 +12,36 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
   const readChunkBase64 = jest.fn();
   const readFileChunk = jest.fn();
   const readFile = jest.fn();
+  const saveDocuments = jest
+    .fn()
+    .mockImplementation((options: { fileName?: string }) =>
+      Promise.resolve([
+        {
+          error: null,
+          name: options.fileName ?? null,
+          uri: `content://downloads/${options.fileName ?? 'file'}`,
+        },
+      ]),
+    );
   const saveFileToDocuments = jest.fn();
+  const saveFilesToDownloads = jest
+    .fn()
+    .mockResolvedValue([
+      'content://downloads/fileflash/first.txt',
+      'content://downloads/fileflash/second.txt',
+    ]);
+  const saveFilesToDirectory = jest
+    .fn()
+    .mockResolvedValue([
+      'content://downloads/tree/first.txt',
+      'content://downloads/tree/second.txt',
+    ]);
+  const saveFilesToDocuments = jest
+    .fn()
+    .mockResolvedValue([
+      'file://documents/first.txt',
+      'file://documents/second.txt',
+    ]);
   const shareOpen = jest.fn().mockResolvedValue({ success: true });
   const stat = jest.fn();
   const unlink = jest.fn();
@@ -30,8 +60,14 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
               readFile,
               readFileChunk,
               saveFileToDocuments,
+              saveFilesToDocuments,
               writeFile,
               writeFileFromPathAtOffset,
+            }
+          : platformOs === 'android'
+          ? {
+              saveFilesToDownloads,
+              saveFilesToDirectory,
             }
           : undefined,
       FPFileReader:
@@ -59,7 +95,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
     isErrorWithCode: jest.fn(),
     keepLocalCopy: jest.fn(),
     pick: jest.fn(),
-    saveDocuments: jest.fn(),
+    saveDocuments,
     types: {},
   }));
 
@@ -111,7 +147,11 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
     readChunkBase64,
     readFileChunk,
     readFile,
+    saveDocuments,
     saveFileToDocuments,
+    saveFilesToDownloads,
+    saveFilesToDirectory,
+    saveFilesToDocuments,
     shareOpen,
     stat,
     unlink,
@@ -491,8 +531,14 @@ describe('ReactNativeFileSystemAdapter', () => {
     expect(writeFile).toHaveBeenCalledTimes(1);
   });
 
-  test('exports multiple Android files through one multi-file share intent', async () => {
-    const { exportPreparedFiles, shareOpen } = loadAdapterForPlatform('android');
+  test('saves multiple Android files directly to Downloads', async () => {
+    const {
+      exportPreparedFiles,
+      saveDocuments,
+      saveFilesToDownloads,
+      saveFilesToDirectory,
+      shareOpen,
+    } = loadAdapterForPlatform('android');
     const firstFile = {
       compression: 'none',
       createdAt: '2026-05-12T00:00:00.000Z',
@@ -527,17 +573,91 @@ describe('ReactNativeFileSystemAdapter', () => {
         },
       ]),
     ).resolves.toEqual({
-      method: 'share',
+      destinationUri: 'content://downloads/fileflash/second.txt',
+      destinationUris: [
+        'content://downloads/fileflash/first.txt',
+        'content://downloads/fileflash/second.txt',
+      ],
+      method: 'android-downloads',
     });
 
-    expect(shareOpen).toHaveBeenCalledTimes(1);
-    expect(shareOpen).toHaveBeenCalledWith(
-      expect.objectContaining({
-        filenames: ['first.txt', 'second.txt'],
-        saveToFiles: false,
-        urls: ['file:///app/files/first.txt', 'file:///app/files/second.txt'],
-      }),
-    );
+    expect(saveFilesToDownloads).toHaveBeenCalledTimes(1);
+    expect(saveFilesToDownloads).toHaveBeenCalledWith([
+      {
+        displayName: 'first.txt',
+        mimeType: 'text/plain',
+        sourcePath: '/app/files/first.txt',
+      },
+      {
+        displayName: 'second.txt',
+        mimeType: 'text/plain',
+        sourcePath: '/app/files/second.txt',
+      },
+    ]);
+    expect(saveFilesToDirectory).not.toHaveBeenCalled();
+    expect(saveDocuments).not.toHaveBeenCalled();
+    expect(shareOpen).not.toHaveBeenCalled();
+  });
+
+  test('saves multiple Harmony files through one native document save flow', async () => {
+    const { exportPreparedFiles, saveFilesToDocuments, shareOpen } =
+      loadAdapterForPlatform('harmony');
+    const firstFile = {
+      compression: 'none',
+      createdAt: '2026-05-12T00:00:00.000Z',
+      displayName: 'first.txt',
+      id: 'file-first',
+      isLargeFile: false,
+      mimeType: 'text/plain',
+      originalSize: 5,
+      projectId: 'project-a',
+      relativePath: 'first.txt',
+      size: 5,
+      storagePath: '/app/files/first.txt',
+      storedSize: 5,
+    };
+    const secondFile = {
+      ...firstFile,
+      displayName: 'second.txt',
+      id: 'file-second',
+      relativePath: 'second.txt',
+      storagePath: '/app/files/second.txt',
+    };
+
+    await expect(
+      exportPreparedFiles([
+        {
+          file: firstFile,
+          sourcePath: firstFile.storagePath,
+        },
+        {
+          file: secondFile,
+          sourcePath: secondFile.storagePath,
+        },
+      ]),
+    ).resolves.toEqual({
+      destinationUri: 'file://documents/second.txt',
+      destinationUris: [
+        'file://documents/first.txt',
+        'file://documents/second.txt',
+      ],
+      method: 'harmony-files',
+    });
+
+    expect(saveFilesToDocuments).toHaveBeenCalledTimes(1);
+    expect(saveFilesToDocuments).toHaveBeenCalledWith([
+      {
+        displayName: 'first.txt',
+        mimeType: 'text/plain',
+        sourcePath: '/app/files/first.txt',
+      },
+      {
+        displayName: 'second.txt',
+        mimeType: 'text/plain',
+        sourcePath: '/app/files/second.txt',
+      },
+    ]);
+    expect(shareOpen).not.toHaveBeenCalled();
   });
 
   test('fails iOS copy when native copy leaves it missing', async () => {

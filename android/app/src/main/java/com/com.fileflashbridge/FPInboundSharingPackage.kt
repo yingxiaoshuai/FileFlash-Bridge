@@ -8,7 +8,10 @@ import com.facebook.react.uimanager.ViewManager
 class FPInboundSharingPackage : ReactPackage {
   override fun createNativeModules(
     reactContext: ReactApplicationContext
-  ): List<NativeModule> = listOf(FPInboundSharingModule(reactContext))
+  ): List<NativeModule> = listOf(
+    FPFileAccessModule(reactContext),
+    FPInboundSharingModule(reactContext)
+  )
 
   override fun createViewManagers(
     reactContext: ReactApplicationContext

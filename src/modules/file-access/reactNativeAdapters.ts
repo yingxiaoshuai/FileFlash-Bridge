@@ -50,6 +50,15 @@ type NativeFileAccessModule = {
     sourcePath: string,
     displayName?: string,
   ) => Promise<string>;
+  saveFilesToDownloads?: (
+    files: NativeExportFileDescriptor[],
+  ) => Promise<string[]>;
+  saveFilesToDirectory?: (
+    files: NativeExportFileDescriptor[],
+  ) => Promise<string[]>;
+  saveFilesToDocuments?: (
+    files: NativeExportFileDescriptor[],
+  ) => Promise<string[]>;
   writeFile?: (path: string, content: Uint8Array | number[]) => Promise<void>;
   writeFileFromPathAtOffset?: (
     destinationPath: string,
@@ -57,6 +66,12 @@ type NativeFileAccessModule = {
     offset: number,
     length: number,
   ) => Promise<void>;
+};
+
+type NativeExportFileDescriptor = {
+  displayName: string;
+  mimeType?: string;
+  sourcePath: string;
 };
 
 type NativeFileReaderModule = {
@@ -707,7 +722,14 @@ export function createReactNativeInboundStorageGateway(
 
 export interface ExportResult {
   destinationUri?: string;
-  method: 'android-saf' | 'harmony-files' | 'ios-files' | 'share';
+  destinationUris?: string[];
+  method:
+    | 'android-directory'
+    | 'android-downloads'
+    | 'android-saf'
+    | 'harmony-files'
+    | 'ios-files'
+    | 'share';
 }
 
 export type ExportFileSource = {
@@ -1190,6 +1212,106 @@ async function saveToSystemDocumentUri(
   };
 }
 
+function toNativeExportFileDescriptor(item: {
+  file: SharedFileRecord;
+  sourcePath: string;
+}): NativeExportFileDescriptor {
+  const descriptor: NativeExportFileDescriptor = {
+    displayName: item.file.displayName,
+    sourcePath: item.sourcePath,
+  };
+
+  if (item.file.mimeType) {
+    descriptor.mimeType = item.file.mimeType;
+  }
+
+  return descriptor;
+}
+
+function createMultiSaveResult(
+  destinationUris: string[],
+  method: ExportResult['method'],
+): ExportResult {
+  return {
+    destinationUri: destinationUris[destinationUris.length - 1],
+    destinationUris,
+    method,
+  };
+}
+
+function assertNativeDestinationUris(
+  destinationUris: unknown,
+  fallbackMessage: string,
+): string[] {
+  if (
+    !Array.isArray(destinationUris) ||
+    destinationUris.some(uri => typeof uri !== 'string') ||
+    destinationUris.length === 0
+  ) {
+    throw new Error(fallbackMessage);
+  }
+
+  return destinationUris;
+}
+
+async function saveAndroidFilesToDownloads(
+  prepared: Array<{
+    file: SharedFileRecord;
+    sourcePath: string;
+  }>,
+): Promise<ExportResult> {
+  const saveFilesToDownloads = getNativeFileAccess()?.saveFilesToDownloads;
+  if (saveFilesToDownloads) {
+    const destinationUris = assertNativeDestinationUris(
+      await saveFilesToDownloads(prepared.map(toNativeExportFileDescriptor)),
+      '未能保存到系统下载目录。',
+    );
+
+    return createMultiSaveResult(destinationUris, 'android-downloads');
+  }
+
+  const saveFilesToDirectory = getNativeFileAccess()?.saveFilesToDirectory;
+  if (!saveFilesToDirectory) {
+    throw new Error('当前 Android 安装包缺少批量保存模块，请重新打包安装后再试。');
+  }
+
+  const destinationUris = assertNativeDestinationUris(
+    await saveFilesToDirectory(prepared.map(toNativeExportFileDescriptor)),
+    '未能保存到所选文件夹。',
+  );
+
+  return createMultiSaveResult(destinationUris, 'android-directory');
+}
+
+async function saveHarmonyFilesToDocuments(
+  prepared: Array<{
+    file: SharedFileRecord;
+    sourcePath: string;
+  }>,
+): Promise<ExportResult> {
+  const saveFilesToDocuments = getNativeFileAccess()?.saveFilesToDocuments;
+  if (!saveFilesToDocuments) {
+    const destinationUris: string[] = [];
+    for (const item of prepared) {
+      const result = await saveHarmonyFileToDocuments(
+        item.file,
+        item.sourcePath,
+      );
+      if (result.destinationUri) {
+        destinationUris.push(result.destinationUri);
+      }
+    }
+    return createMultiSaveResult(destinationUris, 'harmony-files');
+  }
+
+  const destinationUris = assertNativeDestinationUris(
+    await saveFilesToDocuments(prepared.map(toNativeExportFileDescriptor)),
+    '未能保存到你选择的位置。',
+  );
+
+  return createMultiSaveResult(destinationUris, 'harmony-files');
+}
+
 export async function exportPreparedFile(
   file: SharedFileRecord,
   bytes: Uint8Array,
@@ -1289,25 +1411,28 @@ async function shareOrSaveMultipleFiles(
     sourcePath: string;
   }>,
 ): Promise<ExportResult> {
+  if (Platform.OS === 'android') {
+    return saveAndroidFilesToDownloads(prepared);
+  }
+
+  if (isHarmonyPlatform()) {
+    return saveHarmonyFilesToDocuments(prepared);
+  }
+
   const files = prepared.map(item => item.file);
   const urls = prepared.map(item => toEncodedFileUri(item.sourcePath));
   const filenames = files.map(file => file.displayName);
-  const shouldSaveToFiles = Platform.OS === 'ios' || isHarmonyPlatform();
 
   await openShareSheet({
     failOnCancel: false,
     filenames,
-    saveToFiles: shouldSaveToFiles,
+    saveToFiles: Platform.OS === 'ios',
     type: resolveBatchMimeType(files),
     urls,
   });
 
   return {
-    method: isHarmonyPlatform()
-      ? 'harmony-files'
-      : Platform.OS === 'ios'
-      ? 'ios-files'
-      : 'share',
+    method: Platform.OS === 'ios' ? 'ios-files' : 'share',
   };
 }
 

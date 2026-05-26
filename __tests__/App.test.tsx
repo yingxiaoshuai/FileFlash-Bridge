@@ -577,8 +577,15 @@ describe('App sidebar history', () => {
     ).toThrow();
   });
 
-  test('supports selecting shared files for batch download from the workspace', async () => {
-    const model = createModel();
+  test('supports selecting workspace files for batch download', async () => {
+    const receivedFile = createSharedFile(
+      'file-a',
+      'project-a',
+      'received.txt',
+    );
+    const model = createModel({
+      activeProjectFiles: [receivedFile],
+    });
     mockUseAppModel.mockReturnValue(model as ReturnType<typeof useAppModel>);
 
     let tree: renderer.ReactTestRenderer;
@@ -592,9 +599,22 @@ describe('App sidebar history', () => {
         .props.onPress();
     });
 
+    expect(
+      tree!.root.findByProps({ testID: 'home-shared-select-all' }).props.label,
+    ).toBe('全选');
+    expect(
+      tree!.root.findByProps({ testID: 'home-shared-clear-selection' }).props
+        .label,
+    ).toBe('清空');
+
     act(() => {
       tree!.root
         .findByProps({ testID: 'shared-file-select-file-b' })
+        .props.onPress();
+    });
+    act(() => {
+      tree!.root
+        .findByProps({ testID: 'file-select-download-file-a' })
         .props.onPress();
     });
 
@@ -604,7 +624,10 @@ describe('App sidebar history', () => {
         .props.onPress();
     });
 
-    expect(model.exportFiles).toHaveBeenCalledWith([model.sharedFiles[0]]);
+    expect(model.exportFiles).toHaveBeenCalledWith([
+      model.sharedFiles[0],
+      receivedFile,
+    ]);
   });
 
   test('keeps import, project content, and sharing operations in one content workspace', async () => {
@@ -711,14 +734,14 @@ describe('App sidebar history', () => {
     expect(
       tree!.root.findByProps({ testID: 'home-shared-select-downloads' }).props
         .accessibilityLabel,
-    ).toBe('选择下载');
+    ).toBe('下载');
     expect(
       tree!.root.findByProps({ testID: 'file-toggle-share-file-a' }).props
         .accessibilityLabel,
     ).toBe('加入共享');
     expect(
       tree!.root.findByProps({ testID: 'shared-file-download-file-b' }).props
-      .accessibilityLabel,
+        .accessibilityLabel,
     ).toBe('下载');
   });
 

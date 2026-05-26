@@ -15,6 +15,7 @@ FPFileAccess::FPFileAccess(
       ARK_ASYNC_METHOD_METADATA(appendFileFromPath, 2),
       ARK_ASYNC_METHOD_METADATA(writeFileFromPathAtOffset, 4),
       ARK_ASYNC_METHOD_METADATA(saveFileToDocuments, 2),
+      ARK_ASYNC_METHOD_METADATA(saveFilesToDocuments, 1),
   };
 }
 

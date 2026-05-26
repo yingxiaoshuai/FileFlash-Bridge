@@ -97,9 +97,9 @@ export function HomeScreen({
   setProjectHistoryOpen,
 }: HomeScreenProps) {
   const isBusy = Boolean(model.busyAction);
-  const [isSharedDownloadSelectionMode, setSharedDownloadSelectionMode] =
+  const [isDownloadSelectionMode, setDownloadSelectionMode] =
     React.useState(false);
-  const [selectedSharedFileIds, setSelectedSharedFileIds] = React.useState<
+  const [selectedDownloadFileIds, setSelectedDownloadFileIds] = React.useState<
     Set<string>
   >(() => new Set());
   const [renameProjectDraft, setRenameProjectDraft] = React.useState('');
@@ -171,6 +171,10 @@ export function HomeScreen({
       return right.createdAt.localeCompare(left.createdAt);
     });
   }, [model.activeProjectFiles, model.sharedFiles, sharedFileIdSet]);
+  const workspaceFileIdSet = React.useMemo(
+    () => new Set(workspaceFiles.map(file => file.id)),
+    [workspaceFiles],
+  );
   const sharedWorkspaceFiles = React.useMemo(
     () => workspaceFiles.filter(file => sharedFileIdSet.has(file.id)),
     [sharedFileIdSet, workspaceFiles],
@@ -179,12 +183,11 @@ export function HomeScreen({
     () => workspaceFiles.filter(file => !sharedFileIdSet.has(file.id)),
     [sharedFileIdSet, workspaceFiles],
   );
-  const selectedSharedFiles = React.useMemo(
-    () =>
-      sharedWorkspaceFiles.filter(file => selectedSharedFileIds.has(file.id)),
-    [selectedSharedFileIds, sharedWorkspaceFiles],
+  const selectedDownloadFiles = React.useMemo(
+    () => workspaceFiles.filter(file => selectedDownloadFileIds.has(file.id)),
+    [selectedDownloadFileIds, workspaceFiles],
   );
-  const selectedSharedFileCount = selectedSharedFiles.length;
+  const selectedDownloadFileCount = selectedDownloadFiles.length;
   const workspaceFileCount = workspaceFiles.length;
   const workspaceSharedFileCount = sharedWorkspaceFiles.length;
   const contentSharingSummary = t('home.flow.fileSharingSummary', {
@@ -227,11 +230,11 @@ export function HomeScreen({
   }, [renameProjectId, renameTargetProject]);
 
   React.useEffect(() => {
-    setSelectedSharedFileIds(current => {
+    setSelectedDownloadFileIds(current => {
       let changed = false;
       const next = new Set<string>();
       for (const fileId of current) {
-        if (sharedFileIdSet.has(fileId)) {
+        if (workspaceFileIdSet.has(fileId)) {
           next.add(fileId);
         } else {
           changed = true;
@@ -240,10 +243,10 @@ export function HomeScreen({
       return changed ? next : current;
     });
 
-    if (sharedWorkspaceFiles.length === 0) {
-      setSharedDownloadSelectionMode(false);
+    if (workspaceFileCount === 0) {
+      setDownloadSelectionMode(false);
     }
-  }, [sharedFileIdSet, sharedWorkspaceFiles.length]);
+  }, [workspaceFileCount, workspaceFileIdSet]);
 
   React.useEffect(() => {
     Animated.parallel([
@@ -266,8 +269,8 @@ export function HomeScreen({
     isContentSharingPhase,
   ]);
 
-  const handleToggleSharedDownloadSelection = (fileId: string) => {
-    setSelectedSharedFileIds(current => {
+  const handleToggleDownloadSelection = (fileId: string) => {
+    setSelectedDownloadFileIds(current => {
       const next = new Set(current);
       if (next.has(fileId)) {
         next.delete(fileId);
@@ -278,23 +281,21 @@ export function HomeScreen({
     });
   };
 
-  const handleSelectAllSharedDownloads = () => {
-    setSelectedSharedFileIds(
-      new Set(sharedWorkspaceFiles.map(file => file.id)),
-    );
+  const handleSelectAllDownloads = () => {
+    setSelectedDownloadFileIds(new Set(workspaceFiles.map(file => file.id)));
   };
 
-  const handleClearSharedDownloadSelection = () => {
-    setSelectedSharedFileIds(new Set());
+  const handleClearDownloadSelection = () => {
+    setSelectedDownloadFileIds(new Set());
   };
 
-  const handleExitSharedDownloadSelection = () => {
-    setSharedDownloadSelectionMode(false);
-    handleClearSharedDownloadSelection();
+  const handleExitDownloadSelection = () => {
+    setDownloadSelectionMode(false);
+    handleClearDownloadSelection();
   };
 
-  const handleDownloadSelectedSharedFiles = () => {
-    void model.exportFiles(selectedSharedFiles);
+  const handleDownloadSelectedFiles = () => {
+    void model.exportFiles(selectedDownloadFiles);
   };
 
   const handleCopyLink = () => {
@@ -626,25 +627,25 @@ export function HomeScreen({
                           style={styles.sharedHeaderActionButton}
                           testID="home-import-media"
                         />
-                        {workspaceSharedFileCount > 0 ? (
+                        {workspaceFileCount > 0 ? (
                           <GhostButton
                             accessibilityLabel={
-                              isSharedDownloadSelectionMode
+                              isDownloadSelectionMode
                                 ? t('home.shared.cancelSelection')
                                 : t('home.shared.selectDownloads')
                             }
                             compact
                             disabled={isBusy}
                             label={
-                              isSharedDownloadSelectionMode
+                              isDownloadSelectionMode
                                 ? t('home.shared.cancelSelection')
                                 : t('home.shared.selectDownloads')
                             }
                             onPress={() => {
-                              if (isSharedDownloadSelectionMode) {
-                                handleExitSharedDownloadSelection();
+                              if (isDownloadSelectionMode) {
+                                handleExitDownloadSelection();
                               } else {
-                                setSharedDownloadSelectionMode(true);
+                                setDownloadSelectionMode(true);
                               }
                             }}
                             style={styles.sharedHeaderActionButton}
@@ -753,35 +754,39 @@ export function HomeScreen({
                         </Text>
                       </View>
 
-                      {isSharedDownloadSelectionMode ? (
+                      {isDownloadSelectionMode ? (
                         <View style={styles.sharedSelectionToolbar}>
                           <Text style={styles.sharedSelectionCount}>
                             {t('home.shared.selectedCount', {
-                              count: selectedSharedFileCount,
+                              count: selectedDownloadFileCount,
                             })}
                           </Text>
                           <View style={styles.sharedSelectionActions}>
-                            <IconButton
+                            <GhostButton
                               accessibilityLabel={t('common.selectAll')}
+                              compact
                               disabled={isBusy}
-                              icon="check"
-                              onPress={handleSelectAllSharedDownloads}
+                              label={t('common.selectAll')}
+                              onPress={handleSelectAllDownloads}
                               testID="home-shared-select-all"
                             />
-                            <IconButton
+                            <GhostButton
                               accessibilityLabel={t(
                                 'home.shared.clearSelection',
                               )}
-                              disabled={isBusy || selectedSharedFileCount === 0}
-                              icon="close"
-                              onPress={handleClearSharedDownloadSelection}
+                              compact
+                              disabled={
+                                isBusy || selectedDownloadFileCount === 0
+                              }
+                              label={t('home.shared.clearSelection')}
+                              onPress={handleClearDownloadSelection}
                               testID="home-shared-clear-selection"
                             />
                             <PrimaryButton
                               compact
                               disabled={isBusy}
                               label={t('home.shared.downloadSelected')}
-                              onPress={handleDownloadSelectedSharedFiles}
+                              onPress={handleDownloadSelectedFiles}
                               testID="home-shared-download-selected"
                             />
                           </View>
@@ -820,19 +825,15 @@ export function HomeScreen({
                                       void model.exportFile(file);
                                     }}
                                     onToggleSelected={() => {
-                                      handleToggleSharedDownloadSelection(
-                                        file.id,
-                                      );
+                                      handleToggleDownloadSelection(file.id);
                                     }}
                                     onToggleShare={() => {
                                       void model.toggleSharedFile(file.id);
                                     }}
-                                    selected={selectedSharedFileIds.has(
+                                    selected={selectedDownloadFileIds.has(
                                       file.id,
                                     )}
-                                    selectionMode={
-                                      isSharedDownloadSelectionMode
-                                    }
+                                    selectionMode={isDownloadSelectionMode}
                                     t={t}
                                   />
                                 ))}
@@ -847,6 +848,7 @@ export function HomeScreen({
                                       isBusy &&
                                       (model.busyAction === 'share' ||
                                         model.busyAction === 'file' ||
+                                        model.busyAction === 'export:batch' ||
                                         model.busyAction ===
                                           `export:${file.id}`)
                                     }
@@ -861,9 +863,16 @@ export function HomeScreen({
                                     onExport={() => {
                                       void model.exportFile(file);
                                     }}
+                                    onToggleSelected={() => {
+                                      handleToggleDownloadSelection(file.id);
+                                    }}
                                     onToggleShare={() => {
                                       void model.toggleSharedFile(file.id);
                                     }}
+                                    selected={selectedDownloadFileIds.has(
+                                      file.id,
+                                    )}
+                                    selectionMode={isDownloadSelectionMode}
                                     t={t}
                                   />
                                 ))}
@@ -1368,7 +1377,10 @@ function FileCard({
   selectionMode,
   t,
 }: FileCardProps) {
-  const selectingSharedFile = Boolean(selectionMode && isShared);
+  const selectingFile = Boolean(selectionMode);
+  const selectTestId = isShared
+    ? `shared-file-select-${file.id}`
+    : `file-select-download-${file.id}`;
 
   return (
     <PanelSurface
@@ -1384,7 +1396,7 @@ function FileCard({
           compact ? styles.fileCardHeaderCompact : null,
         ]}
       >
-        {selectingSharedFile ? (
+        {selectingFile ? (
           <Pressable
             accessibilityLabel={t('portal.download.select')}
             accessibilityRole="checkbox"
@@ -1395,7 +1407,7 @@ function FileCard({
               styles.sharedSelectionBox,
               selected ? styles.sharedSelectionBoxSelected : null,
             ]}
-            testID={`shared-file-select-${file.id}`}
+            testID={selectTestId}
           >
             {selected ? (
               <AppIcon
@@ -1408,7 +1420,7 @@ function FileCard({
           </Pressable>
         ) : null}
         <Pressable
-          disabled={!selectingSharedFile || busy}
+          disabled={!selectingFile || busy}
           onPress={onToggleSelected}
           style={styles.fileCardHeaderMain}
         >
@@ -1436,7 +1448,7 @@ function FileCard({
           </View>
         </Pressable>
       </View>
-      {!selectingSharedFile ? (
+      {!selectingFile ? (
         <View style={styles.fileCardActionsRow}>
           <View style={styles.fileCardDeleteActionCell}>
             <DangerGhostButton
@@ -1468,9 +1480,7 @@ function FileCard({
             />
           </View>
           <IconButton
-            accessibilityLabel={
-              isShared ? t('common.download') : t('common.export')
-            }
+            accessibilityLabel={t('common.download')}
             disabled={busy}
             icon="download"
             onPress={onExport}

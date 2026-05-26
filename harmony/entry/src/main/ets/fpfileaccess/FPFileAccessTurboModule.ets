@@ -12,6 +12,12 @@ interface BytesObjectLike {
 
 type BytesLike = Uint8Array | ArrayBuffer | number[] | BytesObjectLike;
 
+interface SaveFileToDocumentsInput {
+  displayName?: string;
+  mimeType?: string;
+  sourcePath: string;
+}
+
 const FILE_COPY_CHUNK_BYTES = 1024 * 1024;
 
 function normalizeFilePath(path: string): string {
@@ -349,5 +355,38 @@ export class FPFileAccessTurboModule extends TurboModule {
     const destinationUri = uris[0];
     await copyFileByChunks(normalizedSource, destinationUri);
     return destinationUri;
+  }
+
+  async saveFilesToDocuments(files: SaveFileToDocumentsInput[]): Promise<string[]> {
+    if (!Array.isArray(files) || files.length === 0) {
+      throw new Error('请选择要下载的文件。');
+    }
+
+    const entries = files.map((file: SaveFileToDocumentsInput) => {
+      const normalizedSource = normalizeFilePath(file.sourcePath);
+      const safeName = sanitizeFileName(
+        file.displayName || fileNameFromPath(normalizedSource),
+      );
+
+      return {
+        normalizedSource,
+        safeName,
+      };
+    });
+
+    const options = new picker.DocumentSaveOptions();
+    options.newFileNames = entries.map(entry => entry.safeName);
+
+    const documentViewPicker = new picker.DocumentViewPicker(this.context);
+    const uris = await documentViewPicker.save(options);
+    if (!uris || uris.length < entries.length) {
+      throw new Error('已取消导出。');
+    }
+
+    for (let index = 0; index < entries.length; index += 1) {
+      await copyFileByChunks(entries[index].normalizedSource, uris[index]);
+    }
+
+    return uris.slice(0, entries.length);
   }
 }
