@@ -11,8 +11,8 @@ const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 const MAX_BRIDGE_BODY_BYTES = 128 * 1024;
 const MAX_UPLOAD_BODY_BYTES = 8 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
-const RESPONSE_WRITE_CHUNK_BYTES = 256 * 1024;
-const SOCKET_CLOSE_GRACE_MS = 30;
+const RESPONSE_WRITE_CHUNK_BYTES = 64 * 1024;
+const SOCKET_CLOSE_GRACE_MS = 1000;
 const DEFAULT_PORT = 8668;
 const UPLOAD_TEMP_DIR_NAME = 'fileflash-http-upload';
 
@@ -536,7 +536,7 @@ function openFileRange(
     };
   } catch (error) {
     fs.closeSync(file);
-    throw error;
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
@@ -562,6 +562,9 @@ async function sendOpenFileRange(
     });
     offset += readLength;
     remaining -= readLength;
+    if (remaining > 0) {
+      await delay(0);
+    }
   }
 }
 

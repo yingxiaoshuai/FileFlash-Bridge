@@ -229,9 +229,7 @@ describe('TransferServiceController', () => {
       expect(projectFiles.some(file => file.id === textPayload.file.id)).toBe(
         true,
       );
-      const savedTextFile = await storage.prepareFileBytes(
-        textPayload.file.id,
-      );
+      const savedTextFile = await storage.prepareFileBytes(textPayload.file.id);
       expect(Buffer.from(savedTextFile.bytes).toString('utf8')).toBe(
         browserText,
       );
@@ -351,6 +349,53 @@ describe('TransferServiceController', () => {
     }
   });
 
+  test('infers specific download MIME types from file names when browsers send generic bytes', async () => {
+    const { controller, rootDir, storage } = await createController();
+
+    try {
+      const accessUrl = new URL(controller.getState().accessUrl ?? '');
+      const key = accessUrl.searchParams.get('key');
+      const uploadResponse = await fetch(
+        `${accessUrl.origin}/api/upload?key=${key}&name=${encodeURIComponent(
+          'scene.glb',
+        )}&relativePath=${encodeURIComponent('models/scene.glb')}`,
+        {
+          body: Buffer.from([1, 2, 3, 4]),
+          headers: {
+            'content-type': 'application/octet-stream',
+            'x-client-id': 'client-a',
+          },
+          method: 'POST',
+        },
+      );
+
+      expect(uploadResponse.status).toBe(200);
+      const uploadedFile = (await storage.listProjectFiles()).find(
+        file => file.relativePath === 'models/scene.glb',
+      );
+      expect(uploadedFile?.mimeType).toBe('model/gltf-binary');
+
+      await storage.addSharedFile(uploadedFile!.id);
+      const downloadResponse = await controller.handleRequest({
+        headers: { 'x-client-id': 'client-a' },
+        method: 'HEAD',
+        path: `/api/shared/${uploadedFile!.id}/download`,
+        query: new URLSearchParams({
+          direct: '1',
+          key: key ?? '',
+        }),
+      });
+
+      expect(downloadResponse.headers?.['content-type']).toBe(
+        'model/gltf-binary',
+      );
+      expect(downloadResponse.headers?.connection).toBe('close');
+    } finally {
+      await controller.stop();
+      await rm(rootDir, { force: true, recursive: true });
+    }
+  });
+
   test('rejects new clients when the active session limit is reached', async () => {
     const { controller, rootDir } = await createController(1);
 
@@ -409,15 +454,18 @@ describe('TransferServiceController', () => {
 
       const clients = ['client-a', 'client-b', 'client-c', 'client-d'];
       for (const clientId of clients) {
-        const response = await fetch(`${accessUrl.origin}/api/status?key=${key}`, {
-          headers: { 'x-client-id': clientId },
-        });
+        const response = await fetch(
+          `${accessUrl.origin}/api/status?key=${key}`,
+          {
+            headers: { 'x-client-id': clientId },
+          },
+        );
         expect(response.status).toBe(200);
       }
 
-      expect(controller.getState().activeConnections.length).toBeGreaterThanOrEqual(
-        clients.length,
-      );
+      expect(
+        controller.getState().activeConnections.length,
+      ).toBeGreaterThanOrEqual(clients.length);
     } finally {
       await controller.stop();
       await rm(rootDir, { force: true, recursive: true });
@@ -707,9 +755,9 @@ describe('TransferServiceController', () => {
         },
         method: 'POST',
         path: '/api/upload/begin',
-        query: new URLSearchParams({key}),
+        query: new URLSearchParams({ key }),
       });
-      const uploadId = (beginResponse.body as {uploadId: string}).uploadId;
+      const uploadId = (beginResponse.body as { uploadId: string }).uploadId;
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const partResponse = await controller.handleRequest({
@@ -730,14 +778,14 @@ describe('TransferServiceController', () => {
       }
 
       const finishResponse = await controller.handleRequest({
-        body: {uploadId},
+        body: { uploadId },
         headers: {
           'content-type': 'application/json',
           'x-client-id': 'client-a',
         },
         method: 'POST',
         path: '/api/upload/finish',
-        query: new URLSearchParams({key}),
+        query: new URLSearchParams({ key }),
       });
 
       expect(finishResponse.status).toBe(200);
@@ -774,9 +822,9 @@ describe('TransferServiceController', () => {
 
       expect(downloadResponse.status).toBe(206);
       expect(downloadResponse.headers?.['content-length']).toBe('6');
-      expect(Buffer.from(downloadResponse.body as Uint8Array).toString('utf8')).toBe(
-        'demo-s',
-      );
+      expect(
+        Buffer.from(downloadResponse.body as Uint8Array).toString('utf8'),
+      ).toBe('demo-s');
     } finally {
       await controller.stop();
       await rm(rootDir, { force: true, recursive: true });
@@ -1054,9 +1102,7 @@ describe('TransferServiceController', () => {
       expect(textPayload.file.displayName).toBe(
         `${Array.from(browserText).slice(0, 5).join('')}\u2026.txt`,
       );
-      const savedTextFile = await storage.prepareFileBytes(
-        textPayload.file.id,
-      );
+      const savedTextFile = await storage.prepareFileBytes(textPayload.file.id);
       expect(Buffer.from(savedTextFile.bytes).toString('utf8')).toBe(
         browserText,
       );

@@ -507,6 +507,7 @@ function runHarmonyBundle() {
       ...process.env,
       FILEFLASH_HARMONY_BUNDLE: '1',
     },
+    shell: process.platform === 'win32',
     stdio: 'inherit',
   });
 }

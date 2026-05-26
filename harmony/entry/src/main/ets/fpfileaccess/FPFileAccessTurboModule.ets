@@ -18,6 +18,11 @@ interface SaveFileToDocumentsInput {
   sourcePath: string;
 }
 
+interface SaveFileToDocumentsEntry {
+  normalizedSource: string;
+  safeName: string;
+}
+
 const FILE_COPY_CHUNK_BYTES = 1024 * 1024;
 
 function normalizeFilePath(path: string): string {
@@ -362,17 +367,19 @@ export class FPFileAccessTurboModule extends TurboModule {
       throw new Error('请选择要下载的文件。');
     }
 
-    const entries = files.map((file: SaveFileToDocumentsInput) => {
-      const normalizedSource = normalizeFilePath(file.sourcePath);
-      const safeName = sanitizeFileName(
-        file.displayName || fileNameFromPath(normalizedSource),
-      );
+    const entries: SaveFileToDocumentsEntry[] = files.map(
+      (file: SaveFileToDocumentsInput): SaveFileToDocumentsEntry => {
+        const normalizedSource = normalizeFilePath(file.sourcePath);
+        const safeName = sanitizeFileName(
+          file.displayName || fileNameFromPath(normalizedSource),
+        );
 
-      return {
-        normalizedSource,
-        safeName,
-      };
-    });
+        return {
+          normalizedSource,
+          safeName,
+        };
+      },
+    );
 
     const options = new picker.DocumentSaveOptions();
     options.newFileNames = entries.map(entry => entry.safeName);

@@ -507,7 +507,6 @@ export class TransferServiceController {
         const name = readTrimmedString(payload.name);
         const relativePath = readTrimmedString(payload.relativePath) ?? name;
         const totalBytes = readFiniteNumber(payload.totalBytes);
-        const mimeType = readOptionalString(payload.mimeType);
 
         if (!name || totalBytes == null || totalBytes <= 0) {
           return this.json(400, {
@@ -516,11 +515,17 @@ export class TransferServiceController {
           });
         }
 
+        const uploadPath = relativePath ?? name;
+        const mimeType = resolveUploadMimeType(
+          readOptionalString(payload.mimeType),
+          uploadPath,
+        );
+
         try {
           const { uploadId } = await this.options.storage.beginInboundUpload({
             mimeType,
             name,
-            relativePath: relativePath ?? name,
+            relativePath: uploadPath,
             totalBytes,
           });
           return this.json(200, { uploadId });
@@ -734,8 +739,7 @@ export class TransferServiceController {
               'accept-ranges': 'bytes',
               'content-length': '0',
               'content-range': `bytes */${sharedFile.size}`,
-              'content-type':
-                sharedFile.mimeType ?? 'application/octet-stream',
+              'content-type': resolveDownloadMimeType(sharedFile),
               'x-file-size': String(sharedFile.size),
             },
           };
@@ -775,8 +779,7 @@ export class TransferServiceController {
             Math.min(sharedFile.size - start, length),
           );
           const status =
-            requestedRange ||
-            (start !== 0 || contentLength !== sharedFile.size)
+            requestedRange || start !== 0 || contentLength !== sharedFile.size
               ? 206
               : 200;
 
@@ -800,7 +803,8 @@ export class TransferServiceController {
         });
         const status =
           requestedRange ||
-          (start !== 0 || chunk.contentLength !== chunk.totalSize)
+          start !== 0 ||
+          chunk.contentLength !== chunk.totalSize
             ? 206
             : 200;
         const headers = this.buildDownloadHeaders(
@@ -852,11 +856,12 @@ export class TransferServiceController {
   ) {
     const headers: Record<string, string> = {
       'accept-ranges': 'bytes',
+      connection: 'close',
       'content-disposition': buildAttachmentContentDisposition(
         file.displayName,
       ),
       'content-length': String(Math.max(0, contentLength)),
-      'content-type': file.mimeType ?? 'application/octet-stream',
+      'content-type': resolveDownloadMimeType(file),
       'x-file-size': String(totalSize),
     };
 
@@ -990,7 +995,10 @@ export class TransferServiceController {
       return [
         {
           byteLength: request.bodyFile.byteLength,
-          mimeType: normalizeMimeType(request.headers['content-type']),
+          mimeType: resolveUploadMimeType(
+            request.headers['content-type'],
+            relativePath,
+          ),
           name,
           relativePath,
           sourcePath: request.bodyFile.path,
@@ -1002,7 +1010,10 @@ export class TransferServiceController {
       return [
         {
           bytes: request.body,
-          mimeType: normalizeMimeType(request.headers['content-type']),
+          mimeType: resolveUploadMimeType(
+            request.headers['content-type'],
+            relativePath,
+          ),
           name,
           relativePath,
         },
@@ -1013,7 +1024,10 @@ export class TransferServiceController {
       return [
         {
           bytes: new TextEncoder().encode(request.body),
-          mimeType: normalizeMimeType(request.headers['content-type']),
+          mimeType: resolveUploadMimeType(
+            request.headers['content-type'],
+            relativePath,
+          ),
           name,
           relativePath,
         },
@@ -1024,7 +1038,10 @@ export class TransferServiceController {
       return [
         {
           bytes: new Uint8Array(0),
-          mimeType: normalizeMimeType(request.headers['content-type']),
+          mimeType: resolveUploadMimeType(
+            request.headers['content-type'],
+            relativePath,
+          ),
           name,
           relativePath,
         },
@@ -1044,6 +1061,90 @@ function normalizeMimeType(value?: string) {
   const [mimeType] = value.split(';');
   const normalized = mimeType?.trim();
   return normalized ? normalized : undefined;
+}
+
+function isGenericBinaryMimeType(mimeType?: string) {
+  const normalized = mimeType?.toLowerCase();
+  return (
+    !normalized ||
+    normalized === 'application/octet-stream' ||
+    normalized === 'binary/octet-stream'
+  );
+}
+
+function inferMimeTypeFromPath(path: string) {
+  const normalizedPath = path.toLowerCase();
+  const dotIndex = normalizedPath.lastIndexOf('.');
+  if (dotIndex < 0) {
+    return undefined;
+  }
+
+  const extension = normalizedPath.slice(dotIndex + 1);
+  const mimeTypesByExtension: Record<string, string> = {
+    '7z': 'application/x-7z-compressed',
+    avi: 'video/x-msvideo',
+    bin: 'application/octet-stream',
+    bmp: 'image/bmp',
+    csv: 'text/csv',
+    doc: 'application/msword',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    gif: 'image/gif',
+    glb: 'model/gltf-binary',
+    gltf: 'model/gltf+json',
+    gz: 'application/gzip',
+    heic: 'image/heic',
+    html: 'text/html',
+    htm: 'text/html',
+    jpeg: 'image/jpeg',
+    jpg: 'image/jpeg',
+    js: 'text/javascript',
+    json: 'application/json',
+    md: 'text/markdown',
+    mov: 'video/quicktime',
+    mp3: 'audio/mpeg',
+    mp4: 'video/mp4',
+    m4a: 'audio/mp4',
+    pdf: 'application/pdf',
+    png: 'image/png',
+    ppt: 'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    rar: 'application/vnd.rar',
+    svg: 'image/svg+xml',
+    tar: 'application/x-tar',
+    txt: 'text/plain',
+    usdz: 'model/vnd.usdz+zip',
+    wav: 'audio/wav',
+    webm: 'video/webm',
+    webp: 'image/webp',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    xml: 'application/xml',
+    zip: 'application/zip',
+  };
+
+  return mimeTypesByExtension[extension];
+}
+
+function resolveUploadMimeType(value: string | undefined, path: string) {
+  const normalized = normalizeMimeType(value);
+  if (!isGenericBinaryMimeType(normalized)) {
+    return normalized;
+  }
+
+  return inferMimeTypeFromPath(path) ?? normalized;
+}
+
+function resolveDownloadMimeType(file: SharedFileRecord): string {
+  if (file.mimeType && !isGenericBinaryMimeType(file.mimeType)) {
+    return file.mimeType;
+  }
+
+  return (
+    inferMimeTypeFromPath(file.relativePath) ??
+    inferMimeTypeFromPath(file.displayName) ??
+    file.mimeType ??
+    'application/octet-stream'
+  );
 }
 
 function parseByteRangeHeader(value: string | undefined, totalSize: number) {
@@ -1103,8 +1204,9 @@ function buildAttachmentContentDisposition(fileName: string) {
     .trim();
   const safeFallback = fallback || 'download';
   const encoded = encodeURIComponent(fileName)
-    .replace(/['()]/g, value =>
-      `%${value.charCodeAt(0).toString(16).toUpperCase()}`,
+    .replace(
+      /['()]/g,
+      value => `%${value.charCodeAt(0).toString(16).toUpperCase()}`,
     )
     .replace(/\*/g, '%2A');
 

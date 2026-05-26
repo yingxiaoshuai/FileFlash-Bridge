@@ -422,6 +422,51 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         min-width: 0;
       }
 
+      .file-type-icon {
+        align-items: center;
+        align-self: flex-start;
+        background: linear-gradient(180deg, #e7f0fd, #d5e7fb);
+        border: 1px solid rgba(20, 115, 230, 0.16);
+        border-radius: 10px;
+        color: var(--accent-strong);
+        display: inline-flex;
+        flex: 0 0 auto;
+        font-size: 10px;
+        font-weight: 900;
+        height: 40px;
+        justify-content: center;
+        letter-spacing: 0.03em;
+        line-height: 1;
+        margin-top: -2px;
+        padding: 0 4px;
+        text-transform: uppercase;
+        width: 40px;
+      }
+
+      .file-type-icon.media {
+        background: linear-gradient(180deg, #e9fbf2, #d7f5e6);
+        border-color: rgba(45, 154, 99, 0.18);
+        color: var(--green);
+      }
+
+      .file-type-icon.archive {
+        background: linear-gradient(180deg, #e4f3ff, #cde9fb);
+        border-color: rgba(14, 165, 233, 0.2);
+        color: #0284c7;
+      }
+
+      .file-type-icon.model {
+        background: linear-gradient(180deg, #eef2ff, #dfe7ff);
+        border-color: rgba(79, 70, 229, 0.18);
+        color: #4f46e5;
+      }
+
+      .file-type-icon.document {
+        background: linear-gradient(180deg, #fff6df, #ffedb8);
+        border-color: rgba(217, 130, 43, 0.18);
+        color: #a16207;
+      }
+
       .select-box {
         align-items: center;
         background: rgba(255, 255, 255, 0.72);
@@ -884,6 +929,58 @@ export function buildPortalDocument(model: PortalDocumentModel) {
         }
       }
 
+      function fileExtension(fileName) {
+        const normalizedName = String(fileName || '').toLowerCase();
+        const dotIndex = normalizedName.lastIndexOf('.');
+        return dotIndex >= 0 ? normalizedName.slice(dotIndex + 1) : '';
+      }
+
+      function resolveFileTypeIcon(file) {
+        const extension = fileExtension(file.displayName);
+        const mimeType = String(file.mimeType || '').toLowerCase();
+        if (
+          extension === 'glb' ||
+          extension === 'gltf' ||
+          extension === 'usdz' ||
+          mimeType.startsWith('model/')
+        ) {
+          return { kind: 'model', label: '3D' };
+        }
+        if (
+          extension === 'zip' ||
+          extension === 'rar' ||
+          extension === '7z' ||
+          extension === 'gz' ||
+          extension === 'tar'
+        ) {
+          return { kind: 'archive', label: extension || 'ZIP' };
+        }
+        if (
+          mimeType.startsWith('image/') ||
+          ['png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'svg'].includes(extension)
+        ) {
+          return { kind: 'media', label: 'IMG' };
+        }
+        if (
+          mimeType.startsWith('video/') ||
+          ['mp4', 'mov', 'avi', 'webm'].includes(extension)
+        ) {
+          return { kind: 'media', label: 'VID' };
+        }
+        if (
+          mimeType.startsWith('audio/') ||
+          ['mp3', 'wav', 'm4a'].includes(extension)
+        ) {
+          return { kind: 'media', label: 'AUD' };
+        }
+        if (
+          ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv', 'json'].includes(extension)
+        ) {
+          return { kind: 'document', label: extension || 'DOC' };
+        }
+        return { kind: '', label: extension ? extension.slice(0, 4) : 'FILE' };
+      }
+
       function renderSharedFiles(files) {
         sharedFilesById.clear();
         for (const file of files) {
@@ -920,6 +1017,7 @@ export function buildPortalDocument(model: PortalDocumentModel) {
           .map(file => {
             const state = getDownloadState(file.id);
             const selected = selectedDownloadIds.has(file.id);
+            const fileTypeIcon = resolveFileTypeIcon(file);
             return '<div id="download-item-' +
               escapeHtmlText(file.id) +
               '" class="item"><div class="item-head"><div class="item-main"><button class="select-box' +
@@ -930,7 +1028,11 @@ export function buildPortalDocument(model: PortalDocumentModel) {
               escapeHtmlText(text.downloadSelect) +
               '">' +
               (selected ? '✓' : '') +
-              '</button><div><div class="item-title">' +
+              '</button><div class="file-type-icon' +
+              (fileTypeIcon.kind ? ' ' + escapeHtmlText(fileTypeIcon.kind) : '') +
+              '" aria-hidden="true">' +
+              escapeHtmlText(fileTypeIcon.label) +
+              '</div><div><div class="item-title">' +
               escapeHtmlText(file.displayName) +
               '</div><div class="item-meta">' +
               formatBytes(file.size) +

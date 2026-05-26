@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AccessibilityState, StyleProp, ViewStyle } from 'react-native';
-import { Button, IconButton, Surface } from 'react-native-paper';
+import { Button, Surface } from 'react-native-paper';
 
 import { AppIcon } from './icons/AppIcons';
 import type { AppIconName } from './icons/AppIcons';
@@ -108,30 +108,43 @@ export function GlyphIconButton({
   selected,
   testID,
 }: GlyphIconButtonProps) {
+  const iconColor = selected
+    ? theme.colors.primaryStrong
+    : theme.colors.primary;
+  const resolvedAccessibilityState =
+    accessibilityState || disabled || selected
+      ? {
+          ...accessibilityState,
+          disabled: disabled || accessibilityState?.disabled,
+          selected: selected || accessibilityState?.selected,
+        }
+      : undefined;
+
   return (
-    <IconButton
+    <Pressable
       accessibilityLabel={accessibilityLabel}
-      accessibilityState={
-        accessibilityState ?? (disabled ? { disabled: true } : undefined)
-      }
-      containerColor={
-        selected ? theme.colors.primarySoft : theme.colors.iconSurface
-      }
+      accessibilityRole="button"
+      accessibilityState={resolvedAccessibilityState}
       disabled={disabled}
-      icon={({ size, color }) => (
+      hitSlop={6}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.iconButton,
+        selected ? styles.iconButtonSelected : null,
+        pressed && !disabled ? styles.iconButtonPressed : null,
+        disabled ? styles.iconButtonDisabled : null,
+      ]}
+      testID={testID}
+    >
+      <View pointerEvents="none" style={styles.iconButtonContent}>
         <AppIcon
-          color={color}
+          color={iconColor}
           name={iconName}
-          size={Math.min(size, theme.tokens.iconSize.lg)}
+          size={theme.tokens.iconSize.md}
           strokeWidth={selected ? 2.15 : 1.85}
         />
-      )}
-      iconColor={selected ? theme.colors.primaryStrong : theme.colors.primary}
-      onPress={onPress}
-      size={theme.tokens.iconSize.md}
-      style={styles.iconButton}
-      testID={testID}
-    />
+      </View>
+    </Pressable>
   );
 }
 
@@ -244,12 +257,33 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   iconButton: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.iconSurface,
     borderColor: theme.colors.border,
+    borderRadius: theme.radius.pill,
     borderWidth: 1,
     height: 44,
+    justifyContent: 'center',
     margin: 0,
     width: 44,
     ...theme.tokens.shadow.subtle,
+  },
+  iconButtonContent: {
+    alignItems: 'center',
+    height: theme.tokens.iconSize.md,
+    justifyContent: 'center',
+    width: theme.tokens.iconSize.md,
+  },
+  iconButtonDisabled: {
+    opacity: 0.42,
+  },
+  iconButtonPressed: {
+    backgroundColor: theme.colors.primarySoft,
+    transform: [{ scale: 0.96 }],
+  },
+  iconButtonSelected: {
+    backgroundColor: theme.colors.primarySoft,
+    borderColor: theme.colors.primary,
   },
   panelSheen: {
     backgroundColor: theme.colors.highlight,

@@ -1,4 +1,4 @@
-import {buildPortalDocument} from '../src/modules/portal/portalDocument';
+import { buildPortalDocument } from '../src/modules/portal/portalDocument';
 
 describe('buildPortalDocument', () => {
   test('renders a compact portal hero and progress-based upload feedback', () => {
@@ -22,13 +22,17 @@ describe('buildPortalDocument', () => {
     expect(html).toContain('const downloadStateById = new Map();');
     expect(html).toContain('const selectedDownloadIds = new Set();');
     expect(html).toContain('const maxVisibleErrorMessageLength = 120;');
+    expect(html).toContain('file-type-icon');
+    expect(html).toContain("return { kind: 'model', label: '3D' };");
     expect(html).toContain('const maxConcurrentUploads = Math.max(');
     expect(html).toContain('const maxConcurrentUploadParts = Math.max(');
     expect(html).toContain('const uploadChunkSize = 8 * 1024 * 1024;');
     expect(html).toContain('file.size === 0');
     expect(html).toContain('uploadBinaryPart');
     expect(html).toContain('sendUploadBinaryPart');
-    expect(html).toContain("uploadUrl.searchParams.set('offset', String(offset));");
+    expect(html).toContain(
+      "uploadUrl.searchParams.set('offset', String(offset));",
+    );
     expect(html).toContain('attempt <= maxChunkAttempts');
     expect(html).toContain('request.send(body);');
     expect(html).toContain("'content-type': 'application/octet-stream'");
@@ -60,7 +64,9 @@ describe('buildPortalDocument', () => {
     expect(html).not.toContain("kind: 'base64'");
     expect(html).not.toContain('base64: base64');
     expect(html).not.toContain('file.size <= chunkSize');
-    expect(html).not.toContain('const bytes = new Uint8Array(await slice.arrayBuffer());');
+    expect(html).not.toContain(
+      'const bytes = new Uint8Array(await slice.arrayBuffer());',
+    );
     expect(html).not.toContain('body: bytes');
     expect(html).not.toContain('body: slice');
     expect(html).not.toContain('fetchChunk');
@@ -68,7 +74,9 @@ describe('buildPortalDocument', () => {
     expect(html).not.toContain('createDownloadTarget');
     expect(html).not.toContain('window.showSaveFilePicker');
     expect(html).not.toContain('response.body?.getReader?.()');
-    expect(html).not.toContain('const batchChunks = await Promise.all(batchRequests);');
+    expect(html).not.toContain(
+      'const batchChunks = await Promise.all(batchRequests);',
+    );
     expect(html).not.toContain('downloadedChunks');
     expect(html).not.toContain('chunkProgressByIndex');
     expect(html).not.toContain('createDownloadChunks');
