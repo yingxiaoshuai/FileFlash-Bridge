@@ -12,6 +12,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
   const readChunkBase64 = jest.fn();
   const readFileChunk = jest.fn();
   const readFile = jest.fn();
+  const registerUploadSession = jest.fn();
   const saveDocuments = jest
     .fn()
     .mockImplementation((options: { fileName?: string }) =>
@@ -45,6 +46,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
   const shareOpen = jest.fn().mockResolvedValue({ success: true });
   const stat = jest.fn();
   const unlink = jest.fn();
+  const unregisterUploadSession = jest.fn();
   const writeFile = jest.fn();
   const writeFileFromPathAtOffset = jest.fn();
 
@@ -81,6 +83,8 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
       FPStaticServer:
         platformOs === 'android'
           ? {
+              registerUploadSession,
+              unregisterUploadSession,
               writeFileFromPathAtOffset,
             }
           : undefined,
@@ -147,6 +151,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
     readChunkBase64,
     readFileChunk,
     readFile,
+    registerUploadSession,
     saveDocuments,
     saveFileToDocuments,
     saveFilesToDownloads,
@@ -155,6 +160,7 @@ function loadAdapterForPlatform(platformOs: 'android' | 'harmony' | 'ios') {
     shareOpen,
     stat,
     unlink,
+    unregisterUploadSession,
     writeFile,
     writeFileFromPathAtOffset,
   };
@@ -287,7 +293,9 @@ describe('ReactNativeFileSystemAdapter', () => {
       writeFile,
     };
 
-    await expect(adapter.writeFile('/tmp/file.bin', bytes)).resolves.toBeUndefined();
+    await expect(
+      adapter.writeFile('/tmp/file.bin', bytes),
+    ).resolves.toBeUndefined();
     expect(mkdir).toHaveBeenCalledWith('/tmp');
     expect(writeFile).toHaveBeenCalledWith('/tmp/file.bin', [1, 2, 3]);
   });
@@ -354,7 +362,8 @@ describe('ReactNativeFileSystemAdapter', () => {
   });
 
   test('passes Harmony path appends to native file access without JS bytes', async () => {
-    const { adapter, appendFileFromPath, mkdir } = loadAdapterForPlatform('harmony');
+    const { adapter, appendFileFromPath, mkdir } =
+      loadAdapterForPlatform('harmony');
     appendFileFromPath.mockResolvedValue(undefined);
 
     await expect(
@@ -432,6 +441,35 @@ describe('ReactNativeFileSystemAdapter', () => {
       8192,
     );
     expect(readFile).not.toHaveBeenCalled();
+  });
+
+  test('registers Android native upload sessions on the static server', async () => {
+    const { adapter, registerUploadSession, unregisterUploadSession } =
+      loadAdapterForPlatform('android');
+    registerUploadSession.mockResolvedValue(undefined);
+    unregisterUploadSession.mockResolvedValue(undefined);
+
+    expect(adapter.registerInboundUploadSession).toBeDefined();
+    expect(adapter.unregisterInboundUploadSession).toBeDefined();
+
+    await expect(
+      adapter.registerInboundUploadSession!(
+        'upload-1',
+        '/documents/fileflash/temp/upload-upload-1.part',
+        12 * 1024 * 1024,
+      ),
+    ).resolves.toBeUndefined();
+
+    await expect(
+      adapter.unregisterInboundUploadSession!('upload-1'),
+    ).resolves.toBeUndefined();
+
+    expect(registerUploadSession).toHaveBeenCalledWith(
+      'upload-1',
+      '/documents/fileflash/temp/upload-upload-1.part',
+      12 * 1024 * 1024,
+    );
+    expect(unregisterUploadSession).toHaveBeenCalledWith('upload-1');
   });
 
   test('moves completed native upload files without copying through JS', async () => {

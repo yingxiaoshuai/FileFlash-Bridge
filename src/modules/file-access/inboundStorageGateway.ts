@@ -39,6 +39,12 @@ export interface FileSystemAdapter {
   ): Promise<Uint8Array>;
   readFile(path: string): Promise<Uint8Array>;
   readText(path: string): Promise<string>;
+  registerInboundUploadSession?(
+    uploadId: string,
+    tempPath: string,
+    totalBytes: number,
+  ): Promise<void>;
+  unregisterInboundUploadSession?(uploadId: string): Promise<void>;
   moveFile?(sourcePath: string, destinationPath: string): Promise<void>;
   writeFile(path: string, content: Uint8Array): Promise<void>;
   writeFileFromPathAtOffset?(
@@ -81,7 +87,12 @@ export type InboundUploadBody =
   | Uint8Array
   | {
       byteLength: number;
+      nativeStored?: false;
       sourcePath: string;
+    }
+  | {
+      byteLength: number;
+      nativeStored: true;
     };
 
 export interface InboundStorageGatewayOptions {
@@ -707,6 +718,10 @@ export class InboundStorageGateway {
       totalBytes,
     });
 
+    await this.options.fileSystem
+      .registerInboundUploadSession?.(uploadId, tempPath, totalBytes)
+      .catch(() => {});
+
     return { uploadId };
   }
 
@@ -721,19 +736,31 @@ export class InboundStorageGateway {
     }
 
     const isBytesBody = body instanceof Uint8Array;
-    const isPathBody =
+    const pathBody =
       !isBytesBody &&
       body !== null &&
       typeof body === 'object' &&
+      'sourcePath' in body &&
       typeof body.sourcePath === 'string' &&
-      typeof body.byteLength === 'number';
-    if (!isBytesBody && !isPathBody) {
+      typeof body.byteLength === 'number'
+        ? body
+        : undefined;
+    const nativeStoredBody =
+      !isBytesBody &&
+      body !== null &&
+      typeof body === 'object' &&
+      'nativeStored' in body &&
+      body.nativeStored === true &&
+      typeof body.byteLength === 'number'
+        ? body
+        : undefined;
+    if (!isBytesBody && !pathBody && !nativeStoredBody) {
       throw new Error('Invalid upload chunk data.');
     }
 
     const chunkBytes = isBytesBody
       ? body.byteLength
-      : Math.max(0, Math.trunc(body.byteLength));
+      : Math.max(0, Math.trunc((pathBody ?? nativeStoredBody)!.byteLength));
     if (chunkBytes === 0) {
       return;
     }
@@ -768,17 +795,19 @@ export class InboundStorageGateway {
     if (
       pending.parts.some(
         part =>
-          offset < part.offset + part.byteLength && offset + chunkBytes > part.offset,
+          offset < part.offset + part.byteLength &&
+          offset + chunkBytes > part.offset,
       )
     ) {
       throw new Error('Upload chunk overlaps already received data.');
     }
 
     const shouldWriteDirectly =
-      isPathBody &&
+      Boolean(pathBody) &&
       expectedOffset != null &&
       Boolean(this.options.fileSystem.writeFileFromPathAtOffset);
-    const writeMode = shouldWriteDirectly ? 'direct' : 'parts';
+    const writeMode =
+      shouldWriteDirectly || nativeStoredBody ? 'direct' : 'parts';
     if (pending.writeMode && pending.writeMode !== writeMode) {
       throw new Error('Upload chunk transport changed during this session.');
     }
@@ -802,11 +831,13 @@ export class InboundStorageGateway {
             // Bytes bodies are only used by non-native test/fallback runtimes.
             this.options.fileSystem.writeFile(partPath!, body),
           )
+        : nativeStoredBody
+        ? Promise.resolve()
         : Promise.resolve().then(() => {
             if (writeMode === 'direct') {
               return this.options.fileSystem.writeFileFromPathAtOffset!(
                 pending.tempPath,
-                body.sourcePath,
+                pathBody!.sourcePath,
                 offset,
                 chunkBytes,
               );
@@ -818,7 +849,10 @@ export class InboundStorageGateway {
               );
             }
 
-            return this.options.fileSystem.copyFile(body.sourcePath, partPath!);
+            return this.options.fileSystem.copyFile(
+              pathBody!.sourcePath,
+              partPath!,
+            );
           });
 
       part.writePromise = writePromise;
@@ -867,6 +901,9 @@ export class InboundStorageGateway {
       });
     } finally {
       await this.options.fileSystem
+        .unregisterInboundUploadSession?.(uploadId)
+        .catch(() => {});
+      await this.options.fileSystem
         .deletePath(pending.tempPath)
         .catch(() => {});
       await this.options.fileSystem
@@ -882,8 +919,13 @@ export class InboundStorageGateway {
     }
 
     this.pendingInboundUploads.delete(uploadId);
+    await this.options.fileSystem
+      .unregisterInboundUploadSession?.(uploadId)
+      .catch(() => {});
     await this.options.fileSystem.deletePath(pending.tempPath).catch(() => {});
-    await this.options.fileSystem.deletePath(pending.partsDirPath).catch(() => {});
+    await this.options.fileSystem
+      .deletePath(pending.partsDirPath)
+      .catch(() => {});
   }
 
   private async requireSnapshot() {

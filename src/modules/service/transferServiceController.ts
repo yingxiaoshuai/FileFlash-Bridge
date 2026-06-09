@@ -38,6 +38,10 @@ export interface TransferRequest {
   };
   headers: Record<string, string | undefined>;
   method: string;
+  nativeUploadPart?: {
+    byteLength: number;
+    offset?: number;
+  };
   path: string;
   query: URLSearchParams;
   remoteAddress?: string;
@@ -551,7 +555,7 @@ export class TransferServiceController {
         const offset =
           offsetParam && offsetParam.length > 0
             ? Number(offsetParam)
-            : undefined;
+            : request.nativeUploadPart?.offset;
         if (offsetParam && (!Number.isFinite(offset) || (offset ?? 0) < 0)) {
           return this.json(400, {
             code: 'INVALID_REQUEST',
@@ -561,7 +565,12 @@ export class TransferServiceController {
 
         try {
           const body: InboundUploadBody =
-            request.bodyFile != null
+            request.nativeUploadPart != null
+              ? {
+                  byteLength: request.nativeUploadPart.byteLength,
+                  nativeStored: true,
+                }
+              : request.bodyFile != null
               ? {
                   byteLength: request.bodyFile.byteLength,
                   sourcePath: request.bodyFile.path,

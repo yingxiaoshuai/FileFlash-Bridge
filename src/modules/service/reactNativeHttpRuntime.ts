@@ -64,6 +64,10 @@ type NativeServerRequestEvent = {
   bodyText?: string;
   headers?: Record<string, string>;
   method: string;
+  nativeUploadPart?: {
+    byteLength?: number;
+    offset?: number;
+  };
   path: string;
   query?: Record<string, string>;
   remoteAddress?: string;
@@ -373,6 +377,7 @@ export class ReactNativeHttpRuntime implements ServiceRuntime {
         bodyFile: resolveRequestBodyFile(event),
         headers,
         method: event.method,
+        nativeUploadPart: resolveNativeUploadPart(event),
         path: event.path,
         query: buildQueryParams(event.query),
         remoteAddress: event.remoteAddress,
@@ -452,6 +457,24 @@ function resolveRequestBodyFile(event: NativeServerRequestEvent) {
     return {
       byteLength: Math.max(0, Math.trunc(event.bodyFile.byteLength)),
       path: event.bodyFile.path,
+    };
+  }
+
+  return undefined;
+}
+
+function resolveNativeUploadPart(event: NativeServerRequestEvent) {
+  if (
+    event.nativeUploadPart &&
+    typeof event.nativeUploadPart.byteLength === 'number' &&
+    Number.isFinite(event.nativeUploadPart.byteLength)
+  ) {
+    const offset = event.nativeUploadPart.offset;
+    return {
+      byteLength: Math.max(0, Math.trunc(event.nativeUploadPart.byteLength)),
+      ...(typeof offset === 'number' && Number.isFinite(offset)
+        ? { offset: Math.max(0, Math.trunc(offset)) }
+        : {}),
     };
   }
 

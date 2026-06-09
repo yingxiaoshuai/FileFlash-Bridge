@@ -55,6 +55,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
 
   private final ReactApplicationContext reactContext;
   private final ExecutorService fileIoExecutor = Executors.newFixedThreadPool(4);
+  private final Map<String, NativeUploadSession> nativeUploadSessions = new ConcurrentHashMap<>();
   private final Map<String, PendingResponse> pendingResponses = new ConcurrentHashMap<>();
 
   private BridgeWebServer server = null;
@@ -128,6 +129,7 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
       server = null;
     }
 
+    nativeUploadSessions.clear();
     stopForegroundService();
   }
 
@@ -217,11 +219,57 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
       Promise promise) {
     fileIoExecutor.execute(
         () -> writeFileFromPathAtOffsetOnFileThread(
-            destinationPath,
-            sourcePath,
-            offset,
-            length,
-            promise));
+          destinationPath,
+          sourcePath,
+          offset,
+          length,
+          promise));
+  }
+
+  @ReactMethod
+  public void registerUploadSession(
+      String uploadId,
+      String tempPath,
+      double totalBytes,
+      Promise promise) {
+    try {
+      if (uploadId == null || uploadId.trim().isEmpty()) {
+        throw new IOException("Upload id is required.");
+      }
+
+      if (tempPath == null || tempPath.trim().isEmpty()) {
+        throw new IOException("Upload temp path is required.");
+      }
+
+      long normalizedTotalBytes = Math.max(0L, (long) totalBytes);
+      if (normalizedTotalBytes <= 0L) {
+        throw new IOException("Upload size is invalid.");
+      }
+
+      File destination = new File(tempPath);
+      File destinationDir = destination.getParentFile();
+      if (destinationDir != null && !destinationDir.exists() && !destinationDir.mkdirs()) {
+        throw new IOException("Unable to create upload directory: " + destinationDir);
+      }
+
+      nativeUploadSessions.put(
+          uploadId,
+          new NativeUploadSession(destination.getAbsolutePath(), normalizedTotalBytes));
+      promise.resolve(null);
+    } catch (Exception error) {
+      promise.reject(
+          "EUNSPECIFIED",
+          error.getMessage() != null ? error.getMessage() : "Unable to register upload session.",
+          error);
+    }
+  }
+
+  @ReactMethod
+  public void unregisterUploadSession(String uploadId, Promise promise) {
+    if (uploadId != null) {
+      nativeUploadSessions.remove(uploadId);
+    }
+    promise.resolve(null);
   }
 
   private void writeFileFromPathAtOffsetOnFileThread(
@@ -315,22 +363,30 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
         payload.putString("remoteAddress", session.getRemoteIpAddress());
       }
 
-      RequestBodyPayload requestBody = readRequestBodyPayload(session);
-      if (requestBody != null) {
-        if (requestBody.filePath != null) {
-          WritableMap bodyFile = Arguments.createMap();
-          bodyFile.putDouble("byteLength", (double) requestBody.byteLength);
-          bodyFile.putString("path", requestBody.filePath);
-          payload.putMap("bodyFile", bodyFile);
-          bodyFilePathToCleanup = requestBody.filePath;
-        } else if (requestBody.bytes != null && requestBody.bytes.length > 0) {
-          String contentType = session.getHeaders().get("content-type");
-          if (isUtf8TextRequest(contentType)) {
-            payload.putString(
-                "bodyText",
-                new String(requestBody.bytes, StandardCharsets.UTF_8));
-          } else {
-            payload.putArray("bodyBytes", byteArrayToWritableArray(requestBody.bytes));
+      NativeUploadPartPayload nativeUploadPart = readNativeUploadPartPayload(session);
+      if (nativeUploadPart != null) {
+        WritableMap nativeUploadPartMap = Arguments.createMap();
+        nativeUploadPartMap.putDouble("byteLength", (double) nativeUploadPart.byteLength);
+        nativeUploadPartMap.putDouble("offset", (double) nativeUploadPart.offset);
+        payload.putMap("nativeUploadPart", nativeUploadPartMap);
+      } else {
+        RequestBodyPayload requestBody = readRequestBodyPayload(session);
+        if (requestBody != null) {
+          if (requestBody.filePath != null) {
+            WritableMap bodyFile = Arguments.createMap();
+            bodyFile.putDouble("byteLength", (double) requestBody.byteLength);
+            bodyFile.putString("path", requestBody.filePath);
+            payload.putMap("bodyFile", bodyFile);
+            bodyFilePathToCleanup = requestBody.filePath;
+          } else if (requestBody.bytes != null && requestBody.bytes.length > 0) {
+            String contentType = session.getHeaders().get("content-type");
+            if (isUtf8TextRequest(contentType)) {
+              payload.putString(
+                  "bodyText",
+                  new String(requestBody.bytes, StandardCharsets.UTF_8));
+            } else {
+              payload.putArray("bodyBytes", byteArrayToWritableArray(requestBody.bytes));
+            }
           }
         }
       }
@@ -489,6 +545,94 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
     reactContext
         .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
         .emit(eventName, payload);
+  }
+
+  private NativeUploadPartPayload readNativeUploadPartPayload(NanoHTTPD.IHTTPSession session)
+      throws Exception {
+    if (session.getMethod() != NanoHTTPD.Method.POST
+        || !"/api/upload/part".equals(session.getUri())) {
+      return null;
+    }
+
+    String uploadId = session.getParms().get("uploadId");
+    if (uploadId == null || uploadId.trim().isEmpty()) {
+      return null;
+    }
+
+    NativeUploadSession uploadSession = nativeUploadSessions.get(uploadId);
+    if (uploadSession == null) {
+      return null;
+    }
+
+    Long offset = parseNonNegativeLong(session.getParms().get("offset"));
+    Long contentLength = parseContentLength(session.getHeaders().get("content-length"));
+    if (offset == null || contentLength == null) {
+      return null;
+    }
+
+    if (contentLength <= 0L) {
+      return new NativeUploadPartPayload(0L, offset);
+    }
+
+    if (offset > uploadSession.totalBytes || contentLength > uploadSession.totalBytes - offset) {
+      throw new IOException("Upload chunk exceeds the declared file size.");
+    }
+
+    writeFixedLengthBodyToUploadSession(
+        session.getInputStream(),
+        uploadSession,
+        offset,
+        contentLength);
+    return new NativeUploadPartPayload(contentLength, offset);
+  }
+
+  private Long parseNonNegativeLong(String value) {
+    if (value == null || value.trim().isEmpty()) {
+      return null;
+    }
+
+    try {
+      long parsed = Long.parseLong(value.trim());
+      return parsed >= 0L ? parsed : null;
+    } catch (NumberFormatException ignored) {
+      return null;
+    }
+  }
+
+  private void writeFixedLengthBodyToUploadSession(
+      InputStream inputStream,
+      NativeUploadSession uploadSession,
+      long offset,
+      long contentLength)
+      throws IOException {
+    File destination = new File(uploadSession.tempPath);
+    File destinationDir = destination.getParentFile();
+    if (destinationDir != null && !destinationDir.exists() && !destinationDir.mkdirs()) {
+      throw new IOException("Unable to create upload directory: " + destinationDir);
+    }
+
+    byte[] buffer = new byte[256 * 1024];
+    long remaining = contentLength;
+
+    try (RandomAccessFile outputFile = new RandomAccessFile(destination, "rw")) {
+      outputFile.seek(offset);
+      while (remaining > 0L) {
+        int bytesRead =
+            inputStream.read(buffer, 0, (int) Math.min((long) buffer.length, remaining));
+        if (bytesRead == -1) {
+          break;
+        }
+
+        outputFile.write(buffer, 0, bytesRead);
+        remaining -= bytesRead;
+      }
+    }
+
+    if (remaining > 0L) {
+      throw new IOException(
+          "Request body ended early. Expected " + contentLength + " bytes but received "
+              + (contentLength - remaining) + ".");
+    }
   }
 
   private RequestBodyPayload readRequestBodyPayload(NanoHTTPD.IHTTPSession session) throws Exception {
@@ -790,6 +934,26 @@ public class FPStaticServerModule extends ReactContextBaseJavaModule
         return String.valueOf(statusCode);
       }
     };
+  }
+
+  private static class NativeUploadSession {
+    private final String tempPath;
+    private final long totalBytes;
+
+    NativeUploadSession(String tempPath, long totalBytes) {
+      this.tempPath = tempPath != null ? tempPath : "";
+      this.totalBytes = totalBytes;
+    }
+  }
+
+  private static class NativeUploadPartPayload {
+    private final long byteLength;
+    private final long offset;
+
+    NativeUploadPartPayload(long byteLength, long offset) {
+      this.byteLength = byteLength;
+      this.offset = offset;
+    }
   }
 
   private static class PendingResponse {

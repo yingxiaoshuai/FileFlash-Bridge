@@ -20,7 +20,10 @@ describe('ReactNativeHttpRuntime', () => {
           },
         },
         NativeEventEmitter: jest.fn().mockImplementation(() => ({
-          addListener: (eventName: string, listener: (payload: unknown) => void) => {
+          addListener: (
+            eventName: string,
+            listener: (payload: unknown) => void,
+          ) => {
             listeners.set(eventName, listener);
             return {
               remove: () => listeners.delete(eventName),
@@ -41,14 +44,18 @@ describe('ReactNativeHttpRuntime', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {createReactNativeHttpRuntime} = require('../src/modules/service/reactNativeHttpRuntime');
+    const {
+      createReactNativeHttpRuntime,
+    } = require('../src/modules/service/reactNativeHttpRuntime');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {DeviceEventEmitter: mockedDeviceEventEmitter} = require('react-native');
+    const {
+      DeviceEventEmitter: mockedDeviceEventEmitter,
+    } = require('react-native');
 
     const runtime = createReactNativeHttpRuntime();
     const handler = jest.fn().mockResolvedValue({
-      body: {ok: true},
-      headers: {'content-type': 'application/json; charset=utf-8'},
+      body: { ok: true },
+      headers: { 'content-type': 'application/json; charset=utf-8' },
       status: 200,
     });
 
@@ -88,9 +95,9 @@ describe('ReactNativeHttpRuntime', () => {
     expect(respond).toHaveBeenCalledWith(
       'request-1',
       200,
-      {'content-type': 'application/json; charset=utf-8'},
+      { 'content-type': 'application/json; charset=utf-8' },
       'text',
-      JSON.stringify({ok: true}),
+      JSON.stringify({ ok: true }),
     );
   });
 
@@ -110,7 +117,10 @@ describe('ReactNativeHttpRuntime', () => {
           },
         },
         NativeEventEmitter: jest.fn().mockImplementation(() => ({
-          addListener: (eventName: string, listener: (payload: unknown) => void) => {
+          addListener: (
+            eventName: string,
+            listener: (payload: unknown) => void,
+          ) => {
             listeners.set(eventName, listener);
             return {
               remove: () => listeners.delete(eventName),
@@ -131,14 +141,18 @@ describe('ReactNativeHttpRuntime', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {createReactNativeHttpRuntime} = require('../src/modules/service/reactNativeHttpRuntime');
+    const {
+      createReactNativeHttpRuntime,
+    } = require('../src/modules/service/reactNativeHttpRuntime');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {DeviceEventEmitter: mockedDeviceEventEmitter} = require('react-native');
+    const {
+      DeviceEventEmitter: mockedDeviceEventEmitter,
+    } = require('react-native');
 
     const runtime = createReactNativeHttpRuntime();
     const handler = jest.fn().mockResolvedValue({
-      body: {ok: true},
-      headers: {'content-type': 'application/json; charset=utf-8'},
+      body: { ok: true },
+      headers: { 'content-type': 'application/json; charset=utf-8' },
       status: 200,
     });
 
@@ -189,7 +203,10 @@ describe('ReactNativeHttpRuntime', () => {
           },
         },
         NativeEventEmitter: jest.fn().mockImplementation(() => ({
-          addListener: (eventName: string, listener: (payload: unknown) => void) => {
+          addListener: (
+            eventName: string,
+            listener: (payload: unknown) => void,
+          ) => {
             listeners.set(eventName, listener);
             return {
               remove: () => listeners.delete(eventName),
@@ -210,14 +227,18 @@ describe('ReactNativeHttpRuntime', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {createReactNativeHttpRuntime} = require('../src/modules/service/reactNativeHttpRuntime');
+    const {
+      createReactNativeHttpRuntime,
+    } = require('../src/modules/service/reactNativeHttpRuntime');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {DeviceEventEmitter: mockedDeviceEventEmitter} = require('react-native');
+    const {
+      DeviceEventEmitter: mockedDeviceEventEmitter,
+    } = require('react-native');
 
     const runtime = createReactNativeHttpRuntime();
     const handler = jest.fn().mockResolvedValue({
-      body: {ok: true},
-      headers: {'content-type': 'application/json; charset=utf-8'},
+      body: { ok: true },
+      headers: { 'content-type': 'application/json; charset=utf-8' },
       status: 200,
     });
 
@@ -255,6 +276,96 @@ describe('ReactNativeHttpRuntime', () => {
     });
   });
 
+  test('forwards Android native-written upload part metadata without copying through JS', async () => {
+    const start = jest.fn().mockResolvedValue('http://127.0.0.1:8668');
+    const stop = jest.fn();
+    const isRunning = jest.fn().mockResolvedValue(true);
+    const respond = jest.fn();
+
+    jest.doMock('react-native', () => {
+      const listeners = new Map<string, (payload: unknown) => void>();
+
+      return {
+        DeviceEventEmitter: {
+          emit: (eventName: string, payload: unknown) => {
+            listeners.get(eventName)?.(payload);
+          },
+        },
+        NativeEventEmitter: jest.fn().mockImplementation(() => ({
+          addListener: (
+            eventName: string,
+            listener: (payload: unknown) => void,
+          ) => {
+            listeners.set(eventName, listener);
+            return {
+              remove: () => listeners.delete(eventName),
+            };
+          },
+        })),
+        NativeModules: {
+          FPStaticServer: {
+            addListener: jest.fn(),
+            isRunning,
+            removeListeners: jest.fn(),
+            respond,
+            start,
+            stop,
+          },
+        },
+      };
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const {
+      createReactNativeHttpRuntime,
+    } = require('../src/modules/service/reactNativeHttpRuntime');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const {
+      DeviceEventEmitter: mockedDeviceEventEmitter,
+    } = require('react-native');
+
+    const runtime = createReactNativeHttpRuntime();
+    const handler = jest.fn().mockResolvedValue({
+      body: { ok: true },
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+      status: 200,
+    });
+
+    await runtime.start({
+      handler,
+      port: 8668,
+    });
+
+    mockedDeviceEventEmitter.emit('fpStaticServerRequest', {
+      headers: {
+        'content-length': String(2 * 1024 * 1024),
+        'content-type': 'application/octet-stream',
+      },
+      method: 'POST',
+      nativeUploadPart: {
+        byteLength: 2 * 1024 * 1024,
+        offset: 4 * 1024 * 1024,
+      },
+      path: '/api/upload/part',
+      query: {
+        offset: String(4 * 1024 * 1024),
+        uploadId: 'upload-large',
+      },
+      requestId: 'request-native-upload',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler.mock.calls[0][0].body).toBeUndefined();
+    expect(handler.mock.calls[0][0].bodyFile).toBeUndefined();
+    expect(handler.mock.calls[0][0].nativeUploadPart).toEqual({
+      byteLength: 2 * 1024 * 1024,
+      offset: 4 * 1024 * 1024,
+    });
+  });
+
   test('responds with Harmony file response metadata without sending bytes through JS', async () => {
     const start = jest.fn().mockResolvedValue('http://127.0.0.1:8668');
     const stop = jest.fn();
@@ -272,7 +383,10 @@ describe('ReactNativeHttpRuntime', () => {
           },
         },
         NativeEventEmitter: jest.fn().mockImplementation(() => ({
-          addListener: (eventName: string, listener: (payload: unknown) => void) => {
+          addListener: (
+            eventName: string,
+            listener: (payload: unknown) => void,
+          ) => {
             listeners.set(eventName, listener);
             return {
               remove: () => listeners.delete(eventName),
@@ -294,9 +408,13 @@ describe('ReactNativeHttpRuntime', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {createReactNativeHttpRuntime} = require('../src/modules/service/reactNativeHttpRuntime');
+    const {
+      createReactNativeHttpRuntime,
+    } = require('../src/modules/service/reactNativeHttpRuntime');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {DeviceEventEmitter: mockedDeviceEventEmitter} = require('react-native');
+    const {
+      DeviceEventEmitter: mockedDeviceEventEmitter,
+    } = require('react-native');
 
     const runtime = createReactNativeHttpRuntime();
     const handler = jest.fn().mockResolvedValue({
@@ -364,7 +482,10 @@ describe('ReactNativeHttpRuntime', () => {
           },
         },
         NativeEventEmitter: jest.fn().mockImplementation(() => ({
-          addListener: (eventName: string, listener: (payload: unknown) => void) => {
+          addListener: (
+            eventName: string,
+            listener: (payload: unknown) => void,
+          ) => {
             listeners.set(eventName, listener);
             return {
               remove: () => listeners.delete(eventName),
@@ -386,14 +507,18 @@ describe('ReactNativeHttpRuntime', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {createReactNativeHttpRuntime} = require('../src/modules/service/reactNativeHttpRuntime');
+    const {
+      createReactNativeHttpRuntime,
+    } = require('../src/modules/service/reactNativeHttpRuntime');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const {DeviceEventEmitter: mockedDeviceEventEmitter} = require('react-native');
+    const {
+      DeviceEventEmitter: mockedDeviceEventEmitter,
+    } = require('react-native');
 
     const runtime = createReactNativeHttpRuntime();
     const handler = jest.fn().mockResolvedValue({
       body: new Uint8Array([0, 127, 255]),
-      headers: {'content-type': 'application/octet-stream'},
+      headers: { 'content-type': 'application/octet-stream' },
       status: 200,
     });
 
@@ -416,7 +541,7 @@ describe('ReactNativeHttpRuntime', () => {
     expect(respondBytes).toHaveBeenCalledWith(
       'request-byte-response',
       200,
-      {'content-type': 'application/octet-stream'},
+      { 'content-type': 'application/octet-stream' },
       [0, 127, 255],
     );
     expect(respond).not.toHaveBeenCalled();

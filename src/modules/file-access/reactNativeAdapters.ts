@@ -59,6 +59,12 @@ type NativeFileAccessModule = {
   saveFilesToDocuments?: (
     files: NativeExportFileDescriptor[],
   ) => Promise<string[]>;
+  registerUploadSession?: (
+    uploadId: string,
+    tempPath: string,
+    totalBytes: number,
+  ) => Promise<void>;
+  unregisterUploadSession?: (uploadId: string) => Promise<void>;
   writeFile?: (path: string, content: Uint8Array | number[]) => Promise<void>;
   writeFileFromPathAtOffset?: (
     destinationPath: string,
@@ -75,10 +81,7 @@ type NativeExportFileDescriptor = {
 };
 
 type NativeFileReaderModule = {
-  appendFileFromPath?: (
-    path: string,
-    sourcePath: string,
-  ) => Promise<void>;
+  appendFileFromPath?: (path: string, sourcePath: string) => Promise<void>;
   readChunkBase64?: (
     path: string,
     offset: number,
@@ -146,7 +149,11 @@ function logHarmonyFileAccessDiagnostic(message: string, detail?: unknown) {
   }
 
   const suffix =
-    detail instanceof Error ? ` ${detail.message}` : detail ? ` ${String(detail)}` : '';
+    detail instanceof Error
+      ? ` ${detail.message}`
+      : detail
+      ? ` ${String(detail)}`
+      : '';
   console.info(`[FPFileAccess] ${message}${suffix}`);
 }
 
@@ -159,15 +166,22 @@ function getOptionalNativeModule<T>(name: string) {
     }
   } catch (error) {
     // Harmony throws from NativeModules when the ArkTS package is not present.
-    logHarmonyFileAccessDiagnostic(`${name} NativeModules lookup failed`, error);
+    logHarmonyFileAccessDiagnostic(
+      `${name} NativeModules lookup failed`,
+      error,
+    );
   }
 
   try {
     const turboModule = turboModuleRegistry?.get<T>(name) ?? undefined;
     if (turboModule) {
-      logHarmonyFileAccessDiagnostic(`${name} resolved from TurboModuleRegistry`);
+      logHarmonyFileAccessDiagnostic(
+        `${name} resolved from TurboModuleRegistry`,
+      );
     } else {
-      logHarmonyFileAccessDiagnostic(`${name} not found in TurboModuleRegistry`);
+      logHarmonyFileAccessDiagnostic(
+        `${name} not found in TurboModuleRegistry`,
+      );
     }
     return turboModule;
   } catch (error) {
@@ -418,6 +432,10 @@ function sanitizeFileName(fileName: string) {
 }
 
 export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
+  registerInboundUploadSession?: FileSystemAdapter['registerInboundUploadSession'];
+
+  unregisterInboundUploadSession?: FileSystemAdapter['unregisterInboundUploadSession'];
+
   writeFileFromPathAtOffset?: FileSystemAdapter['writeFileFromPathAtOffset'];
 
   constructor() {
@@ -450,6 +468,26 @@ export class ReactNativeFileSystemAdapter implements FileSystemAdapter {
           offset,
           length,
         );
+      };
+    }
+
+    if (nativeStaticServerFileAccess?.registerUploadSession) {
+      this.registerInboundUploadSession = async (
+        uploadId,
+        tempPath,
+        totalBytes,
+      ) => {
+        await nativeStaticServerFileAccess.registerUploadSession!(
+          uploadId,
+          tempPath,
+          totalBytes,
+        );
+      };
+    }
+
+    if (nativeStaticServerFileAccess?.unregisterUploadSession) {
+      this.unregisterInboundUploadSession = async uploadId => {
+        await nativeStaticServerFileAccess.unregisterUploadSession!(uploadId);
       };
     }
   }
@@ -1272,7 +1310,9 @@ async function saveAndroidFilesToDownloads(
 
   const saveFilesToDirectory = getNativeFileAccess()?.saveFilesToDirectory;
   if (!saveFilesToDirectory) {
-    throw new Error('当前 Android 安装包缺少批量保存模块，请重新打包安装后再试。');
+    throw new Error(
+      '当前 Android 安装包缺少批量保存模块，请重新打包安装后再试。',
+    );
   }
 
   const destinationUris = assertNativeDestinationUris(
